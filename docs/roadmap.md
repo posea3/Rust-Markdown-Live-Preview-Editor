@@ -66,33 +66,36 @@ Exit gate:
 
 ## Phase 3 - Raw native editor / IME lab
 
-Next.
+Status: **in progress — native input/IME foundation implemented; manual acceptance and view hardening remain**
 
-Create a deliberately Markdown-free native editor executable.
+Implemented in the first Phase 3 slice:
 
-Stack:
-
-- winit
-- cosmic-text
-- glyphon/wgpu
-- arboard
-- AccessKit hooks
-
-Implement:
-
-- EditorInput / PlatformRequest boundary
-- caret
-- selection
-- pointer hit testing
-- drag selection
-- scrolling
+- framework-independent `mdedit-input` crate
+- `EditorInput` / `PlatformRequest` boundary
+- ephemeral `CompositionState`
+- preedit display projection without canonical source mutation
+- IME commit as one document transaction
+- winit native IME event bridge in the acceptance lab
+- cosmic-text shaping and hit testing
+- glyphon/wgpu text rendering
+- caret placement and IME candidate rectangle
+- mouse caret placement and drag selection
 - soft wrapping
-- clipboard
-- Windows/macOS IME
-- ephemeral CompositionState
-- IME candidate rectangle
+- clipboard copy/cut/paste
+- undo/redo and grapheme deletion integration
 
-Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable here.
+Remaining Phase 3 hardening:
+
+- manual Korean IME acceptance on Windows and macOS
+- Japanese/Chinese IME manual acceptance
+- visual up/down movement
+- visual BiDi left/right movement in the view layer
+- dedicated caret and selection geometry
+- wheel/trackpad scrolling and viewport state
+- AccessKit semantic tree
+- focus-loss/composition edge-case acceptance
+
+Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable in the native lab.
 
 ## Phase 4 - Markdown syntax engine
 
