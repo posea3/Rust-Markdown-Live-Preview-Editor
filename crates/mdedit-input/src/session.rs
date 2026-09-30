@@ -1,9 +1,8 @@
 use mdedit_core::{
     Affinity, Anchor, Change, ChangeMap, ChangeSet, DeleteDirection, Document, DocumentError,
     EditError, History, HistoryError, Movement, MovementError, SelectionError, SelectionRange,
-    SelectionSet,
-    TextRange, TextRangeError, TextSize, Transaction, TransactionError, TransactionKind,
-    deletion_transaction, move_selection_heads,
+    SelectionSet, TextRange, TextRangeError, TextSize, Transaction, TransactionError,
+    TransactionKind, deletion_transaction, move_selection_heads,
 };
 use thiserror::Error;
 
