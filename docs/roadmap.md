@@ -42,7 +42,7 @@ Deliverables:
 
 ## Phase 2 - Selection and navigation
 
-Status: **implemented on feature/selection-navigation-phase-02; CI validation required**
+Status: **complete**
 
 Implemented:
 
