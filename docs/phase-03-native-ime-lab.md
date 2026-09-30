@@ -141,3 +141,8 @@ cosmic-text is not the source editor model.
 - IME behavior still requires manual Windows/macOS acceptance testing
 
 These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
+
+
+## MSRV adjustment
+
+Phase 3 adds the native glyphon/wgpu dependency graph. The currently resolved graph includes `ordered-float 5.5`, which declares Rust 1.90. The workspace MSRV is therefore raised from Rust 1.89 to Rust 1.90 rather than pinning an older transitive dependency during early development.
