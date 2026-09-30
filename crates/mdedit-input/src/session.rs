@@ -184,9 +184,9 @@ impl EditorSession {
         };
 
         let before = self.selections.clone();
-        if let Some(selection) = self
-            .history
-            .apply_and_record(&mut self.document, transaction, before)?
+        if let Some(selection) =
+            self.history
+                .apply_and_record(&mut self.document, transaction, before)?
         {
             self.selections = selection;
         }
@@ -243,9 +243,9 @@ impl EditorSession {
     ) -> Result<bool, SessionError> {
         let transaction = replacement_transaction(&self.document, &self.selections, text, kind)?;
         let before = self.selections.clone();
-        if let Some(selection) = self
-            .history
-            .apply_and_record(&mut self.document, transaction, before)?
+        if let Some(selection) =
+            self.history
+                .apply_and_record(&mut self.document, transaction, before)?
         {
             self.selections = selection;
         }
