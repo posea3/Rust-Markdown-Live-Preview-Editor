@@ -566,7 +566,11 @@ impl WindowState {
 
         self.caret_xy = self
             .text_buffer
-            .cursor_position(&cursor)
+            .layout_runs()
+            .find_map(|run| {
+                run.cursor_position(&cursor)
+                    .map(|x| (x, run.line_top))
+            })
             .unwrap_or((0.0, 0.0));
 
         self.window.set_ime_cursor_area(
