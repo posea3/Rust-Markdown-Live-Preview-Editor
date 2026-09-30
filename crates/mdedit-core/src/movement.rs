@@ -225,6 +225,38 @@ mod tests {
     }
 
     #[test]
+    fn cjk_grapheme_movement_stays_on_utf8_boundaries() {
+        let text = "한日中";
+        let document = Document::new(text).unwrap();
+        let snapshot = document.snapshot();
+
+        let after_korean = "한".len();
+        let after_japanese = after_korean + "日".len();
+
+        assert_eq!(
+            move_anchor(&snapshot, at(0), Movement::GraphemeForward)
+                .unwrap()
+                .offset
+                .to_usize(),
+            after_korean
+        );
+        assert_eq!(
+            move_anchor(&snapshot, at(after_korean), Movement::GraphemeForward)
+                .unwrap()
+                .offset
+                .to_usize(),
+            after_japanese
+        );
+        assert_eq!(
+            move_anchor(&snapshot, at(text.len()), Movement::GraphemeBackward)
+                .unwrap()
+                .offset
+                .to_usize(),
+            after_japanese
+        );
+    }
+
+    #[test]
     fn word_movement_handles_unicode_words() {
         let text = "hello 한글 world";
         let document = Document::new(text).unwrap();
