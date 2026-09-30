@@ -134,11 +134,8 @@ impl ChangeMap {
             let new_start = old_start + delta;
             let new_end = new_start + inserted;
 
-            let new = TextRange::new(
-                text_size_from_i64(new_start)?,
-                text_size_from_i64(new_end)?,
-            )
-            .map_err(|_| TransactionError::DocumentTooLarge)?;
+            let new = TextRange::new(text_size_from_i64(new_start)?, text_size_from_i64(new_end)?)
+                .map_err(|_| TransactionError::DocumentTooLarge)?;
 
             segments.push(MapSegment {
                 old: change.range,
@@ -263,10 +260,7 @@ mod tests {
 
     #[test]
     fn rejects_overlapping_changes() {
-        let changes = vec![
-            Change::new(range(1, 4), "x"),
-            Change::new(range(3, 5), "y"),
-        ];
+        let changes = vec![Change::new(range(1, 4), "x"), Change::new(range(3, 5), "y")];
         assert!(matches!(
             ChangeSet::new(changes),
             Err(TransactionError::OverlappingChanges { .. })
