@@ -18,10 +18,8 @@ pub use change::{
     TransactionError, TransactionKind,
 };
 pub use document::{Document, DocumentError, DocumentSnapshot, Revision};
-pub use edit::{deletion_transaction, DeleteDirection, EditError};
+pub use edit::{DeleteDirection, EditError, deletion_transaction};
 pub use history::{History, HistoryError};
-pub use movement::{move_anchor, move_selection_heads, Movement, MovementError};
-pub use selection::{
-    Affinity, Anchor, SelectionError, SelectionRange, SelectionSet,
-};
+pub use movement::{Movement, MovementError, move_anchor, move_selection_heads};
+pub use selection::{Affinity, Anchor, SelectionError, SelectionRange, SelectionSet};
 pub use text::{TextRange, TextRangeError, TextSize};
