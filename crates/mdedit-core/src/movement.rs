@@ -2,8 +2,8 @@ use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    Affinity, Anchor, DocumentSnapshot, SelectionError, SelectionRange, SelectionSet, TextRangeError,
-    TextSize,
+    Affinity, Anchor, DocumentSnapshot, SelectionError, SelectionRange, SelectionSet,
+    TextRangeError, TextSize,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,14 +21,12 @@ pub enum Movement {
 impl Movement {
     const fn affinity(self) -> Affinity {
         match self {
-            Self::GraphemeBackward
-            | Self::WordBackward
-            | Self::LineStart
-            | Self::DocumentStart => Affinity::Before,
-            Self::GraphemeForward
-            | Self::WordForward
-            | Self::LineEnd
-            | Self::DocumentEnd => Affinity::After,
+            Self::GraphemeBackward | Self::WordBackward | Self::LineStart | Self::DocumentStart => {
+                Affinity::Before
+            }
+            Self::GraphemeForward | Self::WordForward | Self::LineEnd | Self::DocumentEnd => {
+                Affinity::After
+            }
         }
     }
 }
