@@ -68,9 +68,7 @@ pub fn deletion_transaction(
         .map(|offset| {
             change_map
                 .map_old_to_new(offset, Affinity::Before)
-                .map(|mapped| {
-                    SelectionRange::caret(Anchor::new(mapped.offset, Affinity::Before))
-                })
+                .map(|mapped| SelectionRange::caret(Anchor::new(mapped.offset, Affinity::Before)))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -150,13 +148,9 @@ mod tests {
     fn backspace_deletes_crlf_as_one_grapheme() {
         let mut document = Document::new("a\r\nb").unwrap();
 
-        let tx = deletion_transaction(
-            &document.snapshot(),
-            &caret(3),
-            DeleteDirection::Backward,
-        )
-        .unwrap()
-        .unwrap();
+        let tx = deletion_transaction(&document.snapshot(), &caret(3), DeleteDirection::Backward)
+            .unwrap()
+            .unwrap();
 
         document.apply(tx).unwrap();
         assert_eq!(document.text(), "ab");
@@ -174,13 +168,9 @@ mod tests {
         )
         .unwrap();
 
-        let tx = deletion_transaction(
-            &document.snapshot(),
-            &selection,
-            DeleteDirection::Backward,
-        )
-        .unwrap()
-        .unwrap();
+        let tx = deletion_transaction(&document.snapshot(), &selection, DeleteDirection::Backward)
+            .unwrap()
+            .unwrap();
         let applied = document.apply(tx).unwrap();
 
         assert_eq!(document.text(), "abf");
