@@ -41,6 +41,12 @@ impl ChangeSet {
                     right: pair[1].range,
                 });
             }
+            if pair[0].range.end() == pair[1].range.start() {
+                return Err(TransactionError::AmbiguousChangeBoundary {
+                    left: pair[0].range,
+                    right: pair[1].range,
+                });
+            }
         }
 
         Ok(Self {
@@ -265,6 +271,9 @@ pub enum TransactionError {
     #[error("changes overlap: {left:?} and {right:?}")]
     OverlappingChanges { left: TextRange, right: TextRange },
 
+    #[error("changes share an ambiguous source boundary: {left:?} and {right:?}; merge them into one change")]
+    AmbiguousChangeBoundary { left: TextRange, right: TextRange },
+
     #[error("document exceeds the supported source size")]
     DocumentTooLarge,
 }
@@ -283,6 +292,15 @@ mod tests {
         assert!(matches!(
             ChangeSet::new(changes),
             Err(TransactionError::OverlappingChanges { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_touching_change_boundaries() {
+        let changes = vec![Change::new(range(0, 2), "x"), Change::new(range(2, 2), "y")];
+        assert!(matches!(
+            ChangeSet::new(changes),
+            Err(TransactionError::AmbiguousChangeBoundary { .. })
         ));
     }
 
