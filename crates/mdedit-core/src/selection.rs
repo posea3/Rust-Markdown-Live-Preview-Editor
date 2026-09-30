@@ -31,7 +31,10 @@ pub struct SelectionRange {
 impl SelectionRange {
     #[must_use]
     pub const fn caret(at: Anchor) -> Self {
-        Self { anchor: at, head: at }
+        Self {
+            anchor: at,
+            head: at,
+        }
     }
 
     #[must_use]
