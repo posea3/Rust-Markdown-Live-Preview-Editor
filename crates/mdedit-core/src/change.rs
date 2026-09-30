@@ -79,12 +79,20 @@ pub enum TransactionKind {
     Programmatic,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HistoryGroup {
+    #[default]
+    Isolated,
+    Explicit(u64),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Transaction {
     pub base_revision: Revision,
     pub changes: ChangeSet,
     pub selection: Option<SelectionSet>,
     pub kind: TransactionKind,
+    pub history_group: HistoryGroup,
 }
 
 impl Transaction {
@@ -95,12 +103,19 @@ impl Transaction {
             changes,
             selection: None,
             kind,
+            history_group: HistoryGroup::Isolated,
         }
     }
 
     #[must_use]
     pub fn with_selection(mut self, selection: SelectionSet) -> Self {
         self.selection = Some(selection);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_history_group(mut self, history_group: HistoryGroup) -> Self {
+        self.history_group = history_group;
         self
     }
 }
@@ -123,6 +138,10 @@ struct MapSegment {
 }
 
 impl ChangeMap {
+    pub fn from_change_set(changes: &ChangeSet) -> Result<Self, TransactionError> {
+        Self::from_changes(changes.changes())
+    }
+
     pub(crate) fn from_changes(changes: &[Change]) -> Result<Self, TransactionError> {
         let mut segments = Vec::with_capacity(changes.len());
         let mut delta: i64 = 0;

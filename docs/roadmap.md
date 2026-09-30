@@ -2,7 +2,7 @@
 
 ## Phase 0 - Repository foundation
 
-Status: **implemented on feature/foundation-phase-01**
+Status: **complete**
 
 Deliverables:
 
@@ -21,7 +21,7 @@ Exit gate:
 
 ## Phase 1 - Document core
 
-Status: **initial implementation on feature/foundation-phase-01**
+Status: **complete**
 
 Deliverables:
 
@@ -34,36 +34,39 @@ Deliverables:
 - inverse transaction generation
 - History undo/redo
 - SelectionSet model prepared for multiple selections
-
-Required hardening before Phase 1 is considered complete:
-
-- property tests for arbitrary edit/inverse round-trips
-- property tests for ChangeMap monotonicity
-- randomized non-overlapping multi-change transactions
+- property tests for edit/inverse and ChangeMap
+- non-overlapping multi-change round trips
 - large-document fixture
 - explicit CRLF cases
-- better history grouping metadata for typing/IME/format commands
+- explicit history grouping metadata and grouped undo/redo
 
 ## Phase 2 - Selection and navigation
 
-Implement:
+Status: **implemented on feature/selection-navigation-phase-02; CI validation required**
 
+Implemented:
+
+- normalized multi-selection sets
 - grapheme movement
-- word movement
-- logical vs visual movement boundary
-- line start/end
-- delete backward/forward
-- selection expansion
-- multiple-selection normalization rules
+- Unicode word movement
+- logical source line start/end
+- document start/end
+- selection-head movement and extension primitive
+- grapheme-safe delete backward/forward
+- multi-cursor deletion range merging
+- documented logical vs visual BiDi boundary
 
 Exit gate:
 
 - emoji ZWJ sequences are not split
 - combining sequences are not split
 - Korean/Japanese/Chinese source edits remain boundary-safe
-- BiDi policy is documented before visual movement ships
+- CRLF behaves correctly
+- Windows/macOS/Linux CI passes
 
 ## Phase 3 - Raw native editor / IME lab
+
+Next.
 
 Create a deliberately Markdown-free native editor executable.
 
@@ -77,6 +80,7 @@ Stack:
 
 Implement:
 
+- EditorInput / PlatformRequest boundary
 - caret
 - selection
 - pointer hit testing
@@ -85,6 +89,8 @@ Implement:
 - soft wrapping
 - clipboard
 - Windows/macOS IME
+- ephemeral CompositionState
+- IME candidate rectangle
 
 Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable here.
 

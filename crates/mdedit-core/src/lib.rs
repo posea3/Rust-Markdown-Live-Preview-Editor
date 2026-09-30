@@ -7,15 +7,21 @@
 
 mod change;
 mod document;
+mod edit;
 mod history;
+mod movement;
 mod selection;
 mod text;
 
 pub use change::{
-    AppliedTransaction, Change, ChangeMap, ChangeSet, MappedPosition, Transaction,
+    AppliedTransaction, Change, ChangeMap, ChangeSet, HistoryGroup, MappedPosition, Transaction,
     TransactionError, TransactionKind,
 };
 pub use document::{Document, DocumentError, DocumentSnapshot, Revision};
+pub use edit::{deletion_transaction, DeleteDirection, EditError};
 pub use history::{History, HistoryError};
-pub use selection::{Affinity, Anchor, SelectionRange, SelectionSet};
+pub use movement::{move_anchor, move_selection_heads, Movement, MovementError};
+pub use selection::{
+    Affinity, Anchor, SelectionError, SelectionRange, SelectionSet,
+};
 pub use text::{TextRange, TextRangeError, TextSize};
