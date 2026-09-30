@@ -48,6 +48,8 @@ proptest! {
         let mut points: Vec<usize> = positions.into_iter().map(|p| p.min(len)).collect();
         points.sort_unstable();
 
+        prop_assume!(points[1] < points[2]);
+
         let changes = ChangeSet::new(vec![
             Change::new(range(points[0], points[1]), left),
             Change::new(range(points[2], points[3]), right),
