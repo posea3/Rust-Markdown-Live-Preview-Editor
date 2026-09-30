@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/mdedit-core",
+    "crates/mdedit-input",
+    "examples/ime-lab",
 ]
 
 [workspace.package]
