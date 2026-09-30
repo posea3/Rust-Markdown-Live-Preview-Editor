@@ -322,10 +322,9 @@ impl WindowState {
             && !self.modifiers.control_key()
             && !self.modifiers.super_key()
             && !self.modifiers.alt_key()
+            && let Some(text) = text.filter(|text| !text.chars().all(char::is_control))
         {
-            if let Some(text) = text.filter(|text| !text.chars().all(char::is_control)) {
-                self.insert_text(text);
-            }
+            self.insert_text(text);
         }
     }
 
@@ -405,11 +404,11 @@ impl WindowState {
             return;
         };
 
-        if let Some(clipboard) = self.clipboard.as_mut() {
-            if let Err(error) = clipboard.set_text(text) {
-                eprintln!("clipboard copy error: {error}");
-                return;
-            }
+        if let Some(clipboard) = self.clipboard.as_mut()
+            && let Err(error) = clipboard.set_text(text)
+        {
+            eprintln!("clipboard copy error: {error}");
+            return;
         }
 
         if cut {
@@ -567,10 +566,7 @@ impl WindowState {
         self.caret_xy = self
             .text_buffer
             .layout_runs()
-            .find_map(|run| {
-                run.cursor_position(&cursor)
-                    .map(|x| (x, run.line_top))
-            })
+            .find_map(|run| run.cursor_position(&cursor).map(|x| (x, run.line_top)))
             .unwrap_or((0.0, 0.0));
 
         self.window.set_ime_cursor_area(
@@ -726,7 +722,6 @@ fn display_offset_to_cursor(text: &str, offset: usize) -> CosmicCursor {
 
 fn cursor_to_display_offset(text: &str, cursor: CosmicCursor) -> Option<usize> {
     let mut line = 0usize;
-    let mut line_start = 0usize;
 
     if cursor.line == 0 {
         return Some(cursor.index.min(text.len()));
@@ -735,8 +730,8 @@ fn cursor_to_display_offset(text: &str, cursor: CosmicCursor) -> Option<usize> {
     for (index, byte) in text.as_bytes().iter().enumerate() {
         if *byte == b'\n' {
             line += 1;
-            line_start = index + 1;
             if line == cursor.line {
+                let line_start = index + 1;
                 let offset = line_start.checked_add(cursor.index)?;
                 return Some(offset.min(text.len()));
             }
