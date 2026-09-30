@@ -64,19 +64,14 @@ impl CompositionState {
     pub fn display_text(&self, source: &str) -> Result<String, CompositionError> {
         let start = self.replace_range.start().to_usize();
         let end = self.replace_range.end().to_usize();
-        if end > source.len()
-            || !source.is_char_boundary(start)
-            || !source.is_char_boundary(end)
-        {
+        if end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
             return Err(CompositionError::InvalidSourceRange {
                 range: self.replace_range,
                 source_len: source.len(),
             });
         }
 
-        let mut display = String::with_capacity(
-            source.len() - (end - start) + self.preedit.len(),
-        );
+        let mut display = String::with_capacity(source.len() - (end - start) + self.preedit.len());
         display.push_str(&source[..start]);
         display.push_str(&self.preedit);
         display.push_str(&source[end..]);
