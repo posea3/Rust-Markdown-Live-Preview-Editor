@@ -187,7 +187,7 @@ mod tests {
     fn composition_replaces_source_only_in_display_projection() {
         let mut composition = CompositionState::new(range(1, 2));
         composition
-            .update("한".to_owned(), Some(("한".len(), "한".len())))
+            .update("한".to_owned(), Some("한".len().."한".len()))
             .unwrap();
 
         assert_eq!(composition.display_text("abc").unwrap(), "a한c");
