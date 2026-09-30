@@ -194,6 +194,11 @@ impl SelectionSet {
     pub fn len(&self) -> usize {
         self.ranges.len()
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.ranges.is_empty()
+    }
 }
 
 impl Default for SelectionSet {
