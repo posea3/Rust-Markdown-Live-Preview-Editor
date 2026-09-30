@@ -271,7 +271,9 @@ pub enum TransactionError {
     #[error("changes overlap: {left:?} and {right:?}")]
     OverlappingChanges { left: TextRange, right: TextRange },
 
-    #[error("changes share an ambiguous source boundary: {left:?} and {right:?}; merge them into one change")]
+    #[error(
+        "changes share an ambiguous source boundary: {left:?} and {right:?}; merge them into one change"
+    )]
     AmbiguousChangeBoundary { left: TextRange, right: TextRange },
 
     #[error("document exceeds the supported source size")]
