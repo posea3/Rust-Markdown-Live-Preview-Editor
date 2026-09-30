@@ -71,9 +71,7 @@ impl EditorSession {
                 self.ime_enabled = true;
                 Ok(true)
             }
-            EditorInput::ImePreedit { text, selection } => {
-                self.ime_preedit(text, selection)
-            }
+            EditorInput::ImePreedit { text, selection } => self.ime_preedit(text, selection),
             EditorInput::ImeCommit(text) => self.ime_commit(&text),
             EditorInput::ImeDisabled => {
                 self.ime_enabled = false;
@@ -117,9 +115,9 @@ impl EditorSession {
             TransactionKind::Typing,
         )?;
         let before = self.selections.clone();
-        if let Some(selection) = self
-            .history
-            .apply_and_record(&mut self.document, transaction, before)?
+        if let Some(selection) =
+            self.history
+                .apply_and_record(&mut self.document, transaction, before)?
         {
             self.selections = selection;
         }
@@ -157,8 +155,7 @@ impl EditorSession {
                     .checked_add(insert_len.get())
                     .ok_or(SessionError::PositionOverflow)?,
             );
-            let selection_after =
-                SelectionSet::caret(Anchor::new(caret, Affinity::After));
+            let selection_after = SelectionSet::caret(Anchor::new(caret, Affinity::After));
             let transaction = Transaction::new(
                 self.document.revision(),
                 ChangeSet::single(Change::new(range, text)),
@@ -166,9 +163,9 @@ impl EditorSession {
             )
             .with_selection(selection_after);
             let before = self.selections.clone();
-            if let Some(selection) = self
-                .history
-                .apply_and_record(&mut self.document, transaction, before)?
+            if let Some(selection) =
+                self.history
+                    .apply_and_record(&mut self.document, transaction, before)?
             {
                 self.selections = selection;
             }
@@ -244,8 +241,7 @@ impl EditorSession {
         text: &str,
         kind: TransactionKind,
     ) -> Result<bool, SessionError> {
-        let transaction =
-            replacement_transaction(&self.document, &self.selections, text, kind)?;
+        let transaction = replacement_transaction(&self.document, &self.selections, text, kind)?;
         let before = self.selections.clone();
         if let Some(selection) = self
             .history
@@ -294,11 +290,9 @@ fn replacement_transaction(
         })
         .collect::<Result<Vec<_>, SessionError>>()?;
 
-    let selection_after =
-        SelectionSet::new(mapped_ranges, selections.primary_index())?;
+    let selection_after = SelectionSet::new(mapped_ranges, selections.primary_index())?;
 
-    Ok(Transaction::new(document.revision(), changes, kind)
-        .with_selection(selection_after))
+    Ok(Transaction::new(document.revision(), changes, kind).with_selection(selection_after))
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -359,9 +353,7 @@ mod tests {
         .unwrap();
         session.set_selection(selection);
 
-        session
-            .ime_preedit("ㅎ".to_owned(), Some(3..3))
-            .unwrap();
+        session.ime_preedit("ㅎ".to_owned(), Some(3..3)).unwrap();
         session.ime_preedit(String::new(), None).unwrap();
         session.ime_commit("한").unwrap();
 
