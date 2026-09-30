@@ -12,8 +12,8 @@ mod selection;
 mod text;
 
 pub use change::{
-    AppliedTransaction, Change, ChangeMap, ChangeSet, MappedPosition, Transaction, TransactionError,
-    TransactionKind,
+    AppliedTransaction, Change, ChangeMap, ChangeSet, MappedPosition, Transaction,
+    TransactionError, TransactionKind,
 };
 pub use document::{Document, DocumentError, DocumentSnapshot, Revision};
 pub use history::{History, HistoryError};
