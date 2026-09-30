@@ -46,10 +46,7 @@ impl History {
         Ok(applied.selection_after)
     }
 
-    pub fn undo(
-        &mut self,
-        document: &mut Document,
-    ) -> Result<Option<SelectionSet>, HistoryError> {
+    pub fn undo(&mut self, document: &mut Document) -> Result<Option<SelectionSet>, HistoryError> {
         let mut entry = self.undo.pop().ok_or(HistoryError::NothingToUndo)?;
         entry.undo.base_revision = document.revision();
 
@@ -60,10 +57,7 @@ impl History {
         Ok(selection)
     }
 
-    pub fn redo(
-        &mut self,
-        document: &mut Document,
-    ) -> Result<Option<SelectionSet>, HistoryError> {
+    pub fn redo(&mut self, document: &mut Document) -> Result<Option<SelectionSet>, HistoryError> {
         let mut entry = self.redo.pop().ok_or(HistoryError::NothingToRedo)?;
         entry.redo.base_revision = document.revision();
 
@@ -95,9 +89,7 @@ pub enum HistoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Affinity, Anchor, Change, ChangeSet, TextRange, TextSize, TransactionKind,
-    };
+    use crate::{Affinity, Anchor, Change, ChangeSet, TextRange, TextSize, TransactionKind};
 
     #[test]
     fn undo_and_redo_round_trip() {
