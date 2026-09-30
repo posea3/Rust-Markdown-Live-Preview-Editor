@@ -49,10 +49,7 @@ impl History {
         };
 
         let can_group = matches!(group, HistoryGroup::Explicit(_))
-            && self
-                .undo
-                .last()
-                .is_some_and(|entry| entry.group == group);
+            && self.undo.last().is_some_and(|entry| entry.group == group);
 
         if can_group {
             let entry = self.undo.last_mut().expect("checked above");
@@ -71,10 +68,7 @@ impl History {
         Ok(selection_after)
     }
 
-    pub fn undo(
-        &mut self,
-        document: &mut Document,
-    ) -> Result<Option<SelectionSet>, HistoryError> {
+    pub fn undo(&mut self, document: &mut Document) -> Result<Option<SelectionSet>, HistoryError> {
         let mut entry = self.undo.pop().ok_or(HistoryError::NothingToUndo)?;
 
         for step in entry.steps.iter_mut().rev() {
@@ -88,10 +82,7 @@ impl History {
         Ok(selection)
     }
 
-    pub fn redo(
-        &mut self,
-        document: &mut Document,
-    ) -> Result<Option<SelectionSet>, HistoryError> {
+    pub fn redo(&mut self, document: &mut Document) -> Result<Option<SelectionSet>, HistoryError> {
         let mut entry = self.redo.pop().ok_or(HistoryError::NothingToRedo)?;
 
         for step in &mut entry.steps {
@@ -126,9 +117,7 @@ pub enum HistoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Affinity, Anchor, Change, ChangeSet, TextRange, TextSize, TransactionKind,
-    };
+    use crate::{Affinity, Anchor, Change, ChangeSet, TextRange, TextSize, TransactionKind};
 
     fn insert_transaction(document: &Document, offset: u32, text: &str) -> Transaction {
         Transaction::new(
