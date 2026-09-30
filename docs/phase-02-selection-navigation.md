@@ -75,6 +75,12 @@ This separation prevents RTL/BiDi behavior from being incorrectly approximated i
 
 This invariant ensures downstream multi-cursor edits can construct non-overlapping `ChangeSet` values.
 
+## Change boundary invariant
+
+A `ChangeSet` rejects both overlapping changes and distinct changes that share the same source boundary. A touching replacement/insertion pair can make anchor affinity and inverse mapping ambiguous. Callers must coalesce such operations into one change before transaction construction.
+
+Deletion helpers already merge overlapping **and touching** delete ranges, so multi-cursor backspace/delete obeys this invariant automatically.
+
 ## Deletion model
 
 `deletion_transaction` never mutates the document directly.
