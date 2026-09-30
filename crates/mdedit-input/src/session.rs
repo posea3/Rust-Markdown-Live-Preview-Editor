@@ -1,6 +1,7 @@
 use mdedit_core::{
     Affinity, Anchor, Change, ChangeMap, ChangeSet, DeleteDirection, Document, DocumentError,
-    History, HistoryError, Movement, MovementError, SelectionError, SelectionRange, SelectionSet,
+    EditError, History, HistoryError, Movement, MovementError, SelectionError, SelectionRange,
+    SelectionSet,
     TextRange, TextRangeError, TextSize, Transaction, TransactionError, TransactionKind,
     deletion_transaction, move_selection_heads,
 };
@@ -308,6 +309,9 @@ pub enum SessionError {
 
     #[error(transparent)]
     Movement(#[from] MovementError),
+
+    #[error(transparent)]
+    Edit(#[from] EditError),
 
     #[error(transparent)]
     Selection(#[from] SelectionError),
