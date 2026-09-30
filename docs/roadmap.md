@@ -7,7 +7,7 @@ Status: **complete**
 Deliverables:
 
 - Cargo workspace
-- Rust 1.89 baseline
+- Rust 1.90 baseline
 - CI for Windows/macOS/Linux
 - project-owned TextSize/TextRange/Revision types
 - unsafe forbidden in core
