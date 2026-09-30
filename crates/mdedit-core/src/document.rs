@@ -83,8 +83,8 @@ impl Document {
             });
         }
 
-        let document_len =
-            TextSize::try_from_usize(self.rope.byte_len()).map_err(|_| TransactionError::DocumentTooLarge)?;
+        let document_len = TextSize::try_from_usize(self.rope.byte_len())
+            .map_err(|_| TransactionError::DocumentTooLarge)?;
 
         for change in transaction.changes.changes() {
             if change.range.end() > document_len {
@@ -122,15 +122,16 @@ impl Document {
                     .checked_add(inserted_len.get())
                     .ok_or(TransactionError::DocumentTooLarge)?,
             );
-            let inverse_range =
-                TextRange::new(new_start, new_end).map_err(|_| TransactionError::DocumentTooLarge)?;
+            let inverse_range = TextRange::new(new_start, new_end)
+                .map_err(|_| TransactionError::DocumentTooLarge)?;
             inverse_changes.push(Change::new(inverse_range, removed));
         }
 
         for change in transaction.changes.changes().iter().rev() {
             self.rope.delete(change.range.as_usize_range());
             if !change.insert.is_empty() {
-                self.rope.insert(change.range.start().to_usize(), &change.insert);
+                self.rope
+                    .insert(change.range.start().to_usize(), &change.insert);
             }
         }
 
