@@ -236,14 +236,8 @@ impl WindowState {
             window,
         };
 
-        let end = state
-            .session
-            .document()
-            .len()
-            .expect("document length");
-        state
-            .session
-            .set_caret(Anchor::new(end, Affinity::After));
+        let end = state.session.document().len().expect("document length");
+        state.session.set_caret(Anchor::new(end, Affinity::After));
         state.refresh_layout();
         state
     }
@@ -362,11 +356,7 @@ impl WindowState {
         }
 
         if character.eq_ignore_ascii_case("a") {
-            let end = self
-                .session
-                .document()
-                .len()
-                .expect("document length");
+            let end = self.session.document().len().expect("document length");
             let selection = SelectionSet::new(
                 vec![SelectionRange {
                     anchor: Anchor::new(TextSize::ZERO, Affinity::Before),
@@ -491,14 +481,14 @@ impl WindowState {
         let display_offset = cursor_to_display_offset(&self.display_text, cursor)?;
         let display_size = TextSize::try_from_usize(display_offset).ok()?;
 
-        let source_offset = self
-            .session
-            .composition()
-            .map_or(Some(display_size), |composition| {
-                composition
-                    .display_to_source(display_size, Affinity::After)
-                    .ok()
-            })?;
+        let source_offset =
+            self.session
+                .composition()
+                .map_or(Some(display_size), |composition| {
+                    composition
+                        .display_to_source(display_size, Affinity::After)
+                        .ok()
+                })?;
 
         Some(Anchor::new(source_offset, Affinity::After))
     }
@@ -587,16 +577,13 @@ impl WindowState {
             PhysicalSize::new(2_u32, LINE_HEIGHT.ceil() as u32),
         );
 
-        let composition_label = self
-            .session
-            .composition()
-            .map_or("none", |composition| {
-                if composition.preedit().is_empty() {
-                    "empty-preedit"
-                } else {
-                    "preedit"
-                }
-            });
+        let composition_label = self.session.composition().map_or("none", |composition| {
+            if composition.preedit().is_empty() {
+                "empty-preedit"
+            } else {
+                "preedit"
+            }
+        });
         self.window.set_title(&format!(
             "mdedit IME Lab | source={} bytes | composition={composition_label}",
             self.session.document().text().len()
@@ -659,8 +646,7 @@ impl WindowState {
                 self.window.request_redraw();
                 return Ok(());
             }
-            wgpu::CurrentSurfaceTexture::Outdated
-            | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
                 self.surface.configure(&self.device, &self.surface_config);
                 self.window.request_redraw();
                 return Ok(());
@@ -676,9 +662,7 @@ impl WindowState {
             }
         };
 
-        let view = frame
-            .texture
-            .create_view(&TextureViewDescriptor::default());
+        let view = frame.texture.create_view(&TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor { label: None });
