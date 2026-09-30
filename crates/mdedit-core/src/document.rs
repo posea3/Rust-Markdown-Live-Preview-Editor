@@ -169,14 +169,7 @@ impl Document {
     }
 
     fn is_char_boundary(&self, byte: usize) -> bool {
-        if byte == 0 || byte == self.rope.byte_len() {
-            return true;
-        }
-
-        let start = byte.saturating_sub(3);
-        let end = (byte + 1).min(self.rope.byte_len());
-        let window = self.rope.byte_slice(start..end).to_string();
-        window.is_char_boundary(byte - start)
+        self.rope.is_char_boundary(byte)
     }
 }
 
