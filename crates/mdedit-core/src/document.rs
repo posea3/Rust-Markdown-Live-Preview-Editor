@@ -104,6 +104,7 @@ impl Document {
 
         let change_map = ChangeMap::from_changes(transaction.changes.changes())?;
         let old_revision = self.revision;
+        let history_group = transaction.history_group;
 
         let mut inverse_changes = Vec::with_capacity(transaction.changes.changes().len());
         for change in transaction.changes.changes() {
@@ -142,6 +143,7 @@ impl Document {
             changes: ChangeSet::new(inverse_changes)?,
             selection: None,
             kind: TransactionKind::Programmatic,
+            history_group,
         };
 
         Ok(AppliedTransaction {
@@ -268,5 +270,36 @@ mod tests {
             doc.apply(tx),
             Err(TransactionError::InvalidUtf8Boundary { .. })
         ));
+    }
+
+    #[test]
+    fn preserves_crlf_exactly_through_edit_and_inverse() {
+        let original = "a\r\nb\r\n";
+        let mut doc = Document::new(original).unwrap();
+        let tx = Transaction::new(
+            doc.revision(),
+            ChangeSet::single(Change::new(range(3, 4), "B")),
+            TransactionKind::Typing,
+        );
+
+        let applied = doc.apply(tx).unwrap();
+        assert_eq!(doc.text(), "a\r\nB\r\n");
+        doc.apply(applied.inverse).unwrap();
+        assert_eq!(doc.text(), original);
+    }
+
+    #[test]
+    fn one_megabyte_document_round_trips_small_edit() {
+        let original = "a".repeat(1024 * 1024);
+        let mut doc = Document::new(&original).unwrap();
+        let tx = Transaction::new(
+            doc.revision(),
+            ChangeSet::single(Change::new(range(500_000, 500_001), "XYZ")),
+            TransactionKind::Typing,
+        );
+
+        let applied = doc.apply(tx).unwrap();
+        doc.apply(applied.inverse).unwrap();
+        assert_eq!(doc.text(), original);
     }
 }

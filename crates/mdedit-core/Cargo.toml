@@ -1,6 +1,6 @@
 [package]
 name = "mdedit-core"
-description = "Framework-independent document, transaction, mapping, and history core for a native Rust Markdown editor."
+description = "Framework-independent document, transaction, mapping, history, selection, and navigation core for a native Rust Markdown editor."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,7 @@ repository.workspace = true
 crop = { version = "0.4", features = ["graphemes", "utf16-metric"] }
 smallvec = "1.15"
 thiserror = "2"
+unicode-segmentation = "1.13.3"
 
 [dev-dependencies]
 proptest = "1.7"
