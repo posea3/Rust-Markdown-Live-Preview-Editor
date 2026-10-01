@@ -94,6 +94,7 @@ The initial lab supports:
 - text typing
 - Korean/Japanese/Chinese IME events
 - left/right logical grapheme movement
+- visual Up/Down movement across soft-wrapped layout lines with sticky preferred X
 - Home/End source-line movement
 - Shift selection extension
 - Backspace/Delete by grapheme
@@ -104,6 +105,10 @@ The initial lab supports:
 - Ctrl/Cmd+Z
 - Ctrl/Cmd+Shift+Z and Ctrl+Y
 - soft wrapping
+- wheel/trackpad scrolling with persistent cosmic-text viewport state
+- caret auto-scroll after edits/navigation via `shape_until_cursor`
+- rectangular GPU selection background using cosmic-text BiDi highlight spans
+- dedicated GPU caret geometry
 - visual preedit color
 - caret position feeding `Window::set_ime_cursor_area`
 
@@ -130,15 +135,13 @@ glyphon / wgpu
 
 cosmic-text is not the source editor model.
 
-## Known limitations for this first Phase 3 slice
+## Remaining Phase 3 hardening
 
-- visual up/down movement is not implemented yet
 - visual left/right BiDi movement remains in the future view layer
-- selection uses text-color differentiation rather than a rectangular selection background
-- caret is rendered as a text glyph for the lab rather than a dedicated geometry primitive
-- scrolling beyond the initial buffer viewport is not yet wired to mouse wheel
+- drag-selection auto-scroll outside the visible viewport is not yet implemented
 - AccessKit semantic tree is not yet connected
 - IME behavior still requires manual Windows/macOS acceptance testing
+- Japanese/Chinese IME still requires manual acceptance testing
 
 These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
 
