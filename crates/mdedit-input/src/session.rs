@@ -395,4 +395,38 @@ mod tests {
         assert_eq!(session.document().text(), "aXd");
         assert_eq!(session.selections().primary().head.offset, TextSize::new(2));
     }
+
+    #[test]
+    fn focus_loss_discards_preedit_without_mutating_source() {
+        let mut session = EditorSession::new("abc").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(1), Affinity::After));
+        session.ime_preedit("한".to_owned(), Some(3..3)).unwrap();
+
+        session.handle(EditorInput::Focused(false)).unwrap();
+
+        assert_eq!(session.document().text(), "abc");
+        assert!(session.composition().is_none());
+        assert!(!session.focused());
+        assert_eq!(session.display_text().unwrap(), "abc");
+    }
+
+    #[test]
+    fn ime_disabled_discards_preedit_without_mutating_source() {
+        let mut session = EditorSession::new("abc").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(1), Affinity::After));
+        session.handle(EditorInput::ImeEnabled).unwrap();
+        session
+            .handle(EditorInput::ImePreedit {
+                text: "한".to_owned(),
+                selection: Some(3..3),
+            })
+            .unwrap();
+
+        session.handle(EditorInput::ImeDisabled).unwrap();
+
+        assert_eq!(session.document().text(), "abc");
+        assert!(session.composition().is_none());
+        assert!(!session.ime_enabled());
+        assert_eq!(session.display_text().unwrap(), "abc");
+    }
 }
