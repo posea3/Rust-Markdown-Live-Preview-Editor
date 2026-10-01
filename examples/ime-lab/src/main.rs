@@ -469,7 +469,8 @@ impl WindowState {
         let Some(target_cursor) = self.text_buffer.hit(preferred_x, target_y) else {
             return;
         };
-        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor) else {
+        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
+        else {
             return;
         };
         let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
