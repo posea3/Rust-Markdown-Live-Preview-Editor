@@ -5,8 +5,9 @@ use std::{error::Error, ops::Range, sync::Arc};
 use arboard::Clipboard;
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
-    Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
-    Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
+    Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics,
+    Motion as CosmicMotion, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds,
+    TextRenderer, Viewport, Wrap,
 };
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
@@ -287,11 +288,11 @@ impl WindowState {
         } else {
             match key {
                 Key::Named(NamedKey::ArrowLeft) => {
-                    self.move_cursor(Movement::GraphemeBackward, extend);
+                    self.move_cursor_horizontal_visual(-1, extend);
                     true
                 }
                 Key::Named(NamedKey::ArrowRight) => {
-                    self.move_cursor(Movement::GraphemeForward, extend);
+                    self.move_cursor_horizontal_visual(1, extend);
                     true
                 }
                 Key::Named(NamedKey::ArrowUp) => {
@@ -442,13 +443,64 @@ impl WindowState {
         self.after_caret_action();
     }
 
+    fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
+        self.session.cancel_composition();
+        self.ensure_caret_visible = true;
+        self.refresh_layout();
+
+        let primary = self.session.selections().primary();
+        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
+        self.text_buffer
+            .shape_until_cursor(&mut self.font_system, cursor, false);
+
+        let target = visual_horizontal_target(
+            &mut self.text_buffer,
+            &mut self.font_system,
+            cursor,
+            direction,
+        );
+
+        let Some(target_cursor) = target else {
+            return;
+        };
+        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
+        else {
+            return;
+        };
+        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
+            return;
+        };
+
+        let head = Anchor::new(target_offset, cosmic_to_core_affinity(target_cursor.affinity));
+        let selection = if extend {
+            SelectionRange {
+                anchor: primary.anchor,
+                head,
+            }
+        } else {
+            SelectionRange::caret(head)
+        };
+
+        match SelectionSet::new(vec![selection], 0) {
+            Ok(selection) => self.session.set_selection(selection),
+            Err(error) => {
+                eprintln!("horizontal selection error: {error}");
+                return;
+            }
+        }
+
+        self.preferred_x = None;
+        self.ensure_caret_visible = true;
+        self.request_redraw();
+    }
+
     fn move_cursor_vertical(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
         self.ensure_caret_visible = true;
         self.refresh_layout();
 
         let primary = self.session.selections().primary();
-        let cursor = display_offset_to_cursor(&self.display_text, primary.head.offset.to_usize());
+        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
         self.text_buffer
             .shape_until_cursor(&mut self.font_system, cursor, false);
 
@@ -477,11 +529,7 @@ impl WindowState {
             return;
         };
 
-        let affinity = match target_cursor.affinity {
-            glyphon::Affinity::Before => Affinity::Before,
-            glyphon::Affinity::After => Affinity::After,
-        };
-        let head = Anchor::new(target_offset, affinity);
+        let head = Anchor::new(target_offset, cosmic_to_core_affinity(target_cursor.affinity));
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -918,6 +966,69 @@ impl WindowState {
 
     fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+}
+
+fn visual_horizontal_target(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    cursor: CosmicCursor,
+    direction: i32,
+) -> Option<CosmicCursor> {
+    let (current_x, current_top, current_height) = buffer
+        .layout_runs()
+        .find_map(|run| {
+            run.cursor_position(&cursor)
+                .map(|x| (x, run.line_top, run.line_height))
+        })?;
+
+    let y = current_top + current_height * 0.5;
+    let width = buffer.size().0.unwrap_or(4096.0).max(1.0);
+    let max_steps = width.ceil() as usize + 4;
+
+    for step in 1..=max_steps {
+        let x = current_x + direction as f32 * step as f32;
+        if x < -2.0 || x > width + 2.0 {
+            break;
+        }
+
+        if let Some(candidate) = buffer.hit(x, y)
+            && !same_cosmic_cursor(candidate, cursor)
+        {
+            return Some(candidate);
+        }
+    }
+
+    let motion = if direction < 0 {
+        CosmicMotion::Left
+    } else {
+        CosmicMotion::Right
+    };
+    buffer
+        .cursor_motion(font_system, cursor, None, motion)
+        .map(|(cursor, _)| cursor)
+}
+
+fn same_cosmic_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
+    left.line == right.line && left.index == right.index && left.affinity == right.affinity
+}
+
+fn display_anchor_to_cursor(text: &str, anchor: Anchor) -> CosmicCursor {
+    let cursor = display_offset_to_cursor(text, anchor.offset.to_usize());
+    CosmicCursor::new_with_affinity(
+        cursor.line,
+        cursor.index,
+        match anchor.affinity {
+            Affinity::Before => glyphon::Affinity::Before,
+            Affinity::After => glyphon::Affinity::After,
+        },
+    )
+}
+
+fn cosmic_to_core_affinity(affinity: glyphon::Affinity) -> Affinity {
+    match affinity {
+        glyphon::Affinity::Before => Affinity::Before,
+        glyphon::Affinity::After => Affinity::After,
     }
 }
 
