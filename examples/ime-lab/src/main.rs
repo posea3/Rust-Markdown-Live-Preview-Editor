@@ -33,6 +33,7 @@ const TEXT_TOP: f32 = 24.0;
 const FONT_SIZE: f32 = 22.0;
 const LINE_HEIGHT: f32 = 31.0;
 const CARET_WIDTH: f32 = 2.0;
+const DRAG_SCROLL_MARGIN: f32 = 42.0;
 const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
 
@@ -106,8 +107,12 @@ impl ApplicationHandler for Application {
             },
             WindowEvent::MouseWheel { delta, .. } => state.scroll(delta),
             WindowEvent::RedrawRequested => {
+                let continue_drag_scroll = state.continue_drag_auto_scroll();
                 if let Err(error) = state.render() {
                     eprintln!("render error: {error}");
+                }
+                if continue_drag_scroll {
+                    state.request_redraw();
                 }
             }
             _ => {}
@@ -602,6 +607,21 @@ impl WindowState {
     }
 
     fn extend_drag_selection(&mut self) {
+        self.auto_scroll_drag();
+        self.update_drag_selection_from_pointer();
+        self.request_redraw();
+    }
+
+    fn continue_drag_auto_scroll(&mut self) -> bool {
+        if !self.dragging || !self.auto_scroll_drag() {
+            return false;
+        }
+
+        self.update_drag_selection_from_pointer();
+        true
+    }
+
+    fn update_drag_selection_from_pointer(&mut self) {
         let Some(drag_anchor) = self.drag_anchor else {
             return;
         };
@@ -620,17 +640,41 @@ impl WindowState {
         self.session.set_selection(selection);
         self.preferred_x = None;
         self.ensure_caret_visible = false;
-        self.request_redraw();
+    }
+
+    fn auto_scroll_drag(&mut self) -> bool {
+        let pointer_y = self.cursor_position.y as f32;
+        let viewport_top = TEXT_TOP;
+        let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
+
+        let signed_factor = if pointer_y < viewport_top + DRAG_SCROLL_MARGIN {
+            -((viewport_top + DRAG_SCROLL_MARGIN - pointer_y) / DRAG_SCROLL_MARGIN)
+        } else if pointer_y > viewport_bottom - DRAG_SCROLL_MARGIN {
+            (pointer_y - (viewport_bottom - DRAG_SCROLL_MARGIN)) / DRAG_SCROLL_MARGIN
+        } else {
+            return false;
+        };
+
+        let factor = signed_factor.abs().clamp(0.15, 2.5) * signed_factor.signum();
+        let pixels = LINE_HEIGHT * 0.35 * factor;
+        let before = self.text_buffer.scroll();
+        let mut scroll = before;
+        scroll.vertical += pixels;
+        self.text_buffer.set_scroll(scroll);
+        self.text_buffer
+            .shape_until_scroll(&mut self.font_system, false);
+        self.ensure_caret_visible = false;
+
+        self.text_buffer.scroll() != before
     }
 
     fn hit_test_source_anchor(&mut self) -> Option<Anchor> {
         self.refresh_layout();
 
-        let x = self.cursor_position.x as f32 - TEXT_LEFT;
-        let y = self.cursor_position.y as f32 - TEXT_TOP;
-        if x < 0.0 || y < 0.0 {
-            return None;
-        }
+        let width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
+        let height = (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
+        let x = (self.cursor_position.x as f32 - TEXT_LEFT).clamp(0.0, width - 0.001);
+        let y = (self.cursor_position.y as f32 - TEXT_TOP).clamp(0.0, height - 0.001);
 
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
