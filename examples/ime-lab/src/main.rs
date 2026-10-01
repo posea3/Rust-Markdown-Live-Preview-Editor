@@ -3,11 +3,11 @@ mod geometry;
 use std::{error::Error, ops::Range, sync::Arc};
 
 use arboard::Clipboard;
+use cosmic_text::Motion as CosmicMotion;
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
-    Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics,
-    Motion as CosmicMotion, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds,
-    TextRenderer, Viewport, Wrap,
+    Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
+    Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
