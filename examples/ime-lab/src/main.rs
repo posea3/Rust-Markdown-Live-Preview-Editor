@@ -471,7 +471,10 @@ impl WindowState {
             return;
         };
 
-        let head = Anchor::new(target_offset, cosmic_to_core_affinity(target_cursor.affinity));
+        let head = Anchor::new(
+            target_offset,
+            cosmic_to_core_affinity(target_cursor.affinity),
+        );
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -529,7 +532,10 @@ impl WindowState {
             return;
         };
 
-        let head = Anchor::new(target_offset, cosmic_to_core_affinity(target_cursor.affinity));
+        let head = Anchor::new(
+            target_offset,
+            cosmic_to_core_affinity(target_cursor.affinity),
+        );
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -975,12 +981,10 @@ fn visual_horizontal_target(
     cursor: CosmicCursor,
     direction: i32,
 ) -> Option<CosmicCursor> {
-    let (current_x, current_top, current_height) = buffer
-        .layout_runs()
-        .find_map(|run| {
-            run.cursor_position(&cursor)
-                .map(|x| (x, run.line_top, run.line_height))
-        })?;
+    let (current_x, current_top, current_height) = buffer.layout_runs().find_map(|run| {
+        run.cursor_position(&cursor)
+            .map(|x| (x, run.line_top, run.line_height))
+    })?;
 
     let y = current_top + current_height * 0.5;
     let width = buffer.size().0.unwrap_or(4096.0).max(1.0);
