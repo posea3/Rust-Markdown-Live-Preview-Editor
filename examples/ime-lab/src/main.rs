@@ -1,7 +1,9 @@
-use std::error::Error;
-use std::sync::Arc;
+mod geometry;
+
+use std::{error::Error, ops::Range, sync::Arc};
 
 use arboard::Clipboard;
+use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
@@ -19,7 +21,7 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, MouseButton, WindowEvent},
+    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
@@ -29,6 +31,9 @@ const TEXT_LEFT: f32 = 24.0;
 const TEXT_TOP: f32 = 24.0;
 const FONT_SIZE: f32 = 22.0;
 const LINE_HEIGHT: f32 = 31.0;
+const CARET_WIDTH: f32 = 2.0;
+const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
+const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
 
 fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new()?;
@@ -58,7 +63,9 @@ impl ApplicationHandler for Application {
         );
         window.set_ime_allowed(true);
 
-        self.state = Some(pollster::block_on(WindowState::new(window, event_loop)));
+        let state = pollster::block_on(WindowState::new(window, event_loop));
+        state.window.request_redraw();
+        self.state = Some(state);
     }
 
     fn window_event(
@@ -74,20 +81,11 @@ impl ApplicationHandler for Application {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size),
-            WindowEvent::Focused(focused) => {
-                state.window.set_ime_allowed(focused);
-                state
-                    .session
-                    .handle(EditorInput::Focused(focused))
-                    .expect("focus input");
-                state.request_redraw();
-            }
+            WindowEvent::Focused(focused) => state.set_focused(focused),
             WindowEvent::ModifiersChanged(modifiers) => {
                 state.modifiers = modifiers.state();
             }
-            WindowEvent::Ime(ime) => {
-                state.handle_ime(ime);
-            }
+            WindowEvent::Ime(ime) => state.handle_ime(ime),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 state.handle_key(event.logical_key.as_ref(), event.text.as_deref());
             }
@@ -105,18 +103,13 @@ impl ApplicationHandler for Application {
                 ElementState::Pressed => state.begin_drag_selection(),
                 ElementState::Released => state.dragging = false,
             },
+            WindowEvent::MouseWheel { delta, .. } => state.scroll(delta),
             WindowEvent::RedrawRequested => {
                 if let Err(error) = state.render() {
                     eprintln!("render error: {error}");
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(state) = self.state.as_ref() {
-            state.window.request_redraw();
         }
     }
 }
@@ -133,8 +126,8 @@ struct WindowState {
     viewport: Viewport,
     atlas: TextAtlas,
     text_renderer: TextRenderer,
+    rect_renderer: RectRenderer,
     text_buffer: Buffer,
-    caret_buffer: Buffer,
 
     session: EditorSession,
     clipboard: Option<Clipboard>,
@@ -144,7 +137,11 @@ struct WindowState {
     dragging: bool,
 
     display_text: String,
+    preedit_range: Option<Range<usize>>,
     caret_xy: (f32, f32),
+    caret_height: f32,
+    preferred_x: Option<f32>,
+    ensure_caret_visible: bool,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -190,6 +187,7 @@ impl WindowState {
         let mut atlas = TextAtlas::new(&device, &queue, &cache, format);
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
+        let rect_renderer = RectRenderer::new(&device, format);
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
         text_buffer.set_wrap(Wrap::Word);
@@ -197,17 +195,6 @@ impl WindowState {
             Some(surface_config.width as f32 - TEXT_LEFT * 2.0),
             Some(surface_config.height as f32 - TEXT_TOP * 2.0),
         );
-
-        let mut caret_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
-        caret_buffer.set_wrap(Wrap::None);
-        caret_buffer.set_size(Some(24.0), Some(LINE_HEIGHT));
-        caret_buffer.set_text(
-            "│",
-            &Attrs::new().family(Family::SansSerif),
-            Shaping::Advanced,
-            None,
-        );
-        caret_buffer.shape_until_scroll(&mut font_system, false);
 
         let mut state = Self {
             instance,
@@ -220,10 +207,10 @@ impl WindowState {
             viewport,
             atlas,
             text_renderer,
+            rect_renderer,
             text_buffer,
-            caret_buffer,
             session: EditorSession::new(
-                "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.",
+                "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
             )
             .expect("create editor session"),
             clipboard: Clipboard::new().ok(),
@@ -232,7 +219,11 @@ impl WindowState {
             drag_anchor: None,
             dragging: false,
             display_text: String::new(),
+            preedit_range: None,
             caret_xy: (0.0, 0.0),
+            caret_height: LINE_HEIGHT,
+            preferred_x: None,
+            ensure_caret_visible: true,
             window,
         };
 
@@ -240,6 +231,16 @@ impl WindowState {
         state.session.set_caret(Anchor::new(end, Affinity::After));
         state.refresh_layout();
         state
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.window.set_ime_allowed(focused);
+        if let Err(error) = self.session.handle(EditorInput::Focused(focused)) {
+            eprintln!("focus input error: {error}");
+        }
+        self.preferred_x = None;
+        self.ensure_caret_visible = focused;
+        self.request_redraw();
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) {
@@ -251,9 +252,10 @@ impl WindowState {
         self.surface_config.height = size.height;
         self.surface.configure(&self.device, &self.surface_config);
         self.text_buffer.set_size(
-            Some(size.width as f32 - TEXT_LEFT * 2.0),
-            Some(size.height as f32 - TEXT_TOP * 2.0),
+            Some((size.width as f32 - TEXT_LEFT * 2.0).max(1.0)),
+            Some((size.height as f32 - TEXT_TOP * 2.0).max(1.0)),
         );
+        self.ensure_caret_visible = true;
         self.request_redraw();
     }
 
@@ -271,6 +273,8 @@ impl WindowState {
         if let Err(error) = self.session.handle(input) {
             eprintln!("IME input error: {error}");
         }
+        self.preferred_x = None;
+        self.ensure_caret_visible = true;
         self.request_redraw();
     }
 
@@ -288,6 +292,14 @@ impl WindowState {
                 }
                 Key::Named(NamedKey::ArrowRight) => {
                     self.move_cursor(Movement::GraphemeForward, extend);
+                    true
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    self.move_cursor_vertical(-1, extend);
+                    true
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    self.move_cursor_vertical(1, extend);
                     true
                 }
                 Key::Named(NamedKey::Home) => {
@@ -342,7 +354,7 @@ impl WindowState {
             if let Err(error) = result {
                 eprintln!("history error: {error}");
             }
-            self.request_redraw();
+            self.after_caret_action();
             return true;
         }
 
@@ -350,7 +362,7 @@ impl WindowState {
             if let Err(error) = self.session.redo() {
                 eprintln!("redo error: {error}");
             }
-            self.request_redraw();
+            self.after_caret_action();
             return true;
         }
 
@@ -365,7 +377,7 @@ impl WindowState {
             )
             .expect("select all");
             self.session.set_selection(selection);
-            self.request_redraw();
+            self.after_caret_action();
             return true;
         }
 
@@ -420,13 +432,73 @@ impl WindowState {
         if let Err(error) = self.session.insert_text(text) {
             eprintln!("insert error: {error}");
         }
-        self.request_redraw();
+        self.after_caret_action();
     }
 
     fn move_cursor(&mut self, movement: Movement, extend: bool) {
         if let Err(error) = self.session.move_selection(movement, extend) {
             eprintln!("movement error: {error}");
         }
+        self.after_caret_action();
+    }
+
+    fn move_cursor_vertical(&mut self, direction: i32, extend: bool) {
+        self.session.cancel_composition();
+        self.ensure_caret_visible = true;
+        self.refresh_layout();
+
+        let primary = self.session.selections().primary();
+        let cursor = display_offset_to_cursor(&self.display_text, primary.head.offset.to_usize());
+        self.text_buffer
+            .shape_until_cursor(&mut self.font_system, cursor, false);
+
+        let Some((current_x, current_top, current_height)) =
+            self.text_buffer.layout_runs().find_map(|run| {
+                run.cursor_position(&cursor)
+                    .map(|x| (x, run.line_top, run.line_height))
+            })
+        else {
+            return;
+        };
+
+        let preferred_x = self.preferred_x.unwrap_or(current_x);
+        self.preferred_x = Some(preferred_x);
+
+        let target_y =
+            current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
+        let Some(target_cursor) = self.text_buffer.hit(preferred_x, target_y) else {
+            return;
+        };
+        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor) else {
+            return;
+        };
+        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
+            return;
+        };
+
+        let affinity = match target_cursor.affinity {
+            glyphon::Affinity::Before => Affinity::Before,
+            glyphon::Affinity::After => Affinity::After,
+        };
+        let head = Anchor::new(target_offset, affinity);
+        let selection = if extend {
+            SelectionRange {
+                anchor: primary.anchor,
+                head,
+            }
+        } else {
+            SelectionRange::caret(head)
+        };
+
+        match SelectionSet::new(vec![selection], 0) {
+            Ok(selection) => self.session.set_selection(selection),
+            Err(error) => {
+                eprintln!("vertical selection error: {error}");
+                return;
+            }
+        }
+
+        self.ensure_caret_visible = true;
         self.request_redraw();
     }
 
@@ -434,6 +506,31 @@ impl WindowState {
         if let Err(error) = self.session.delete(direction) {
             eprintln!("delete error: {error}");
         }
+        self.after_caret_action();
+    }
+
+    fn after_caret_action(&mut self) {
+        self.preferred_x = None;
+        self.ensure_caret_visible = true;
+        self.request_redraw();
+    }
+
+    fn scroll(&mut self, delta: MouseScrollDelta) {
+        let pixels = match delta {
+            MouseScrollDelta::LineDelta(_, y) => -y * LINE_HEIGHT * 3.0,
+            MouseScrollDelta::PixelDelta(position) => -position.y as f32,
+        };
+
+        if pixels.abs() < f32::EPSILON {
+            return;
+        }
+
+        let mut scroll = self.text_buffer.scroll();
+        scroll.vertical += pixels;
+        self.text_buffer.set_scroll(scroll);
+        self.text_buffer
+            .shape_until_scroll(&mut self.font_system, false);
+        self.ensure_caret_visible = false;
         self.request_redraw();
     }
 
@@ -444,6 +541,8 @@ impl WindowState {
         self.drag_anchor = Some(anchor);
         self.dragging = true;
         self.session.set_caret(anchor);
+        self.preferred_x = None;
+        self.ensure_caret_visible = false;
         self.request_redraw();
     }
 
@@ -464,10 +563,14 @@ impl WindowState {
         )
         .expect("drag selection");
         self.session.set_selection(selection);
+        self.preferred_x = None;
+        self.ensure_caret_visible = false;
         self.request_redraw();
     }
 
     fn hit_test_source_anchor(&mut self) -> Option<Anchor> {
+        self.refresh_layout();
+
         let x = self.cursor_position.x as f32 - TEXT_LEFT;
         let y = self.cursor_position.y as f32 - TEXT_TOP;
         if x < 0.0 || y < 0.0 {
@@ -493,68 +596,53 @@ impl WindowState {
     }
 
     fn refresh_layout(&mut self) {
-        self.display_text = match self.session.display_text() {
+        let next_display_text = match self.session.display_text() {
             Ok(text) => text,
             Err(error) => {
                 eprintln!("display projection error: {error}");
                 self.session.document().text()
             }
         };
+        let next_preedit_range = self
+            .session
+            .composition()
+            .map(|composition| composition.display_preedit_range());
 
-        let normal = Attrs::new()
-            .family(Family::SansSerif)
-            .color(Color::rgb(210, 214, 220));
-        let selected = normal.clone().color(Color::rgb(255, 255, 255));
-        let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+        if next_display_text != self.display_text || next_preedit_range != self.preedit_range {
+            let old_scroll = self.text_buffer.scroll();
+            self.display_text = next_display_text;
+            self.preedit_range = next_preedit_range;
 
-        if let Some(composition) = self.session.composition() {
-            let range = composition.display_preedit_range();
-            let mut spans = Vec::new();
-            if range.start > 0 {
-                spans.push((&self.display_text[..range.start], normal.clone()));
-            }
-            if range.start < range.end {
-                spans.push((&self.display_text[range.clone()], preedit));
-            }
-            if range.end < self.display_text.len() {
-                spans.push((&self.display_text[range.end..], normal.clone()));
-            }
-            if spans.is_empty() {
-                spans.push(("", normal.clone()));
-            }
-            self.text_buffer
-                .set_rich_text(spans, &normal, Shaping::Advanced, None);
-        } else {
-            let mut spans = Vec::new();
-            let mut cursor = 0usize;
+            let normal = Attrs::new()
+                .family(Family::SansSerif)
+                .color(Color::rgb(210, 214, 220));
 
-            for selection in self.session.selections().ranges() {
-                let (start, end) = selection.ordered_offsets();
-                let start = start.to_usize().min(self.display_text.len());
-                let end = end.to_usize().min(self.display_text.len());
+            if let Some(range) = self.preedit_range.clone() {
+                let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+                let mut spans = Vec::new();
 
-                if cursor < start {
-                    spans.push((&self.display_text[cursor..start], normal.clone()));
+                if range.start > 0 {
+                    spans.push((&self.display_text[..range.start], normal.clone()));
                 }
-                if start < end {
-                    spans.push((&self.display_text[start..end], selected.clone()));
+                if range.start < range.end {
+                    spans.push((&self.display_text[range.clone()], preedit));
                 }
-                cursor = cursor.max(end);
+                if range.end < self.display_text.len() {
+                    spans.push((&self.display_text[range.end..], normal.clone()));
+                }
+                if spans.is_empty() {
+                    spans.push(("", normal.clone()));
+                }
+
+                self.text_buffer
+                    .set_rich_text(spans, &normal, Shaping::Advanced, None);
+            } else {
+                self.text_buffer
+                    .set_text(&self.display_text, &normal, Shaping::Advanced, None);
             }
 
-            if cursor < self.display_text.len() {
-                spans.push((&self.display_text[cursor..], normal.clone()));
-            }
-            if spans.is_empty() {
-                spans.push((&self.display_text[..], normal.clone()));
-            }
-
-            self.text_buffer
-                .set_rich_text(spans, &normal, Shaping::Advanced, None);
+            self.text_buffer.set_scroll(old_scroll);
         }
-
-        self.text_buffer
-            .shape_until_scroll(&mut self.font_system, false);
 
         let display_caret = self
             .session
@@ -563,18 +651,29 @@ impl WindowState {
             .unwrap_or_else(|| self.session.selections().primary().head.offset);
         let cursor = display_offset_to_cursor(&self.display_text, display_caret.to_usize());
 
-        self.caret_xy = self
-            .text_buffer
-            .layout_runs()
-            .find_map(|run| run.cursor_position(&cursor).map(|x| (x, run.line_top)))
-            .unwrap_or((0.0, 0.0));
+        if self.ensure_caret_visible {
+            self.text_buffer
+                .shape_until_cursor(&mut self.font_system, cursor, false);
+            self.ensure_caret_visible = false;
+        } else {
+            self.text_buffer
+                .shape_until_scroll(&mut self.font_system, false);
+        }
+
+        if let Some((x, top, height)) = self.text_buffer.layout_runs().find_map(|run| {
+            run.cursor_position(&cursor)
+                .map(|x| (x, run.line_top, run.line_height))
+        }) {
+            self.caret_xy = (x, top);
+            self.caret_height = height;
+        }
 
         self.window.set_ime_cursor_area(
             PhysicalPosition::new(
                 (TEXT_LEFT + self.caret_xy.0).round() as i32,
                 (TEXT_TOP + self.caret_xy.1).round() as i32,
             ),
-            PhysicalSize::new(2_u32, LINE_HEIGHT.ceil() as u32),
+            PhysicalSize::new(CARET_WIDTH.ceil() as u32, self.caret_height.ceil() as u32),
         );
 
         let composition_label = self.session.composition().map_or("none", |composition| {
@@ -584,10 +683,79 @@ impl WindowState {
                 "preedit"
             }
         });
+        let scroll = self.text_buffer.scroll();
         self.window.set_title(&format!(
-            "mdedit IME Lab | source={} bytes | composition={composition_label}",
-            self.session.document().text().len()
+            "mdedit IME Lab | source={} bytes | composition={composition_label} | scroll={}:{:.0}",
+            self.session.document().text().len(),
+            scroll.line,
+            scroll.vertical
         ));
+    }
+
+    fn selection_rectangles(&self) -> Vec<ScreenRect> {
+        if self.session.composition().is_some() {
+            return Vec::new();
+        }
+
+        let selections = self
+            .session
+            .selections()
+            .ranges()
+            .iter()
+            .filter_map(|selection| {
+                let (start, end) = selection.ordered_offsets();
+                (start != end).then(|| {
+                    (
+                        display_offset_to_cursor(&self.display_text, start.to_usize()),
+                        display_offset_to_cursor(&self.display_text, end.to_usize()),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut rects = Vec::new();
+        for run in self.text_buffer.layout_runs() {
+            for (start, end) in &selections {
+                for (x, width) in run.highlight(*start, *end) {
+                    rects.push(ScreenRect::new(
+                        TEXT_LEFT + x,
+                        TEXT_TOP + run.line_top,
+                        width.max(1.0),
+                        run.line_height,
+                        SELECTION_COLOR,
+                    ));
+                }
+            }
+        }
+        rects
+    }
+
+    fn caret_rectangles(&self) -> Vec<ScreenRect> {
+        let show_caret = self.session.focused()
+            && (self.session.composition().is_some()
+                || self.session.selections().primary().is_caret());
+
+        show_caret
+            .then(|| {
+                vec![ScreenRect::new(
+                    TEXT_LEFT + self.caret_xy.0,
+                    TEXT_TOP + self.caret_xy.1,
+                    CARET_WIDTH,
+                    self.caret_height,
+                    CARET_COLOR,
+                )]
+            })
+            .unwrap_or_default()
+    }
+
+    fn text_clip_rect(&self) -> ScreenRect {
+        ScreenRect::new(
+            TEXT_LEFT,
+            TEXT_TOP,
+            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0),
+            (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0),
+            [0.0; 4],
+        )
     }
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
@@ -608,37 +776,41 @@ impl WindowState {
             bottom: self.surface_config.height as i32 - TEXT_TOP as i32,
         };
 
-        let mut areas = vec![TextArea {
-            buffer: &self.text_buffer,
-            left: TEXT_LEFT,
-            top: TEXT_TOP,
-            scale: 1.0,
-            bounds: text_bounds,
-            default_color: Color::rgb(210, 214, 220),
-            custom_glyphs: &[],
-        }];
-
-        if self.session.focused() && self.session.selections().primary().is_caret() {
-            areas.push(TextArea {
-                buffer: &self.caret_buffer,
-                left: TEXT_LEFT + self.caret_xy.0 - 2.0,
-                top: TEXT_TOP + self.caret_xy.1,
-                scale: 1.0,
-                bounds: text_bounds,
-                default_color: Color::rgb(255, 255, 255),
-                custom_glyphs: &[],
-            });
-        }
-
         self.text_renderer.prepare(
             &self.device,
             &self.queue,
             &mut self.font_system,
             &mut self.atlas,
             &self.viewport,
-            areas,
+            [TextArea {
+                buffer: &self.text_buffer,
+                left: TEXT_LEFT,
+                top: TEXT_TOP,
+                scale: 1.0,
+                bounds: text_bounds,
+                default_color: Color::rgb(210, 214, 220),
+                custom_glyphs: &[],
+            }],
             &mut self.swash_cache,
         )?;
+
+        let selection_rects = self.selection_rectangles();
+        let caret_rects = self.caret_rectangles();
+        let clip = self.text_clip_rect();
+        let selection_batch = self.rect_renderer.prepare(
+            &self.device,
+            &selection_rects,
+            self.surface_config.width,
+            self.surface_config.height,
+            clip,
+        );
+        let caret_batch = self.rect_renderer.prepare(
+            &self.device,
+            &caret_rects,
+            self.surface_config.width,
+            self.surface_config.height,
+            clip,
+        );
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -669,7 +841,7 @@ impl WindowState {
 
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("mdedit-ime-lab"),
+                label: Some("mdedit selection background"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
@@ -690,8 +862,51 @@ impl WindowState {
                 multiview_mask: None,
             });
 
+            if let Some(batch) = selection_batch.as_ref() {
+                self.rect_renderer.render(&mut pass, batch);
+            }
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("mdedit text"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
             self.text_renderer
                 .render(&self.atlas, &self.viewport, &mut pass)?;
+        }
+
+        if let Some(batch) = caret_batch.as_ref() {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("mdedit caret"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.rect_renderer.render(&mut pass, batch);
         }
 
         self.queue.submit(Some(encoder.finish()));
