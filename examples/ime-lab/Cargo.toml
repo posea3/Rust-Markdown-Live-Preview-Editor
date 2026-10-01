@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 arboard = "3.6"
+cosmic-text = "0.19"
 glyphon = "0.12"
 mdedit-core = { path = "../../crates/mdedit-core" }
 mdedit-input = { path = "../../crates/mdedit-input" }
