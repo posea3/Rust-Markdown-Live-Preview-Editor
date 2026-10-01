@@ -736,17 +736,17 @@ impl WindowState {
             && (self.session.composition().is_some()
                 || self.session.selections().primary().is_caret());
 
-        show_caret
-            .then(|| {
-                vec![ScreenRect::new(
-                    TEXT_LEFT + self.caret_xy.0,
-                    TEXT_TOP + self.caret_xy.1,
-                    CARET_WIDTH,
-                    self.caret_height,
-                    CARET_COLOR,
-                )]
-            })
-            .unwrap_or_default()
+        if show_caret {
+            vec![ScreenRect::new(
+                TEXT_LEFT + self.caret_xy.0,
+                TEXT_TOP + self.caret_xy.1,
+                CARET_WIDTH,
+                self.caret_height,
+                CARET_COLOR,
+            )]
+        } else {
+            Vec::new()
+        }
     }
 
     fn text_clip_rect(&self) -> ScreenRect {
