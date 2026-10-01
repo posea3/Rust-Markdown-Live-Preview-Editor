@@ -27,6 +27,6 @@ Use Rust 1.90 or newer, then run:
 cargo run -p mdedit-ime-lab
 ```
 
-The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, clipboard actions, grapheme deletion, and undo/redo before Markdown Live Preview work begins.
+The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, wheel/trackpad scrolling, soft-wrapped Up/Down movement, clipboard actions, grapheme deletion, and undo/redo before Markdown Live Preview work begins.
 
 Development plans and architecture are maintained under `docs/`.
