@@ -80,20 +80,25 @@ Implemented in the first Phase 3 slice:
 - glyphon/wgpu text rendering
 - caret placement and IME candidate rectangle
 - mouse caret placement and drag selection
+- visual Up/Down movement across soft-wrapped layout lines
+- sticky preferred-X vertical navigation
+- dedicated GPU caret geometry
+- rectangular GPU selection geometry using cosmic-text BiDi highlight spans
+- wheel/trackpad scrolling with persistent viewport state
+- caret auto-scroll after edits/navigation
 - soft wrapping
 - clipboard copy/cut/paste
 - undo/redo and grapheme deletion integration
+- focus-loss / IME-disabled composition cancellation regression tests
 
 Remaining Phase 3 hardening:
 
 - manual Korean IME acceptance on Windows and macOS
 - Japanese/Chinese IME manual acceptance
-- visual up/down movement
 - visual BiDi left/right movement in the view layer
-- dedicated caret and selection geometry
-- wheel/trackpad scrolling and viewport state
+- drag-selection auto-scroll outside the visible viewport
 - AccessKit semantic tree
-- focus-loss/composition edge-case acceptance
+- manual focus-loss/composition edge-case acceptance
 
 Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable in the native lab.
 
