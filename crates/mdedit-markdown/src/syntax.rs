@@ -100,11 +100,7 @@ pub struct SyntaxSnapshot {
 
 impl SyntaxSnapshot {
     #[must_use]
-    pub(crate) const fn parsed(
-        revision: Revision,
-        source_len: TextSize,
-        root: SyntaxNode,
-    ) -> Self {
+    pub(crate) const fn parsed(revision: Revision, source_len: TextSize, root: SyntaxNode) -> Self {
         Self {
             revision,
             source_len,

@@ -12,11 +12,7 @@ use crate::{
 pub struct PulldownCmarkParser;
 
 impl MarkdownParser for PulldownCmarkParser {
-    fn parse(
-        &self,
-        snapshot: &DocumentSnapshot,
-        dialect: &MarkdownDialect,
-    ) -> SyntaxSnapshot {
+    fn parse(&self, snapshot: &DocumentSnapshot, dialect: &MarkdownDialect) -> SyntaxSnapshot {
         let source = snapshot.text();
         let parser = Parser::new_ext(&source, options_for(*dialect)).into_offset_iter();
         build_snapshot(snapshot.revision(), &source, parser)
@@ -275,8 +271,7 @@ mod tests {
 
     #[test]
     fn gfm_dialect_enables_tables_tasks_and_strikethrough() {
-        let source =
-            "| a | b |\n| --- | --- |\n| x | y |\n\n- [x] done\n\n~~gone~~\n";
+        let source = "| a | b |\n| --- | --- |\n| x | y |\n\n- [x] done\n\n~~gone~~\n";
         let snapshot = parse(source, MarkdownDialect::gfm());
 
         assert_eq!(snapshot.status(), ParseStatus::Parsed);
@@ -313,10 +308,7 @@ mod tests {
             ParseStatus::RawFallback(RawFallbackReason::InvalidSourceRange)
         );
         assert_eq!(snapshot.root().children().len(), 1);
-        assert_eq!(
-            snapshot.root().children()[0].kind(),
-            SyntaxKind::RawSource
-        );
+        assert_eq!(snapshot.root().children()[0].kind(), SyntaxKind::RawSource);
         assert_eq!(
             snapshot.root().children()[0].range().as_usize_range(),
             0..source.len()

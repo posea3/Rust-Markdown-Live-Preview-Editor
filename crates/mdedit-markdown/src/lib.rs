@@ -14,6 +14,4 @@ mod syntax;
 pub use dialect::MarkdownDialect;
 pub use parser::MarkdownParser;
 pub use pulldown::PulldownCmarkParser;
-pub use syntax::{
-    ParseStatus, RawFallbackReason, SyntaxKind, SyntaxNode, SyntaxSnapshot,
-};
+pub use syntax::{ParseStatus, RawFallbackReason, SyntaxKind, SyntaxNode, SyntaxSnapshot};
