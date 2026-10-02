@@ -457,7 +457,9 @@ mod tests {
             movement: Movement::GraphemeForward,
             extend: false,
         }));
-        encoded.push_str(&EditorTrace::encode_event_line(&EditorInput::Focused(false)));
+        encoded.push_str(&EditorTrace::encode_event_line(&EditorInput::Focused(
+            false,
+        )));
 
         let decoded = EditorTrace::decode(&encoded).unwrap();
         assert_eq!(decoded.events().len(), 2);
