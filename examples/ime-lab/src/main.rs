@@ -199,6 +199,7 @@ struct WindowState {
     caret_height: f32,
     preferred_x: Option<f32>,
     ensure_caret_visible: bool,
+    layout_dirty: bool,
     text_render_dirty: bool,
     viewport_dirty: bool,
     window_title: String,
@@ -315,6 +316,7 @@ impl WindowState {
             caret_height: LINE_HEIGHT,
             preferred_x: None,
             ensure_caret_visible: true,
+            layout_dirty: true,
             text_render_dirty: true,
             viewport_dirty: true,
             window_title: String::new(),
@@ -348,6 +350,7 @@ impl WindowState {
             Some((size.width as f32 - TEXT_LEFT * 2.0).max(1.0)),
             Some((size.height as f32 - TEXT_TOP * 2.0).max(1.0)),
         );
+        self.layout_dirty = true;
         self.text_render_dirty = true;
         self.viewport_dirty = true;
         self.ensure_caret_visible = true;
@@ -687,6 +690,7 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.layout_dirty = false;
         self.text_render_dirty = true;
         self.ensure_caret_visible = false;
         self.request_redraw();
@@ -848,6 +852,7 @@ impl WindowState {
             }
 
             self.text_buffer.set_scroll(old_scroll);
+            self.layout_dirty = true;
             self.text_render_dirty = true;
         }
 
@@ -859,12 +864,18 @@ impl WindowState {
         let cursor = display_offset_to_cursor(&self.display_text, display_caret.to_usize());
 
         if self.ensure_caret_visible {
-            self.text_buffer
-                .shape_until_cursor(&mut self.font_system, cursor, false);
+            let caret_is_visible =
+                !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
+            if !caret_is_visible {
+                self.text_buffer
+                    .shape_until_cursor(&mut self.font_system, cursor, false);
+                self.layout_dirty = false;
+            }
             self.ensure_caret_visible = false;
-        } else {
+        } else if self.layout_dirty {
             self.text_buffer
                 .shape_until_scroll(&mut self.font_system, false);
+            self.layout_dirty = false;
         }
 
         if let Some((x, top, height)) = self.text_buffer.layout_runs().find_map(|run| {
