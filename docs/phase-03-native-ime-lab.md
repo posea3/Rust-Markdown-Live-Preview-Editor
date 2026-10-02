@@ -140,14 +140,23 @@ glyphon / wgpu
 
 cosmic-text is not the source editor model.
 
-## Remaining Phase 3 hardening
+## Phase 3 manual acceptance status
 
-- Korean IME still requires manual Windows/macOS acceptance testing
-- Japanese/Chinese IME still requires manual acceptance testing
-- focus-loss and IME disable/re-enable edge cases still require manual acceptance
-- Narrator/VoiceOver text, selection, and edit actions still require manual acceptance
+Windows acceptance on the tested Intel UHD Graphics 630 machine:
 
-These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
+- Korean IME composition/commit/editing/selection replacement: **PASS**
+- Japanese IME: **PENDING / BLOCKED** because the Windows Japanese language/IME pack could not be installed on the test machine
+- Chinese IME: **PENDING / BLOCKED** for the same environment reason
+- Narrator: **PENDING**
+- macOS Korean/Japanese/Chinese IME and VoiceOver: **PENDING**
+- focus-loss and IME disable/re-enable edge cases: **PENDING**
+
+Two Windows issues were found during acceptance and are addressed on the Phase 3 fix branch:
+
+1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. For Windows, the IME lab now defaults to DX12 before applying wgpu environment overrides. `WGPU_BACKEND` can still explicitly override that default because the final `InstanceDescriptor` uses `with_env()`.
+2. Visual Left/Right caret movement felt slow. The previous implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. It now derives visual grapheme cells directly from the shaped layout and selects the adjacent caret in one layout pass, with the existing cosmic-text motion API retained only as a fallback at visual-run boundaries.
+
+The Japanese/Chinese and accessibility items remain intentionally marked pending rather than treated as passed.
 
 ## Capturing a platform regression trace
 
