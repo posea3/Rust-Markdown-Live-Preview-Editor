@@ -200,6 +200,7 @@ struct WindowState {
     preferred_x: Option<f32>,
     ensure_caret_visible: bool,
     text_render_dirty: bool,
+    viewport_dirty: bool,
     window_title: String,
 
     // The window is intentionally last so the surface is dropped first.
@@ -315,6 +316,7 @@ impl WindowState {
             preferred_x: None,
             ensure_caret_visible: true,
             text_render_dirty: true,
+            viewport_dirty: true,
             window_title: String::new(),
             window,
         };
@@ -347,6 +349,7 @@ impl WindowState {
             Some((size.height as f32 - TEXT_TOP * 2.0).max(1.0)),
         );
         self.text_render_dirty = true;
+        self.viewport_dirty = true;
         self.ensure_caret_visible = true;
         self.request_redraw();
     }
@@ -1048,13 +1051,16 @@ impl WindowState {
         self.refresh_layout();
         self.update_accessibility_tree();
 
-        self.viewport.update(
-            &self.queue,
-            Resolution {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
-            },
-        );
+        if self.viewport_dirty {
+            self.viewport.update(
+                &self.queue,
+                Resolution {
+                    width: self.surface_config.width,
+                    height: self.surface_config.height,
+                },
+            );
+            self.viewport_dirty = false;
+        }
 
         let text_bounds = TextBounds {
             left: TEXT_LEFT as i32,
@@ -1063,7 +1069,8 @@ impl WindowState {
             bottom: self.surface_config.height as i32 - TEXT_TOP as i32,
         };
 
-        if self.text_render_dirty {
+        let text_prepared = self.text_render_dirty;
+        if text_prepared {
             self.text_renderer.prepare(
                 &self.device,
                 &self.queue,
@@ -1201,6 +1208,9 @@ impl WindowState {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
+        if text_prepared {
+            self.atlas.trim();
+        }
         Ok(())
     }
 
