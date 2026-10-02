@@ -95,6 +95,7 @@ The initial lab supports:
 - Korean/Japanese/Chinese IME events
 - left/right logical grapheme movement
 - visual Up/Down movement across soft-wrapped layout lines with sticky preferred X
+- shaped visual left/right movement across BiDi text
 - Home/End source-line movement
 - Shift selection extension
 - Backspace/Delete by grapheme
@@ -106,11 +107,14 @@ The initial lab supports:
 - Ctrl/Cmd+Shift+Z and Ctrl+Y
 - soft wrapping
 - wheel/trackpad scrolling with persistent cosmic-text viewport state
+- drag-selection auto-scroll beyond the visible viewport
 - caret auto-scroll after edits/navigation via `shape_until_cursor`
 - rectangular GPU selection background using cosmic-text BiDi highlight spans
 - dedicated GPU caret geometry
 - visual preedit color
 - caret position feeding `Window::set_ime_cursor_area`
+- AccessKit `Window -> MultilineTextInput -> TextRun` semantics
+- AccessKit text selection, replace-selected-text, and set-value action bridging
 
 ## Rendering boundary
 
@@ -137,9 +141,6 @@ cosmic-text is not the source editor model.
 
 ## Remaining Phase 3 hardening
 
-- visual left/right BiDi movement remains in the future view layer
-- drag-selection auto-scroll outside the visible viewport is not yet implemented
-- AccessKit semantic tree is not yet connected
 - IME behavior still requires manual Windows/macOS acceptance testing
 - Japanese/Chinese IME still requires manual acceptance testing
 

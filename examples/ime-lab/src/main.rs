@@ -1,7 +1,13 @@
+mod accessibility;
 mod geometry;
 
 use std::{error::Error, ops::Range, sync::Arc};
 
+use accesskit::ActionRequest;
+use accesskit_winit::{
+    Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
+};
+use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use arboard::Clipboard;
 use cosmic_text::Motion as CosmicMotion;
 use geometry::{RectRenderer, ScreenRect};
@@ -23,7 +29,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, ModifiersState, NamedKey},
     window::{Window, WindowId},
 };
@@ -38,18 +44,27 @@ const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new()?;
-    let mut app = Application::default();
+    let event_loop = EventLoop::<AccessKitEvent>::with_user_event().build()?;
+    let mut app = Application::new(event_loop.create_proxy());
     event_loop.run_app(&mut app)?;
     Ok(())
 }
 
-#[derive(Default)]
 struct Application {
+    event_loop_proxy: EventLoopProxy<AccessKitEvent>,
     state: Option<WindowState>,
 }
 
-impl ApplicationHandler for Application {
+impl Application {
+    fn new(event_loop_proxy: EventLoopProxy<AccessKitEvent>) -> Self {
+        Self {
+            event_loop_proxy,
+            state: None,
+        }
+    }
+}
+
+impl ApplicationHandler<AccessKitEvent> for Application {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
             return;
@@ -57,15 +72,23 @@ impl ApplicationHandler for Application {
 
         let attributes = Window::default_attributes()
             .with_title("mdedit IME Lab")
-            .with_inner_size(LogicalSize::new(960.0, 680.0));
+            .with_inner_size(LogicalSize::new(960.0, 680.0))
+            .with_visible(false);
         let window = Arc::new(
             event_loop
                 .create_window(attributes)
                 .expect("create IME lab window"),
         );
+        let accessibility_adapter = AccessKitAdapter::with_event_loop_proxy(
+            event_loop,
+            &window,
+            self.event_loop_proxy.clone(),
+        );
+        window.set_visible(true);
         window.set_ime_allowed(true);
 
-        let state = pollster::block_on(WindowState::new(window, event_loop));
+        let state =
+            pollster::block_on(WindowState::new(window, event_loop, accessibility_adapter));
         state.window.request_redraw();
         self.state = Some(state);
     }
@@ -79,6 +102,10 @@ impl ApplicationHandler for Application {
         let Some(state) = self.state.as_mut() else {
             return;
         };
+
+        state
+            .accessibility_adapter
+            .process_event(&state.window, &event);
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -118,6 +145,23 @@ impl ApplicationHandler for Application {
             _ => {}
         }
     }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AccessKitEvent) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+        if event.window_id != state.window.id() {
+            return;
+        }
+
+        match event.window_event {
+            AccessKitWindowEvent::InitialTreeRequested => state.update_accessibility_tree(),
+            AccessKitWindowEvent::ActionRequested(request) => {
+                state.handle_accessibility_action(request);
+            }
+            AccessKitWindowEvent::AccessibilityDeactivated => {}
+        }
+    }
 }
 
 struct WindowState {
@@ -134,6 +178,7 @@ struct WindowState {
     text_renderer: TextRenderer,
     rect_renderer: RectRenderer,
     text_buffer: Buffer,
+    accessibility_adapter: AccessKitAdapter,
 
     session: EditorSession,
     clipboard: Option<Clipboard>,
@@ -154,7 +199,11 @@ struct WindowState {
 }
 
 impl WindowState {
-    async fn new(window: Arc<Window>, event_loop: &ActiveEventLoop) -> Self {
+    async fn new(
+        window: Arc<Window>,
+        event_loop: &ActiveEventLoop,
+        accessibility_adapter: AccessKitAdapter,
+    ) -> Self {
         let physical_size = window.inner_size();
 
         let instance = Instance::new(InstanceDescriptor::new_with_display_handle(Box::new(
@@ -215,6 +264,7 @@ impl WindowState {
             text_renderer,
             rect_renderer,
             text_buffer,
+            accessibility_adapter,
             session: EditorSession::new(
                 "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
             )
@@ -857,8 +907,64 @@ impl WindowState {
         )
     }
 
+    fn update_accessibility_tree(&mut self) {
+        let update = build_tree_update(
+            self.session.document().text(),
+            self.session.selections().primary(),
+            self.surface_config.width,
+            self.surface_config.height,
+            self.window.scale_factor(),
+            TEXT_LEFT,
+            TEXT_TOP,
+        );
+        self.accessibility_adapter.update_if_active(|| update);
+    }
+
+    fn handle_accessibility_action(&mut self, request: ActionRequest) {
+        let Some(action) = translate_action(request, self.session.document().text()) else {
+            return;
+        };
+
+        match action {
+            EditorAccessibilityAction::Focus => {
+                self.window.focus_window();
+                self.window.set_ime_allowed(true);
+            }
+            EditorAccessibilityAction::SetSelection(selection) => {
+                match SelectionSet::new(vec![selection], 0) {
+                    Ok(selection) => {
+                        self.session.set_selection(selection);
+                        self.after_caret_action();
+                    }
+                    Err(error) => eprintln!("accessibility selection error: {error}"),
+                }
+            }
+            EditorAccessibilityAction::ReplaceSelectedText(text) => {
+                self.insert_text(&text);
+            }
+            EditorAccessibilityAction::SetValue(text) => {
+                self.replace_document_text(&text);
+            }
+        }
+    }
+
+    fn replace_document_text(&mut self, text: &str) {
+        let end = self.session.document().len().expect("document length");
+        let selection = SelectionSet::new(
+            vec![SelectionRange {
+                anchor: Anchor::new(TextSize::ZERO, Affinity::Before),
+                head: Anchor::new(end, Affinity::After),
+            }],
+            0,
+        )
+        .expect("full document selection");
+        self.session.set_selection(selection);
+        self.insert_text(text);
+    }
+
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
         self.refresh_layout();
+        self.update_accessibility_tree();
 
         self.viewport.update(
             &self.queue,

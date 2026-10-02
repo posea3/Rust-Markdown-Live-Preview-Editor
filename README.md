@@ -17,7 +17,7 @@ A source-first, native Rust Markdown editing engine with Live Preview.
 - Phase 2: selection, Unicode navigation, and grapheme-safe deletion — complete
 - Phase 3: native input/IME lab — in progress
 
-The current Phase 3 slice includes a native winit + cosmic-text + glyphon/wgpu acceptance app and a framework-independent `mdedit-input` crate. Markdown parsing and Live Preview are intentionally not enabled yet.
+The current Phase 3 slice includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, and AccessKit text-editor semantics. Markdown parsing and Live Preview are intentionally not enabled yet.
 
 ## Run the native IME lab
 
@@ -27,6 +27,6 @@ Use Rust 1.90 or newer, then run:
 cargo run -p mdedit-ime-lab
 ```
 
-The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, wheel/trackpad scrolling, soft-wrapped Up/Down movement, clipboard actions, grapheme deletion, and undo/redo before Markdown Live Preview work begins.
+The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, wheel/trackpad scrolling, soft-wrapped Up/Down movement, BiDi left/right movement, clipboard actions, grapheme deletion, undo/redo, and Narrator/VoiceOver text and selection reporting before Markdown Live Preview work begins.
 
 Development plans and architecture are maintained under `docs/`.
