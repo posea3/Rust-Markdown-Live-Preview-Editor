@@ -154,13 +154,13 @@ Windows acceptance on the tested Intel UHD Graphics 630 machine:
 Two Windows issues were found during acceptance and are addressed on the Phase 3 fix branch:
 
 1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. For Windows, the IME lab now defaults to DX12 before applying wgpu environment overrides. `WGPU_BACKEND` can still explicitly override that default because the final `InstanceDescriptor` uses `with_env()`.
-2. Visual Left/Right caret movement felt slow. The previous implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. It now derives visual grapheme cells directly from the shaped layout and selects the adjacent caret in one layout pass, with the existing cosmic-text motion API retained only as a fallback at visual-run boundaries.
+2. Visual Left/Right caret movement felt slow. The original implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. Follow-up profiling also found redundant shaping, full glyphon text preparation on caret-only redraws, eager accessibility-tree construction while accessibility was inactive, repeated window-title updates, and O(n) trace-file rewrites when tracing was enabled. The caret path now reuses the visible shaped layout, skips shaping when the target caret is already visible, prepares glyph text only when text/scroll/layout actually changes, lazily builds the accessibility tree, caches viewport/title state, and appends trace events instead of rewriting the file.
 
 The Japanese/Chinese and accessibility items remain intentionally marked pending rather than treated as passed.
 
 ## Capturing a platform regression trace
 
-Set `MDEDIT_TRACE_FILE` when running the IME lab. The lab rewrites that file after every semantic editor input, so an interrupted or crashed acceptance session still leaves the latest complete trace.
+Set `MDEDIT_TRACE_FILE` when running the IME lab. The lab writes the initial trace header once and then appends one encoded event line per semantic editor input, so an interrupted or crashed acceptance session still leaves the latest complete trace without rewriting the growing file on every key press.
 
 Windows PowerShell:
 
