@@ -12,7 +12,9 @@ mod parser;
 mod pulldown;
 mod syntax;
 
-pub use block::{BlockCache, BlockCacheError, BlockEntry, BlockFingerprint, BlockId, BlockSnapshot};
+pub use block::{
+    BlockCache, BlockCacheError, BlockEntry, BlockFingerprint, BlockId, BlockSnapshot,
+};
 pub use dialect::MarkdownDialect;
 pub use parser::MarkdownParser;
 pub use pulldown::PulldownCmarkParser;

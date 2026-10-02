@@ -416,9 +416,14 @@ impl fmt::Display for BlockCacheError {
                 syntax.get()
             ),
             Self::InvalidBlockRange(range) => {
-                write!(formatter, "syntax block range {range:?} is invalid for the source")
+                write!(
+                    formatter,
+                    "syntax block range {range:?} is invalid for the source"
+                )
             }
-            Self::DocumentTooLarge => write!(formatter, "document exceeds the supported source size"),
+            Self::DocumentTooLarge => {
+                write!(formatter, "document exceeds the supported source size")
+            }
             Self::IdExhausted => write!(formatter, "block identifier space is exhausted"),
         }
     }
@@ -539,9 +544,7 @@ mod tests {
         replace(&mut document, range(0, 1), "b");
 
         let mut cache = BlockCache::new();
-        let error = cache
-            .reconcile(&document.snapshot(), &syntax)
-            .unwrap_err();
+        let error = cache.reconcile(&document.snapshot(), &syntax).unwrap_err();
 
         assert!(matches!(error, BlockCacheError::RevisionMismatch { .. }));
     }
