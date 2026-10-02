@@ -106,19 +106,25 @@ Do not start Live Preview until Korean IME, undo/redo, selection, and mouse edit
 
 ## Phase 4 - Markdown syntax engine
 
-Add `mdedit-markdown`.
+Status: **in progress — parser boundary and source-mapped syntax tree implemented**
 
-Implement:
+Implemented:
 
-- MarkdownParser trait
-- pulldown-cmark adapter
-- SyntaxSnapshot
-- SyntaxNode / SyntaxKind
-- block identity/cache boundary
-- MarkdownDialect
-- DelimiterResolver
+- `mdedit-markdown` crate
+- `MarkdownParser` trait
+- pulldown-cmark adapter behind project-owned types
+- `SyntaxSnapshot`
+- `SyntaxNode` / `SyntaxKind`
+- `MarkdownDialect`
 - raw-source failure mode
+- full-parse correctness baseline with source-range validation
+
+Remaining:
+
+- block identity/cache boundary
+- DelimiterResolver
 - extension scanner/merge policy
+- richer semantic metadata and compatibility fixtures
 
 First rendering milestone keeps all Markdown markers visible and adds only semantic styles.
 
