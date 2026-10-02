@@ -118,7 +118,7 @@ Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start 
 
 ## Phase 4 - Markdown syntax engine
 
-Status: **in progress — syntax, metadata, delimiter, block identity, extensions, and compatibility fixtures implemented**
+Status: **core complete — syntax, metadata, delimiters, block identity, extensions, compatibility fixtures, and parse reconciliation implemented**
 
 Implemented:
 
@@ -136,10 +136,10 @@ Implemented:
 - opt-in Obsidian compatibility scanner backed by real wikilink/embed/highlight/comment/callout/block-ID syntax
 - project-owned semantic metadata for parser information needed by styling/widgets/host integration
 - file-backed CommonMark/GFM/Obsidian compatibility fixtures
+- parse request/result reconciliation contract for stale revisions, config epochs, superseded requests, and safe raw fallback
 
-Remaining:
+Remaining follow-up:
 
-- parse snapshot reconciliation rules for later background/incremental parsing
 - additional compatibility cases discovered during Phase 5 projection work
 
 First rendering milestone keeps all Markdown markers visible and adds only semantic styles.

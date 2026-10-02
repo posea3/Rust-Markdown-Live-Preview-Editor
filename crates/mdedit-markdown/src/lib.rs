@@ -14,6 +14,7 @@ mod metadata;
 mod obsidian;
 mod parser;
 mod pulldown;
+mod reconcile;
 mod syntax;
 
 pub use block::{
@@ -40,4 +41,8 @@ pub use obsidian::{
 };
 pub use parser::MarkdownParser;
 pub use pulldown::PulldownCmarkParser;
+pub use reconcile::{
+    ParseConfigEpoch, ParseDiscardReason, ParseReconcileError, ParseReconcileOutcome,
+    ParseReconciler, ParseRequestId, ParseTicket,
+};
 pub use syntax::{ParseStatus, RawFallbackReason, SyntaxKind, SyntaxNode, SyntaxSnapshot};

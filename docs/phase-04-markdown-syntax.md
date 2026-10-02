@@ -36,6 +36,7 @@ Implemented in this slice:
 - `MarkdownDialect::obsidian()` preset for the standard parser features used alongside the Obsidian extension scanner
 - parser-owned semantic metadata preserved in project types for headings, block quotes, code blocks, lists, footnotes, tables, links/images, metadata blocks, and math/code leaf nodes
 - file-backed CommonMark/GFM/Obsidian compatibility fixtures
+- `ParseReconciler` request/result policy for stale document revisions, parser/config invalidation, superseded requests, and current raw-fallback acceptance
 
 ## Boundary
 
@@ -139,9 +140,25 @@ The metadata boundary currently preserves:
 
 Compatibility tests use file-backed Markdown samples rather than synthesized event streams. CommonMark and GFM fixtures follow their published syntax, while the Obsidian fixture uses actual Obsidian forms for frontmatter, wikilinks, embeds, highlights, comments, callouts, and block IDs.
 
+## Parse snapshot reconciliation
+
+`ParseReconciler` defines the correctness contract that a later background parser must obey without introducing threading or scheduling into Phase 4.
+
+Each parse request receives a `ParseTicket` containing:
+
+- an opaque monotonic request ID
+- the canonical document revision
+- the canonical source length
+- the parser/configuration epoch
+
+A result is accepted only when it matches the ticket and is still the latest request for the current document/configuration. Results are discarded when the document advanced, parser configuration changed, or a newer request superseded them. A ticket/result revision or length mismatch is treated as a programming error rather than a harmless stale result.
+
+Changing dialect/parser/extension configuration invalidates the current accepted syntax snapshot by advancing `ParseConfigEpoch`. A current-revision `RawFallback` remains a valid accepted syntax snapshot because raw source is the safe correctness fallback.
+
+This layer intentionally does not spawn threads, debounce edits, or perform incremental parsing. Phase 8 may provide those mechanisms while reusing this acceptance contract.
+
 ## Remaining Phase 4 work
 
-- parse snapshot reconciliation rules for later background/incremental parsing
 - additional compatibility cases discovered during Phase 5 projection work
 
 Live Preview projection remains Phase 5.
