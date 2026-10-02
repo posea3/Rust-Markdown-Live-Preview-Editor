@@ -144,9 +144,7 @@ impl ParseReconciler {
         })
     }
 
-    pub fn invalidate_configuration(
-        &mut self,
-    ) -> Result<ParseConfigEpoch, ParseReconcileError> {
+    pub fn invalidate_configuration(&mut self) -> Result<ParseConfigEpoch, ParseReconcileError> {
         let next = self
             .config_epoch
             .0
@@ -248,18 +246,9 @@ fn validate_ticket_result(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseReconcileError {
-    ResultRevisionMismatch {
-        ticket: Revision,
-        syntax: Revision,
-    },
-    ResultLengthMismatch {
-        ticket: TextSize,
-        syntax: TextSize,
-    },
-    CurrentDocumentLengthMismatch {
-        ticket: TextSize,
-        current: TextSize,
-    },
+    ResultRevisionMismatch { ticket: Revision, syntax: Revision },
+    ResultLengthMismatch { ticket: TextSize, syntax: TextSize },
+    CurrentDocumentLengthMismatch { ticket: TextSize, current: TextSize },
     DocumentTooLarge,
     RequestIdExhausted,
     ConfigEpochExhausted,
@@ -307,8 +296,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        MarkdownDialect, MarkdownParser, ParseStatus, PulldownCmarkParser,
-        RawFallbackReason, SyntaxKind, SyntaxNode,
+        MarkdownDialect, MarkdownParser, ParseStatus, PulldownCmarkParser, RawFallbackReason,
+        SyntaxKind, SyntaxNode,
     };
 
     fn parse(document: &Document) -> SyntaxSnapshot {
@@ -422,12 +411,10 @@ mod tests {
 
         assert_eq!(
             outcome,
-            ParseReconcileOutcome::Discarded(
-                ParseDiscardReason::ConfigurationChanged {
-                    requested: old_ticket.config_epoch(),
-                    current: new_epoch,
-                }
-            )
+            ParseReconcileOutcome::Discarded(ParseDiscardReason::ConfigurationChanged {
+                requested: old_ticket.config_epoch(),
+                current: new_epoch,
+            })
         );
         assert!(reconciler.current().is_none());
     }
