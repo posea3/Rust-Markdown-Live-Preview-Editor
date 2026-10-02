@@ -199,6 +199,8 @@ struct WindowState {
     caret_height: f32,
     preferred_x: Option<f32>,
     ensure_caret_visible: bool,
+    text_render_dirty: bool,
+    window_title: String,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -312,6 +314,8 @@ impl WindowState {
             caret_height: LINE_HEIGHT,
             preferred_x: None,
             ensure_caret_visible: true,
+            text_render_dirty: true,
+            window_title: String::new(),
             window,
         };
 
@@ -342,6 +346,7 @@ impl WindowState {
             Some((size.width as f32 - TEXT_LEFT * 2.0).max(1.0)),
             Some((size.height as f32 - TEXT_TOP * 2.0).max(1.0)),
         );
+        self.text_render_dirty = true;
         self.ensure_caret_visible = true;
         self.request_redraw();
     }
@@ -533,13 +538,9 @@ impl WindowState {
 
     fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
-        self.ensure_caret_visible = true;
-        self.refresh_layout();
 
         let primary = self.session.selections().primary();
         let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
-        self.text_buffer
-            .shape_until_cursor(&mut self.font_system, cursor, false);
 
         let target = visual_horizontal_target(
             &mut self.text_buffer,
@@ -683,6 +684,7 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.text_render_dirty = true;
         self.ensure_caret_visible = false;
         self.request_redraw();
     }
@@ -763,6 +765,7 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.text_render_dirty = true;
         self.ensure_caret_visible = false;
 
         self.text_buffer.scroll() != before
@@ -795,6 +798,7 @@ impl WindowState {
     }
 
     fn refresh_layout(&mut self) {
+        let scroll_before = self.text_buffer.scroll();
         let next_display_text = match self.session.display_text() {
             Ok(text) => text,
             Err(error) => {
@@ -841,6 +845,7 @@ impl WindowState {
             }
 
             self.text_buffer.set_scroll(old_scroll);
+            self.text_render_dirty = true;
         }
 
         let display_caret = self
@@ -875,6 +880,11 @@ impl WindowState {
             PhysicalSize::new(CARET_WIDTH.ceil() as u32, self.caret_height.ceil() as u32),
         );
 
+        let scroll = self.text_buffer.scroll();
+        if scroll != scroll_before {
+            self.text_render_dirty = true;
+        }
+
         let composition_label = self.session.composition().map_or("none", |composition| {
             if composition.preedit().is_empty() {
                 "empty-preedit"
@@ -882,13 +892,16 @@ impl WindowState {
                 "preedit"
             }
         });
-        let scroll = self.text_buffer.scroll();
-        self.window.set_title(&format!(
+        let next_title = format!(
             "mdedit IME Lab | source={} bytes | composition={composition_label} | scroll={}:{:.0}",
             self.session.document().text().len(),
             scroll.line,
             scroll.vertical
-        ));
+        );
+        if next_title != self.window_title {
+            self.window.set_title(&next_title);
+            self.window_title = next_title;
+        }
     }
 
     fn selection_rectangles(&self) -> Vec<ScreenRect> {
@@ -958,16 +971,22 @@ impl WindowState {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let update = build_tree_update(
-            &self.session.document().text(),
-            self.session.selections().primary(),
-            self.surface_config.width,
-            self.surface_config.height,
-            self.window.scale_factor(),
-            TEXT_LEFT,
-            TEXT_TOP,
-        );
-        self.accessibility_adapter.update_if_active(|| update);
+        let session = &self.session;
+        let width = self.surface_config.width;
+        let height = self.surface_config.height;
+        let scale_factor = self.window.scale_factor();
+
+        self.accessibility_adapter.update_if_active(|| {
+            build_tree_update(
+                &session.document().text(),
+                session.selections().primary(),
+                width,
+                height,
+                scale_factor,
+                TEXT_LEFT,
+                TEXT_TOP,
+            )
+        });
     }
 
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
@@ -1044,23 +1063,26 @@ impl WindowState {
             bottom: self.surface_config.height as i32 - TEXT_TOP as i32,
         };
 
-        self.text_renderer.prepare(
-            &self.device,
-            &self.queue,
-            &mut self.font_system,
-            &mut self.atlas,
-            &self.viewport,
-            [TextArea {
-                buffer: &self.text_buffer,
-                left: TEXT_LEFT,
-                top: TEXT_TOP,
-                scale: 1.0,
-                bounds: text_bounds,
-                default_color: Color::rgb(210, 214, 220),
-                custom_glyphs: &[],
-            }],
-            &mut self.swash_cache,
-        )?;
+        if self.text_render_dirty {
+            self.text_renderer.prepare(
+                &self.device,
+                &self.queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.viewport,
+                [TextArea {
+                    buffer: &self.text_buffer,
+                    left: TEXT_LEFT,
+                    top: TEXT_TOP,
+                    scale: 1.0,
+                    bounds: text_bounds,
+                    default_color: Color::rgb(210, 214, 220),
+                    custom_glyphs: &[],
+                }],
+                &mut self.swash_cache,
+            )?;
+            self.text_render_dirty = false;
+        }
 
         let selection_rects = self.selection_rectangles();
         let caret_rects = self.caret_rectangles();
@@ -1179,7 +1201,6 @@ impl WindowState {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
-        self.atlas.trim();
         Ok(())
     }
 
