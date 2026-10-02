@@ -1,6 +1,6 @@
 use crate::{
-    ExtensionCandidate, ExtensionId, ExtensionOverlapPolicy, ExtensionScanContext,
-    ExtensionSet, SyntaxExtension,
+    ExtensionCandidate, ExtensionId, ExtensionOverlapPolicy, ExtensionScanContext, ExtensionSet,
+    SyntaxExtension,
 };
 
 pub const OBSIDIAN_EXTENSION_ID: ExtensionId = ExtensionId::new("obsidian");
@@ -72,9 +72,8 @@ fn scan_wikilinks(
             break;
         };
 
-        let embed = open > 0
-            && source.as_bytes()[open - 1] == b'!'
-            && !is_escaped(source, open - 1);
+        let embed =
+            open > 0 && source.as_bytes()[open - 1] == b'!' && !is_escaped(source, open - 1);
         let start = if embed { open - 1 } else { open };
         let end = close + 2;
         let body = &source[open + 2..close];
@@ -89,9 +88,9 @@ fn scan_wikilinks(
             continue;
         };
 
-        let (target, display) = body.split_once('|').map_or((body, None), |(left, right)| {
-            (left, Some(right))
-        });
+        let (target, display) = body
+            .split_once('|')
+            .map_or((body, None), |(left, right)| (left, Some(right)));
         let (path, fragment) = target
             .split_once('#')
             .map_or((target, None), |(left, right)| (left, Some(right)));
@@ -297,12 +296,7 @@ fn find_unescaped(source: &str, needle: &str, from: usize) -> Option<usize> {
     find_unescaped_bounded(source, needle, from, source.len())
 }
 
-fn find_unescaped_bounded(
-    source: &str,
-    needle: &str,
-    from: usize,
-    end: usize,
-) -> Option<usize> {
+fn find_unescaped_bounded(source: &str, needle: &str, from: usize, end: usize) -> Option<usize> {
     let mut cursor = from;
     while cursor <= end {
         let relative = source[cursor..end].find(needle)?;
@@ -333,9 +327,7 @@ mod tests {
     use super::*;
     use mdedit_core::Document;
 
-    use crate::{
-        ExtensionIssueReason, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
-    };
+    use crate::{ExtensionIssueReason, MarkdownDialect, MarkdownParser, PulldownCmarkParser};
 
     fn scan(source: &str) -> crate::ExtensionSnapshot {
         let document = Document::new(source).unwrap();

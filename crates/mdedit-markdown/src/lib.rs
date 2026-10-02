@@ -29,10 +29,9 @@ pub use extension::{
     ExtensionScanContext, ExtensionScanMode, ExtensionSet, ExtensionSnapshot, SyntaxExtension,
 };
 pub use obsidian::{
-    BLOCK_ID as OBSIDIAN_BLOCK_ID, CALLOUT as OBSIDIAN_CALLOUT,
-    COMMENT as OBSIDIAN_COMMENT, EMBED as OBSIDIAN_EMBED,
-    HIGHLIGHT as OBSIDIAN_HIGHLIGHT, OBSIDIAN_EXTENSION_ID, ObsidianSyntaxExtension,
-    WIKILINK as OBSIDIAN_WIKILINK, obsidian_extension_set,
+    BLOCK_ID as OBSIDIAN_BLOCK_ID, CALLOUT as OBSIDIAN_CALLOUT, COMMENT as OBSIDIAN_COMMENT,
+    EMBED as OBSIDIAN_EMBED, HIGHLIGHT as OBSIDIAN_HIGHLIGHT, OBSIDIAN_EXTENSION_ID,
+    ObsidianSyntaxExtension, WIKILINK as OBSIDIAN_WIKILINK, obsidian_extension_set,
 };
 pub use parser::MarkdownParser;
 pub use pulldown::PulldownCmarkParser;

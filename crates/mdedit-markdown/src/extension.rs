@@ -288,9 +288,9 @@ impl ExtensionSet {
                 }
 
                 if mode == ExtensionScanMode::MarkdownText
-                    && let Some((_, core_kind)) = protected
-                        .iter()
-                        .find(|(protected_range, _)| ranges_overlap(*protected_range, candidate.range))
+                    && let Some((_, core_kind)) = protected.iter().find(|(protected_range, _)| {
+                        ranges_overlap(*protected_range, candidate.range)
+                    })
                 {
                     issues.push(ExtensionIssue {
                         kind: ExtensionKind {
@@ -367,8 +367,8 @@ fn can_coexist(left: &ExtensionMatch, right: &ExtensionMatch) -> bool {
         return false;
     }
 
-    let contained = range_contains(left.range, right.range)
-        || range_contains(right.range, left.range);
+    let contained =
+        range_contains(left.range, right.range) || range_contains(right.range, left.range);
 
     contained
         && left.overlap == ExtensionOverlapPolicy::AllowContained
@@ -389,10 +389,7 @@ fn collect_protected_ranges(node: &SyntaxNode) -> Vec<(TextRange, SyntaxKind)> {
     ranges
 }
 
-fn collect_protected_ranges_into(
-    node: &SyntaxNode,
-    ranges: &mut Vec<(TextRange, SyntaxKind)>,
-) {
+fn collect_protected_ranges_into(node: &SyntaxNode, ranges: &mut Vec<(TextRange, SyntaxKind)>) {
     if is_protected_kind(node.kind()) {
         ranges.push((node.range(), node.kind()));
         return;
@@ -495,7 +492,10 @@ impl fmt::Display for ExtensionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SyntaxUnavailable(status) => {
-                write!(formatter, "extension scanning requires parsed syntax, got {status:?}")
+                write!(
+                    formatter,
+                    "extension scanning requires parsed syntax, got {status:?}"
+                )
             }
             Self::RevisionMismatch { document, syntax } => write!(
                 formatter,
@@ -509,7 +509,9 @@ impl fmt::Display for ExtensionError {
                 document.get(),
                 syntax.get()
             ),
-            Self::DocumentTooLarge => write!(formatter, "document exceeds the supported source size"),
+            Self::DocumentTooLarge => {
+                write!(formatter, "document exceeds the supported source size")
+            }
         }
     }
 }
