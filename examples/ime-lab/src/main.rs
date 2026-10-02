@@ -72,6 +72,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             return;
         }
 
+        eprintln!("[mdedit-ime-lab] creating native window");
         let attributes = Window::default_attributes()
             .with_title("mdedit IME Lab")
             .with_inner_size(LogicalSize::new(960.0, 680.0))
@@ -81,11 +82,13 @@ impl ApplicationHandler<AccessKitEvent> for Application {
                 .create_window(attributes)
                 .expect("create IME lab window"),
         );
+        eprintln!("[mdedit-ime-lab] native window created");
         let accessibility_adapter = AccessKitAdapter::with_event_loop_proxy(
             event_loop,
             &window,
             self.event_loop_proxy.clone(),
         );
+        eprintln!("[mdedit-ime-lab] AccessKit adapter created");
         window.set_visible(true);
         window.set_ime_allowed(true);
 
@@ -208,21 +211,31 @@ impl WindowState {
     ) -> Self {
         let physical_size = window.inner_size();
 
-        let instance = Instance::new(InstanceDescriptor::new_with_display_handle(Box::new(
-            event_loop.owned_display_handle(),
-        )));
+        eprintln!("[mdedit-ime-lab] wgpu: creating instance");
+        let instance = Instance::new(InstanceDescriptor::new_with_display_handle_from_env(
+            Box::new(event_loop.owned_display_handle()),
+        ));
+        eprintln!("[mdedit-ime-lab] wgpu: instance created; requesting adapter");
         let adapter = instance
             .request_adapter(&RequestAdapterOptions::default())
             .await
             .expect("request graphics adapter");
+        let adapter_info = adapter.get_info();
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: adapter={} backend={:?} device_type={:?}",
+            adapter_info.name, adapter_info.backend, adapter_info.device_type
+        );
+        eprintln!("[mdedit-ime-lab] wgpu: requesting device");
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor::default())
             .await
             .expect("request graphics device");
+        eprintln!("[mdedit-ime-lab] wgpu: device created; creating surface");
 
         let surface = instance
             .create_surface(window.clone())
             .expect("create window surface");
+        eprintln!("[mdedit-ime-lab] wgpu: surface created");
         let format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
@@ -235,7 +248,9 @@ impl WindowState {
             desired_maximum_frame_latency: 2,
             color_space: SurfaceColorSpace::Auto,
         };
+        eprintln!("[mdedit-ime-lab] wgpu: configuring surface");
         surface.configure(&device, &surface_config);
+        eprintln!("[mdedit-ime-lab] wgpu: surface configured; creating text renderer");
 
         let mut font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
@@ -245,6 +260,7 @@ impl WindowState {
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let rect_renderer = RectRenderer::new(&device, format);
+        eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
         text_buffer.set_wrap(Wrap::Word);
@@ -292,6 +308,7 @@ impl WindowState {
         };
 
         state.refresh_layout();
+        eprintln!("[mdedit-ime-lab] initialization complete");
         state
     }
 
