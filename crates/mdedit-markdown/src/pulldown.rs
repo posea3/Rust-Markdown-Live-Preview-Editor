@@ -4,8 +4,7 @@ use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::{
-    MarkdownDialect, MarkdownParser, ParseStatus, RawFallbackReason, SyntaxKind, SyntaxNode,
-    SyntaxSnapshot,
+    MarkdownDialect, MarkdownParser, RawFallbackReason, SyntaxKind, SyntaxNode, SyntaxSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -221,6 +220,7 @@ fn options_for(dialect: MarkdownDialect) -> Options {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParseStatus;
     use mdedit_core::Document;
 
     fn parse(source: &str, dialect: MarkdownDialect) -> SyntaxSnapshot {
@@ -228,10 +228,10 @@ mod tests {
         PulldownCmarkParser.parse(&document.snapshot(), &dialect)
     }
 
-    fn find_first(
-        node: &SyntaxNode,
+    fn find_first<'a>(
+        node: &'a SyntaxNode,
         predicate: &impl Fn(SyntaxKind) -> bool,
-    ) -> Option<&SyntaxNode> {
+    ) -> Option<&'a SyntaxNode> {
         if predicate(node.kind()) {
             return Some(node);
         }
