@@ -150,6 +150,41 @@ cargo run --release -p mdedit-ime-lab
 
 The default `cargo run` uses Rust's debug profile and is useful for diagnostics, but it is not representative of final editor latency. The Windows surface also keeps FIFO presentation to avoid tearing while limiting `desired_maximum_frame_latency` to 1 for lower input-to-display latency.
 
+## Input latency diagnostics
+
+Use the optimized build for latency checks:
+
+```powershell
+$env:MDEDIT_LATENCY_TRACE="1"
+Remove-Item Env:MDEDIT_TRACE_FILE -ErrorAction SilentlyContinue
+Remove-Item Env:MDEDIT_PRESENT_MODE -ErrorAction SilentlyContinue
+cargo run --release -p mdedit-ime-lab
+```
+
+A single non-repeated arrow-key press emits a line like:
+
+```text
+[mdedit-latency] arrow-right handle=...ms redraw_wait=...ms render_present=...ms total=...ms
+```
+
+The timing ends when the present call returns; it does not include the monitor's final scanout. This distinction is useful: a small CPU-side total with visibly delayed feedback points toward presentation/compositor/vsync latency rather than caret-navigation work.
+
+To compare presentation modes without changing code:
+
+```powershell
+$env:MDEDIT_PRESENT_MODE="mailbox"
+cargo run --release -p mdedit-ime-lab
+```
+
+or:
+
+```powershell
+$env:MDEDIT_PRESENT_MODE="auto-no-vsync"
+cargo run --release -p mdedit-ime-lab
+```
+
+`mailbox` is used only when reported by the surface; unsupported explicit modes fall back safely. `auto-no-vsync` lets wgpu choose Immediate, then Mailbox, then Fifo.
+
 ## Phase 3 manual acceptance status
 
 Windows acceptance on the tested Intel UHD Graphics 630 machine:
