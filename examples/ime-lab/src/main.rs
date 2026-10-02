@@ -1211,8 +1211,7 @@ fn visual_horizontal_target(
             let grapheme_count = cluster.grapheme_indices(true).count().max(1);
             let cell_width = glyph.w / grapheme_count as f32;
 
-            for (ordinal, (relative_start, grapheme)) in
-                cluster.grapheme_indices(true).enumerate()
+            for (ordinal, (relative_start, grapheme)) in cluster.grapheme_indices(true).enumerate()
             {
                 let start = glyph.start + relative_start;
                 let end = start + grapheme.len();
@@ -1221,11 +1220,7 @@ fn visual_horizontal_target(
 
                 let (left_cursor, right_cursor) = if glyph.level.is_rtl() {
                     (
-                        CosmicCursor::new_with_affinity(
-                            run.line_i,
-                            end,
-                            glyphon::Affinity::Before,
-                        ),
+                        CosmicCursor::new_with_affinity(run.line_i, end, glyphon::Affinity::Before),
                         CosmicCursor::new_with_affinity(
                             run.line_i,
                             start,
@@ -1239,11 +1234,7 @@ fn visual_horizontal_target(
                             start,
                             glyphon::Affinity::After,
                         ),
-                        CosmicCursor::new_with_affinity(
-                            run.line_i,
-                            end,
-                            glyphon::Affinity::Before,
-                        ),
+                        CosmicCursor::new_with_affinity(run.line_i, end, glyphon::Affinity::Before),
                     )
                 };
 
