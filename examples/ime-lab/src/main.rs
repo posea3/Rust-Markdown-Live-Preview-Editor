@@ -2,7 +2,7 @@ mod accessibility;
 mod geometry;
 mod trace_capture;
 
-use std::{error::Error, ops::Range, sync::Arc};
+use std::{env, error::Error, ops::Range, sync::Arc, time::Instant};
 
 use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use accesskit::ActionRequest;
@@ -17,10 +17,12 @@ use glyphon::{
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, Revision, SelectionRange, SelectionSet, TextRange,
+    TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
 use trace_capture::TraceCapture;
+use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
     CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor,
     LoadOp, MultisampleState, Operations, PresentMode, RenderPassColorAttachment,
@@ -72,6 +74,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             return;
         }
 
+        eprintln!("[mdedit-ime-lab] creating native window");
         let attributes = Window::default_attributes()
             .with_title("mdedit IME Lab")
             .with_inner_size(LogicalSize::new(960.0, 680.0))
@@ -81,11 +84,13 @@ impl ApplicationHandler<AccessKitEvent> for Application {
                 .create_window(attributes)
                 .expect("create IME lab window"),
         );
+        eprintln!("[mdedit-ime-lab] native window created");
         let accessibility_adapter = AccessKitAdapter::with_event_loop_proxy(
             event_loop,
             &window,
             self.event_loop_proxy.clone(),
         );
+        eprintln!("[mdedit-ime-lab] AccessKit adapter created");
         window.set_visible(true);
         window.set_ime_allowed(true);
 
@@ -117,7 +122,13 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             }
             WindowEvent::Ime(ime) => state.handle_ime(ime),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if !event.repeat {
+                    state.begin_latency_probe(event.logical_key.as_ref());
+                }
                 state.handle_key(event.logical_key.as_ref(), event.text.as_deref());
+                if !event.repeat {
+                    state.mark_latency_input_handled();
+                }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor_position = position;
@@ -135,8 +146,11 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             },
             WindowEvent::MouseWheel { delta, .. } => state.scroll(delta),
             WindowEvent::RedrawRequested => {
+                state.mark_latency_redraw_received();
                 let continue_drag_scroll = state.continue_drag_auto_scroll();
-                if let Err(error) = state.render() {
+                let render_result = state.render();
+                state.finish_latency_probe();
+                if let Err(error) = render_result {
                     eprintln!("render error: {error}");
                 }
                 if continue_drag_scroll {
@@ -190,11 +204,19 @@ struct WindowState {
     dragging: bool,
 
     display_text: String,
+    display_revision: Option<Revision>,
+    preedit_text: Option<String>,
     preedit_range: Option<Range<usize>>,
     caret_xy: (f32, f32),
     caret_height: f32,
     preferred_x: Option<f32>,
     ensure_caret_visible: bool,
+    layout_dirty: bool,
+    text_render_dirty: bool,
+    viewport_dirty: bool,
+    window_title: String,
+    latency_trace_enabled: bool,
+    latency_probe: Option<LatencyProbe>,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -208,34 +230,62 @@ impl WindowState {
     ) -> Self {
         let physical_size = window.inner_size();
 
-        let instance = Instance::new(InstanceDescriptor::new_with_display_handle(Box::new(
+        eprintln!("[mdedit-ime-lab] wgpu: creating instance");
+        let mut instance_descriptor = InstanceDescriptor::new_with_display_handle(Box::new(
             event_loop.owned_display_handle(),
-        )));
+        ));
+        apply_platform_backend_default(&mut instance_descriptor);
+        let instance_descriptor = instance_descriptor.with_env();
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: enabled backends={:?}",
+            instance_descriptor.backends
+        );
+        let instance = Instance::new(instance_descriptor);
+        eprintln!("[mdedit-ime-lab] wgpu: instance created; requesting adapter");
         let adapter = instance
             .request_adapter(&RequestAdapterOptions::default())
             .await
             .expect("request graphics adapter");
+        let adapter_info = adapter.get_info();
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: adapter={} backend={:?} device_type={:?}",
+            adapter_info.name, adapter_info.backend, adapter_info.device_type
+        );
+        eprintln!("[mdedit-ime-lab] wgpu: requesting device");
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor::default())
             .await
             .expect("request graphics device");
+        eprintln!("[mdedit-ime-lab] wgpu: device created; creating surface");
 
         let surface = instance
             .create_surface(window.clone())
             .expect("create window surface");
+        eprintln!("[mdedit-ime-lab] wgpu: surface created");
+        let capabilities = surface.get_capabilities(&adapter);
+        let present_mode = choose_present_mode(&capabilities.present_modes);
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: supported present modes={:?}; selected={:?}",
+            capabilities.present_modes, present_mode
+        );
+
         let format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format,
             width: physical_size.width.max(1),
             height: physical_size.height.max(1),
-            present_mode: PresentMode::Fifo,
+            present_mode,
             alpha_mode: CompositeAlphaMode::Opaque,
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            // Text-editor interaction is latency-sensitive. Avoid queueing a second
+            // frame behind the compositor regardless of the selected present mode.
+            desired_maximum_frame_latency: 1,
             color_space: SurfaceColorSpace::Auto,
         };
+        eprintln!("[mdedit-ime-lab] wgpu: configuring surface");
         surface.configure(&device, &surface_config);
+        eprintln!("[mdedit-ime-lab] wgpu: surface configured; creating text renderer");
 
         let mut font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
@@ -245,6 +295,7 @@ impl WindowState {
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let rect_renderer = RectRenderer::new(&device, format);
+        eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
         text_buffer.set_wrap(Wrap::Word);
@@ -283,15 +334,24 @@ impl WindowState {
             drag_anchor: None,
             dragging: false,
             display_text: String::new(),
+            display_revision: None,
+            preedit_text: None,
             preedit_range: None,
             caret_xy: (0.0, 0.0),
             caret_height: LINE_HEIGHT,
             preferred_x: None,
             ensure_caret_visible: true,
+            layout_dirty: true,
+            text_render_dirty: true,
+            viewport_dirty: true,
+            window_title: String::new(),
+            latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
+            latency_probe: None,
             window,
         };
 
         state.refresh_layout();
+        eprintln!("[mdedit-ime-lab] initialization complete");
         state
     }
 
@@ -317,6 +377,9 @@ impl WindowState {
             Some((size.width as f32 - TEXT_LEFT * 2.0).max(1.0)),
             Some((size.height as f32 - TEXT_TOP * 2.0).max(1.0)),
         );
+        self.layout_dirty = true;
+        self.text_render_dirty = true;
+        self.viewport_dirty = true;
         self.ensure_caret_visible = true;
         self.request_redraw();
     }
@@ -508,13 +571,9 @@ impl WindowState {
 
     fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
-        self.ensure_caret_visible = true;
-        self.refresh_layout();
 
         let primary = self.session.selections().primary();
         let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
-        self.text_buffer
-            .shape_until_cursor(&mut self.font_system, cursor, false);
 
         let target = visual_horizontal_target(
             &mut self.text_buffer,
@@ -658,6 +717,8 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.layout_dirty = false;
+        self.text_render_dirty = true;
         self.ensure_caret_visible = false;
         self.request_redraw();
     }
@@ -738,6 +799,8 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.layout_dirty = false;
+        self.text_render_dirty = true;
         self.ensure_caret_visible = false;
 
         self.text_buffer.scroll() != before
@@ -770,21 +833,32 @@ impl WindowState {
     }
 
     fn refresh_layout(&mut self) {
-        let next_display_text = match self.session.display_text() {
-            Ok(text) => text,
-            Err(error) => {
-                eprintln!("display projection error: {error}");
-                self.session.document().text()
-            }
-        };
-        let next_preedit_range = self
+        let scroll_before = self.text_buffer.scroll();
+        let revision = self.session.document().revision();
+        let next_preedit_text = self
             .session
             .composition()
-            .map(|composition| composition.display_preedit_range());
+            .map(|composition| composition.preedit());
+        let display_changed = self.display_revision != Some(revision)
+            || self.preedit_text.as_deref() != next_preedit_text;
 
-        if next_display_text != self.display_text || next_preedit_range != self.preedit_range {
+        if display_changed {
+            let next_display_text = match self.session.display_text() {
+                Ok(text) => text,
+                Err(error) => {
+                    eprintln!("display projection error: {error}");
+                    self.session.document().text()
+                }
+            };
+            let next_preedit_range = self
+                .session
+                .composition()
+                .map(|composition| composition.display_preedit_range());
             let old_scroll = self.text_buffer.scroll();
+
             self.display_text = next_display_text;
+            self.display_revision = Some(revision);
+            self.preedit_text = next_preedit_text.map(str::to_owned);
             self.preedit_range = next_preedit_range;
 
             let normal = Attrs::new()
@@ -816,6 +890,8 @@ impl WindowState {
             }
 
             self.text_buffer.set_scroll(old_scroll);
+            self.layout_dirty = true;
+            self.text_render_dirty = true;
         }
 
         let display_caret = self
@@ -826,12 +902,18 @@ impl WindowState {
         let cursor = display_offset_to_cursor(&self.display_text, display_caret.to_usize());
 
         if self.ensure_caret_visible {
-            self.text_buffer
-                .shape_until_cursor(&mut self.font_system, cursor, false);
+            let caret_is_visible =
+                !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
+            if !caret_is_visible {
+                self.text_buffer
+                    .shape_until_cursor(&mut self.font_system, cursor, false);
+                self.layout_dirty = false;
+            }
             self.ensure_caret_visible = false;
-        } else {
+        } else if self.layout_dirty {
             self.text_buffer
                 .shape_until_scroll(&mut self.font_system, false);
+            self.layout_dirty = false;
         }
 
         if let Some((x, top, height)) = self.text_buffer.layout_runs().find_map(|run| {
@@ -850,6 +932,11 @@ impl WindowState {
             PhysicalSize::new(CARET_WIDTH.ceil() as u32, self.caret_height.ceil() as u32),
         );
 
+        let scroll = self.text_buffer.scroll();
+        if scroll != scroll_before {
+            self.text_render_dirty = true;
+        }
+
         let composition_label = self.session.composition().map_or("none", |composition| {
             if composition.preedit().is_empty() {
                 "empty-preedit"
@@ -857,13 +944,19 @@ impl WindowState {
                 "preedit"
             }
         });
-        let scroll = self.text_buffer.scroll();
-        self.window.set_title(&format!(
-            "mdedit IME Lab | source={} bytes | composition={composition_label} | scroll={}:{:.0}",
-            self.session.document().text().len(),
-            scroll.line,
-            scroll.vertical
-        ));
+        let source_len = self
+            .session
+            .document()
+            .len()
+            .map_or(0, |length| length.to_usize());
+        let next_title = format!(
+            "mdedit IME Lab | source={source_len} bytes | composition={composition_label} | scroll={}:{:.0}",
+            scroll.line, scroll.vertical
+        );
+        if next_title != self.window_title {
+            self.window.set_title(&next_title);
+            self.window_title = next_title;
+        }
     }
 
     fn selection_rectangles(&self) -> Vec<ScreenRect> {
@@ -933,16 +1026,22 @@ impl WindowState {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let update = build_tree_update(
-            &self.session.document().text(),
-            self.session.selections().primary(),
-            self.surface_config.width,
-            self.surface_config.height,
-            self.window.scale_factor(),
-            TEXT_LEFT,
-            TEXT_TOP,
-        );
-        self.accessibility_adapter.update_if_active(|| update);
+        let session = &self.session;
+        let width = self.surface_config.width;
+        let height = self.surface_config.height;
+        let scale_factor = self.window.scale_factor();
+
+        self.accessibility_adapter.update_if_active(|| {
+            build_tree_update(
+                &session.document().text(),
+                session.selections().primary(),
+                width,
+                height,
+                scale_factor,
+                TEXT_LEFT,
+                TEXT_TOP,
+            )
+        });
     }
 
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
@@ -1004,13 +1103,16 @@ impl WindowState {
         self.refresh_layout();
         self.update_accessibility_tree();
 
-        self.viewport.update(
-            &self.queue,
-            Resolution {
-                width: self.surface_config.width,
-                height: self.surface_config.height,
-            },
-        );
+        if self.viewport_dirty {
+            self.viewport.update(
+                &self.queue,
+                Resolution {
+                    width: self.surface_config.width,
+                    height: self.surface_config.height,
+                },
+            );
+            self.viewport_dirty = false;
+        }
 
         let text_bounds = TextBounds {
             left: TEXT_LEFT as i32,
@@ -1019,23 +1121,27 @@ impl WindowState {
             bottom: self.surface_config.height as i32 - TEXT_TOP as i32,
         };
 
-        self.text_renderer.prepare(
-            &self.device,
-            &self.queue,
-            &mut self.font_system,
-            &mut self.atlas,
-            &self.viewport,
-            [TextArea {
-                buffer: &self.text_buffer,
-                left: TEXT_LEFT,
-                top: TEXT_TOP,
-                scale: 1.0,
-                bounds: text_bounds,
-                default_color: Color::rgb(210, 214, 220),
-                custom_glyphs: &[],
-            }],
-            &mut self.swash_cache,
-        )?;
+        let text_prepared = self.text_render_dirty;
+        if text_prepared {
+            self.text_renderer.prepare(
+                &self.device,
+                &self.queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.viewport,
+                [TextArea {
+                    buffer: &self.text_buffer,
+                    left: TEXT_LEFT,
+                    top: TEXT_TOP,
+                    scale: 1.0,
+                    bounds: text_bounds,
+                    default_color: Color::rgb(210, 214, 220),
+                    custom_glyphs: &[],
+                }],
+                &mut self.swash_cache,
+            )?;
+            self.text_render_dirty = false;
+        }
 
         let selection_rects = self.selection_rectangles();
         let caret_rects = self.caret_rectangles();
@@ -1154,13 +1260,127 @@ impl WindowState {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
-        self.atlas.trim();
+        if text_prepared {
+            self.atlas.trim();
+        }
         Ok(())
+    }
+
+    fn begin_latency_probe(&mut self, key: Key<&str>) {
+        if !self.latency_trace_enabled {
+            return;
+        }
+
+        let label = match key {
+            Key::Named(NamedKey::ArrowLeft) => "arrow-left",
+            Key::Named(NamedKey::ArrowRight) => "arrow-right",
+            Key::Named(NamedKey::ArrowUp) => "arrow-up",
+            Key::Named(NamedKey::ArrowDown) => "arrow-down",
+            _ => return,
+        };
+
+        self.latency_probe = Some(LatencyProbe {
+            label,
+            input_received: Instant::now(),
+            input_handled: None,
+            redraw_received: None,
+        });
+    }
+
+    fn mark_latency_input_handled(&mut self) {
+        if let Some(probe) = self.latency_probe.as_mut() {
+            probe.input_handled = Some(Instant::now());
+        }
+    }
+
+    fn mark_latency_redraw_received(&mut self) {
+        if let Some(probe) = self.latency_probe.as_mut() {
+            probe.redraw_received = Some(Instant::now());
+        }
+    }
+
+    fn finish_latency_probe(&mut self) {
+        let Some(probe) = self.latency_probe.take() else {
+            return;
+        };
+
+        let presented = Instant::now();
+        let handled = probe.input_handled.unwrap_or(probe.input_received);
+        let redraw = probe.redraw_received.unwrap_or(handled);
+        eprintln!(
+            "[mdedit-latency] {} handle={:.3}ms redraw_wait={:.3}ms render_present={:.3}ms total={:.3}ms",
+            probe.label,
+            duration_ms(handled.duration_since(probe.input_received)),
+            duration_ms(redraw.duration_since(handled)),
+            duration_ms(presented.duration_since(redraw)),
+            duration_ms(presented.duration_since(probe.input_received)),
+        );
     }
 
     fn request_redraw(&self) {
         self.window.request_redraw();
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LatencyProbe {
+    label: &'static str,
+    input_received: Instant,
+    input_handled: Option<Instant>,
+    redraw_received: Option<Instant>,
+}
+
+fn duration_ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+fn env_flag(name: &str) -> bool {
+    env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
+    let requested = env::var("MDEDIT_PRESENT_MODE").ok();
+    let Some(requested) = requested.as_deref() else {
+        return PresentMode::Fifo;
+    };
+
+    let normalized = requested.trim().to_ascii_lowercase();
+    let requested_mode = match normalized.as_str() {
+        "fifo" => PresentMode::Fifo,
+        "auto-vsync" | "autovsync" => PresentMode::AutoVsync,
+        "auto-no-vsync" | "autonovsync" => PresentMode::AutoNoVsync,
+        "mailbox" => PresentMode::Mailbox,
+        "immediate" => PresentMode::Immediate,
+        other => {
+            eprintln!("[mdedit-ime-lab] unknown MDEDIT_PRESENT_MODE={other:?}; using Fifo");
+            return PresentMode::Fifo;
+        }
+    };
+
+    match requested_mode {
+        PresentMode::Mailbox | PresentMode::Immediate | PresentMode::FifoRelaxed
+            if !supported.contains(&requested_mode) =>
+        {
+            eprintln!(
+                "[mdedit-ime-lab] requested present mode {requested_mode:?} is unsupported; using AutoNoVsync"
+            );
+            PresentMode::AutoNoVsync
+        }
+        _ => requested_mode,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct VisualCaretCell {
+    left: f32,
+    right: f32,
+    left_cursor: CosmicCursor,
+    right_cursor: CosmicCursor,
 }
 
 fn visual_horizontal_target(
@@ -1169,26 +1389,56 @@ fn visual_horizontal_target(
     cursor: CosmicCursor,
     direction: i32,
 ) -> Option<CosmicCursor> {
-    let (current_x, current_top, current_height) = buffer.layout_runs().find_map(|run| {
-        run.cursor_position(&cursor)
-            .map(|x| (x, run.line_top, run.line_height))
-    })?;
+    let target = buffer.layout_runs().find_map(|run| {
+        let current_x = run.cursor_position(&cursor)?;
+        let mut cells = Vec::with_capacity(run.glyphs.len());
 
-    let y = current_top + current_height * 0.5;
-    let width = buffer.size().0.unwrap_or(4096.0).max(1.0);
-    let max_steps = width.ceil() as usize + 4;
+        for glyph in run.glyphs {
+            let cluster = &run.text[glyph.start..glyph.end];
+            let grapheme_count = cluster.grapheme_indices(true).count().max(1);
+            let cell_width = glyph.w / grapheme_count as f32;
 
-    for step in 1..=max_steps {
-        let x = current_x + direction as f32 * step as f32;
-        if x < -2.0 || x > width + 2.0 {
-            break;
+            for (ordinal, (relative_start, grapheme)) in cluster.grapheme_indices(true).enumerate()
+            {
+                let start = glyph.start + relative_start;
+                let end = start + grapheme.len();
+                let left = glyph.x + cell_width * ordinal as f32;
+                let right = left + cell_width;
+
+                let (left_cursor, right_cursor) = if glyph.level.is_rtl() {
+                    (
+                        CosmicCursor::new_with_affinity(run.line_i, end, glyphon::Affinity::Before),
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            start,
+                            glyphon::Affinity::After,
+                        ),
+                    )
+                } else {
+                    (
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            start,
+                            glyphon::Affinity::After,
+                        ),
+                        CosmicCursor::new_with_affinity(run.line_i, end, glyphon::Affinity::Before),
+                    )
+                };
+
+                cells.push(VisualCaretCell {
+                    left,
+                    right,
+                    left_cursor,
+                    right_cursor,
+                });
+            }
         }
 
-        if let Some(candidate) = buffer.hit(x, y)
-            && !same_cosmic_cursor(candidate, cursor)
-        {
-            return Some(candidate);
-        }
+        visual_neighbor(&cells, current_x, cursor, direction)
+    });
+
+    if target.is_some() {
+        return target;
     }
 
     let motion = if direction < 0 {
@@ -1201,8 +1451,73 @@ fn visual_horizontal_target(
         .map(|(cursor, _)| cursor)
 }
 
-fn same_cosmic_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
-    left.line == right.line && left.index == right.index && left.affinity == right.affinity
+fn visual_neighbor(
+    cells: &[VisualCaretCell],
+    current_x: f32,
+    cursor: CosmicCursor,
+    direction: i32,
+) -> Option<CosmicCursor> {
+    const EPSILON: f32 = 0.01;
+
+    let mut best: Option<(f32, f32, CosmicCursor)> = None;
+
+    for cell in cells {
+        let (eligible, distance, span, near_cursor, far_cursor) = if direction < 0 {
+            (
+                cell.left < current_x - EPSILON,
+                (current_x - cell.right).max(0.0),
+                (current_x - cell.left).abs(),
+                cell.right_cursor,
+                cell.left_cursor,
+            )
+        } else {
+            (
+                cell.right > current_x + EPSILON,
+                (cell.left - current_x).max(0.0),
+                (cell.right - current_x).abs(),
+                cell.left_cursor,
+                cell.right_cursor,
+            )
+        };
+
+        if !eligible {
+            continue;
+        }
+
+        // Affinity only selects which shaped run owns a cursor at a shared
+        // logical boundary. Moving Left/Right must not consume a key press just
+        // to flip affinity at the same byte offset; skip directly to the far
+        // edge of the adjacent visual cell in that case.
+        let candidate = if same_logical_cursor(near_cursor, cursor) {
+            far_cursor
+        } else {
+            near_cursor
+        };
+        if same_logical_cursor(candidate, cursor) {
+            continue;
+        }
+
+        let is_better = best.is_none_or(|(best_distance, best_span, _)| {
+            distance < best_distance - EPSILON
+                || ((distance - best_distance).abs() <= EPSILON && span < best_span)
+        });
+        if is_better {
+            best = Some((distance, span, candidate));
+        }
+    }
+
+    best.map(|(_, _, cursor)| cursor)
+}
+
+fn apply_platform_backend_default(_descriptor: &mut InstanceDescriptor) {
+    #[cfg(target_os = "windows")]
+    {
+        _descriptor.backends = wgpu::Backends::DX12;
+    }
+}
+
+fn same_logical_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
+    left.line == right.line && left.index == right.index
 }
 
 fn display_anchor_to_cursor(text: &str, anchor: Anchor) -> CosmicCursor {
@@ -1258,4 +1573,110 @@ fn cursor_to_display_offset(text: &str, cursor: CosmicCursor) -> Option<usize> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cursor(index: usize, affinity: glyphon::Affinity) -> CosmicCursor {
+        CosmicCursor::new_with_affinity(0, index, affinity)
+    }
+
+    #[test]
+    fn visual_neighbor_moves_between_adjacent_ltr_cells_without_pixel_scanning() {
+        let c0 = cursor(0, glyphon::Affinity::After);
+        let c1 = cursor(1, glyphon::Affinity::Before);
+        let c1_after = cursor(1, glyphon::Affinity::After);
+        let c2 = cursor(2, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: c0,
+                right_cursor: c1,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: c1_after,
+                right_cursor: c2,
+            },
+        ];
+
+        assert_eq!(visual_neighbor(&cells, 0.0, c0, 1), Some(c1));
+        assert_eq!(visual_neighbor(&cells, 20.0, c2, -1), Some(c1_after));
+    }
+
+    #[test]
+    fn visual_neighbor_does_not_consume_a_press_on_affinity_only_ltr_boundary() {
+        let c0 = cursor(0, glyphon::Affinity::After);
+        let c1_before = cursor(1, glyphon::Affinity::Before);
+        let c1_after = cursor(1, glyphon::Affinity::After);
+        let c2 = cursor(2, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: c0,
+                right_cursor: c1_before,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: c1_after,
+                right_cursor: c2,
+            },
+        ];
+
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, c1_before, 1),
+            Some(c2),
+            "Right must move to the next visible grapheme, not only flip affinity",
+        );
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, c1_after, -1),
+            Some(c0),
+            "Left must move to the previous visible grapheme, not only flip affinity",
+        );
+    }
+
+    #[test]
+    fn visual_neighbor_preserves_same_x_bidi_boundary_transition() {
+        let left_start = cursor(0, glyphon::Affinity::After);
+        let left_end = cursor(1, glyphon::Affinity::Before);
+        let right_start = cursor(4, glyphon::Affinity::After);
+        let right_end = cursor(3, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: left_start,
+                right_cursor: left_end,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: right_start,
+                right_cursor: right_end,
+            },
+        ];
+
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, left_end, 1),
+            Some(right_start)
+        );
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, right_start, -1),
+            Some(left_end)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_defaults_wgpu_to_dx12_before_environment_override() {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+        apply_platform_backend_default(&mut descriptor);
+        assert_eq!(descriptor.backends, wgpu::Backends::DX12);
+    }
 }

@@ -66,7 +66,7 @@ Exit gate:
 
 ## Phase 3 - Raw native editor / IME lab
 
-Status: **in progress — automated native editor hardening complete; manual platform acceptance remains**
+Status: **in progress — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending**
 
 Implemented in the first Phase 3 slice:
 
@@ -94,15 +94,27 @@ Implemented in the first Phase 3 slice:
 - focus-loss / IME-disabled composition cancellation regression tests
 - AccessKit window/text-input/text-run semantic tree with selection and edit actions
 - versioned semantic EditorInput trace capture/replay for converting platform acceptance failures into CI regressions
+- Windows DX12-first wgpu startup with adapter/backend diagnostics and environment overrides
+- affinity-only horizontal caret-stop filtering so one Left/Right press produces one visible step
+- caret-only redraw/layout/accessibility hot-path reductions validated during Windows acceptance
+
+Manual acceptance now confirmed on Windows:
+
+- Korean IME: PASS
+- Left/Right one press = one visible caret step: PASS
+- sustained horizontal movement: PASS
+- Intel UHD Graphics 630 DX12 startup: PASS
+- FIFO/Mailbox comparison: not the cause of the former two-key caret symptom
 
 Remaining Phase 3 hardening:
 
-- manual Korean IME acceptance on Windows and macOS
-- Japanese/Chinese IME manual acceptance
+- Windows Japanese IME acceptance
+- Windows Chinese IME acceptance
+- macOS Korean/Japanese/Chinese IME acceptance
 - manual focus-loss/composition edge-case acceptance
-- manual Narrator/VoiceOver text, selection, and edit-action acceptance
+- Narrator/VoiceOver text, selection, and edit-action acceptance
 
-Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable in the native lab.
+Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start Phase 5 Live Preview until the required IME, undo/redo, selection, mouse editing, and accessibility gates are stable on the intended Tier 1 platforms.
 
 ## Phase 4 - Markdown syntax engine
 

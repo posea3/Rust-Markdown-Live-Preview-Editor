@@ -15,10 +15,10 @@ A source-first, native Rust Markdown editing engine with Live Preview.
 - Phase 0: repository foundation — complete
 - Phase 1: document/transaction/history core — complete
 - Phase 2: selection, Unicode navigation, and grapheme-safe deletion — complete
-- Phase 3: native input/IME lab — automated hardening complete; manual platform acceptance remains
+- Phase 3: native input/IME lab — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending
 - Phase 4: Markdown syntax engine — in progress on a stacked branch
 
-The Phase 3 branch contains the native winit + cosmic-text + glyphon/wgpu acceptance app, the framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, and semantic input trace/replay. Phase 4 now adds a source-mapped Markdown syntax layer on top; Live Preview projection is still intentionally disabled.
+The current Phase 3 slice includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, semantic trace/replay, Windows DX12 startup diagnostics, and the affinity-only horizontal caret-stop fix. Windows Korean IME, one-key-per-visible-step Left/Right navigation, sustained movement, and Intel UHD Graphics 630 DX12 startup have passed manual acceptance. Windows Japanese/Chinese IME, macOS Korean/Japanese/Chinese IME, Narrator, and VoiceOver remain pending. Phase 4 now adds a source-mapped Markdown syntax layer on top of this corrected Phase 3 base; Live Preview projection remains intentionally disabled.
 
 ## Run the native IME lab
 
@@ -27,6 +27,8 @@ Use Rust 1.90 or newer, then run:
 ```bash
 cargo run -p mdedit-ime-lab
 ```
+
+On Windows, the IME lab defaults wgpu to DX12 because automatic multi-backend startup produced a native access violation on the tested Intel UHD Graphics 630 system. Manual acceptance confirmed DX12 startup on that adapter. Advanced testing can still override this with `WGPU_BACKEND`; FIFO versus Mailbox was also tested and was not the cause of the former two-key horizontal caret symptom.
 
 The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, wheel/trackpad scrolling, soft-wrapped Up/Down movement, BiDi left/right movement, clipboard actions, grapheme deletion, undo/redo, and Narrator/VoiceOver text and selection reporting before Markdown Live Preview work begins.
 
