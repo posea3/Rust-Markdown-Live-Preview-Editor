@@ -1484,12 +1484,16 @@ fn visual_neighbor(
             continue;
         }
 
-        let candidate = if same_cosmic_cursor(near_cursor, cursor) {
+        // Affinity only selects which shaped run owns a cursor at a shared
+        // logical boundary. Moving Left/Right must not consume a key press just
+        // to flip affinity at the same byte offset; skip directly to the far
+        // edge of the adjacent visual cell in that case.
+        let candidate = if same_logical_cursor(near_cursor, cursor) {
             far_cursor
         } else {
             near_cursor
         };
-        if same_cosmic_cursor(candidate, cursor) {
+        if same_logical_cursor(candidate, cursor) {
             continue;
         }
 
@@ -1510,6 +1514,10 @@ fn apply_platform_backend_default(_descriptor: &mut InstanceDescriptor) {
     {
         _descriptor.backends = wgpu::Backends::DX12;
     }
+}
+
+fn same_logical_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
+    left.line == right.line && left.index == right.index
 }
 
 fn same_cosmic_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
@@ -1602,6 +1610,39 @@ mod tests {
 
         assert_eq!(visual_neighbor(&cells, 0.0, c0, 1), Some(c1));
         assert_eq!(visual_neighbor(&cells, 20.0, c2, -1), Some(c1_after));
+    }
+
+    #[test]
+    fn visual_neighbor_does_not_consume_a_press_on_affinity_only_ltr_boundary() {
+        let c0 = cursor(0, glyphon::Affinity::After);
+        let c1_before = cursor(1, glyphon::Affinity::Before);
+        let c1_after = cursor(1, glyphon::Affinity::After);
+        let c2 = cursor(2, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: c0,
+                right_cursor: c1_before,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: c1_after,
+                right_cursor: c2,
+            },
+        ];
+
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, c1_before, 1),
+            Some(c2),
+            "Right must move to the next visible grapheme, not only flip affinity",
+        );
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, c1_after, -1),
+            Some(c0),
+            "Left must move to the previous visible grapheme, not only flip affinity",
+        );
     }
 
     #[test]
