@@ -1357,9 +1357,7 @@ fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
         "mailbox" => PresentMode::Mailbox,
         "immediate" => PresentMode::Immediate,
         other => {
-            eprintln!(
-                "[mdedit-ime-lab] unknown MDEDIT_PRESENT_MODE={other:?}; using Fifo"
-            );
+            eprintln!("[mdedit-ime-lab] unknown MDEDIT_PRESENT_MODE={other:?}; using Fifo");
             return PresentMode::Fifo;
         }
     };
