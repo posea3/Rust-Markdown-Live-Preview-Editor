@@ -556,9 +556,7 @@ mod tests {
         let syntax = parse(&other);
 
         let mut cache = BlockCache::new();
-        let error = cache
-            .reconcile(&document.snapshot(), &syntax)
-            .unwrap_err();
+        let error = cache.reconcile(&document.snapshot(), &syntax).unwrap_err();
 
         assert!(matches!(
             error,
