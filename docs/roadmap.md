@@ -66,7 +66,7 @@ Exit gate:
 
 ## Phase 3 - Raw native editor / IME lab
 
-Status: **in progress — native input/IME foundation implemented; manual acceptance and view hardening remain**
+Status: **in progress — automated native editor hardening complete; manual platform acceptance remains**
 
 Implemented in the first Phase 3 slice:
 
@@ -99,6 +99,7 @@ Remaining Phase 3 hardening:
 - manual Korean IME acceptance on Windows and macOS
 - Japanese/Chinese IME manual acceptance
 - manual focus-loss/composition edge-case acceptance
+- manual Narrator/VoiceOver text, selection, and edit-action acceptance
 
 Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable in the native lab.
 

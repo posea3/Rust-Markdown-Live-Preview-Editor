@@ -141,8 +141,10 @@ cosmic-text is not the source editor model.
 
 ## Remaining Phase 3 hardening
 
-- IME behavior still requires manual Windows/macOS acceptance testing
+- Korean IME still requires manual Windows/macOS acceptance testing
 - Japanese/Chinese IME still requires manual acceptance testing
+- focus-loss and IME disable/re-enable edge cases still require manual acceptance
+- Narrator/VoiceOver text, selection, and edit actions still require manual acceptance
 
 These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
 
