@@ -118,7 +118,7 @@ Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start 
 
 ## Phase 4 - Markdown syntax engine
 
-Status: **in progress — parser boundary and source-mapped syntax tree implemented**
+Status: **in progress — parser, block identity/cache, and exact delimiter foundations implemented**
 
 Implemented:
 
