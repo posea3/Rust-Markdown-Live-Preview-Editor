@@ -28,10 +28,7 @@ impl EditorTrace {
 
     #[must_use]
     pub fn from_session(session: &EditorSession) -> Self {
-        Self::new(
-            session.document().text(),
-            session.selections().clone(),
-        )
+        Self::new(session.document().text(), session.selections().clone())
     }
 
     pub fn push(&mut self, input: EditorInput) {
@@ -47,8 +44,12 @@ impl EditorTrace {
     pub fn encode(&self) -> String {
         let mut output = String::new();
         writeln!(&mut output, "{EDITOR_TRACE_VERSION}").expect("write to String");
-        writeln!(&mut output, "start-source\t{}", encode_hex(&self.initial_source))
-            .expect("write to String");
+        writeln!(
+            &mut output,
+            "start-source\t{}",
+            encode_hex(&self.initial_source)
+        )
+        .expect("write to String");
         writeln!(
             &mut output,
             "start-selection\t{}",
@@ -188,7 +189,13 @@ fn encode_selection(selection: &SelectionSet) -> String {
     let ranges = selection
         .ranges()
         .iter()
-        .map(|range| format!("{},{}", encode_anchor(range.anchor), encode_anchor(range.head)))
+        .map(|range| {
+            format!(
+                "{},{}",
+                encode_anchor(range.anchor),
+                encode_anchor(range.head)
+            )
+        })
         .collect::<Vec<_>>()
         .join(";");
 
@@ -337,8 +344,8 @@ fn decode_hex(encoded: &str) -> Result<String, TraceError> {
 
     let mut bytes = Vec::with_capacity(encoded.len() / 2);
     for chunk in encoded.as_bytes().chunks_exact(2) {
-        let pair = std::str::from_utf8(chunk)
-            .map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
+        let pair =
+            std::str::from_utf8(chunk).map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
         let byte =
             u8::from_str_radix(pair, 16).map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
         bytes.push(byte);
@@ -460,7 +467,10 @@ mod tests {
         });
         trace.push(EditorInput::ImeCommit("한".to_owned()));
 
-        let mut session = EditorTrace::decode(&trace.encode()).unwrap().replay().unwrap();
+        let mut session = EditorTrace::decode(&trace.encode())
+            .unwrap()
+            .replay()
+            .unwrap();
 
         assert_eq!(session.document().text(), "한");
         assert!(session.composition().is_none());
@@ -480,7 +490,10 @@ mod tests {
         });
         trace.push(EditorInput::Focused(false));
 
-        let session = EditorTrace::decode(&trace.encode()).unwrap().replay().unwrap();
+        let session = EditorTrace::decode(&trace.encode())
+            .unwrap()
+            .replay()
+            .unwrap();
 
         assert_eq!(session.document().text(), "abc");
         assert!(session.composition().is_none());

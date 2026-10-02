@@ -668,8 +668,7 @@ impl WindowState {
         };
         self.drag_anchor = Some(anchor);
         self.dragging = true;
-        if let Err(error) =
-            self.apply_input(EditorInput::SetSelection(SelectionSet::caret(anchor)))
+        if let Err(error) = self.apply_input(EditorInput::SetSelection(SelectionSet::caret(anchor)))
         {
             eprintln!("drag caret input error: {error}");
             return;
@@ -959,9 +958,7 @@ impl WindowState {
             EditorAccessibilityAction::SetSelection(selection) => {
                 match SelectionSet::new(vec![selection], 0) {
                     Ok(selection) => {
-                        if let Err(error) =
-                            self.apply_input(EditorInput::SetSelection(selection))
-                        {
+                        if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
                             eprintln!("accessibility selection input error: {error}");
                             return;
                         }

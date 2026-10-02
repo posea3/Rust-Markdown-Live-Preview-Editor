@@ -18,10 +18,7 @@ impl TraceCapture {
             trace: EditorTrace::from_session(session),
         };
         capture.flush();
-        eprintln!(
-            "mdedit editor trace enabled: {}",
-            capture.path.display()
-        );
+        eprintln!("mdedit editor trace enabled: {}", capture.path.display());
         Some(capture)
     }
 
