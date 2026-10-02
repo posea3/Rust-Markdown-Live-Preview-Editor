@@ -41,6 +41,11 @@ impl EditorTrace {
     }
 
     #[must_use]
+    pub fn encode_event_line(input: &EditorInput) -> String {
+        format!("event\t{}\n", encode_input(input))
+    }
+
+    #[must_use]
     pub fn encode(&self) -> String {
         let mut output = String::new();
         writeln!(&mut output, "{EDITOR_TRACE_VERSION}").expect("write to String");
@@ -58,7 +63,7 @@ impl EditorTrace {
         .expect("write to String");
 
         for event in &self.events {
-            writeln!(&mut output, "event\t{}", encode_input(event)).expect("write to String");
+            output.push_str(&Self::encode_event_line(event));
         }
 
         output
@@ -442,6 +447,28 @@ mod tests {
         let decoded = EditorTrace::decode(&encoded).unwrap();
 
         assert_eq!(decoded, trace);
+    }
+
+    #[test]
+    fn appended_event_lines_decode_as_complete_trace() {
+        let trace = EditorTrace::new("abc".to_owned(), SelectionSet::default());
+        let mut encoded = trace.encode();
+        encoded.push_str(&EditorTrace::encode_event_line(&EditorInput::Move {
+            movement: Movement::GraphemeForward,
+            extend: false,
+        }));
+        encoded.push_str(&EditorTrace::encode_event_line(&EditorInput::Focused(false)));
+
+        let decoded = EditorTrace::decode(&encoded).unwrap();
+        assert_eq!(decoded.events().len(), 2);
+        assert_eq!(
+            decoded.events()[0],
+            EditorInput::Move {
+                movement: Movement::GraphemeForward,
+                extend: false,
+            }
+        );
+        assert_eq!(decoded.events()[1], EditorInput::Focused(false));
     }
 
     #[test]
