@@ -929,8 +929,7 @@ impl WindowState {
             .map_or(0, |length| length.to_usize());
         let next_title = format!(
             "mdedit IME Lab | source={source_len} bytes | composition={composition_label} | scroll={}:{:.0}",
-            scroll.line,
-            scroll.vertical
+            scroll.line, scroll.vertical
         );
         if next_title != self.window_title {
             self.window.set_title(&next_title);
