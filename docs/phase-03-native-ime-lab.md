@@ -140,6 +140,16 @@ glyphon / wgpu
 
 cosmic-text is not the source editor model.
 
+## Performance acceptance note
+
+For subjective input-latency comparisons against production editors such as Word or Hangul, use an optimized build:
+
+```bash
+cargo run --release -p mdedit-ime-lab
+```
+
+The default `cargo run` uses Rust's debug profile and is useful for diagnostics, but it is not representative of final editor latency. The Windows surface also keeps FIFO presentation to avoid tearing while limiting `desired_maximum_frame_latency` to 1 for lower input-to-display latency.
+
 ## Phase 3 manual acceptance status
 
 Windows acceptance on the tested Intel UHD Graphics 630 machine:
