@@ -7,6 +7,7 @@
 //! conceal Markdown source markers.
 
 mod block;
+mod delimiter;
 mod dialect;
 mod parser;
 mod pulldown;
@@ -14,6 +15,10 @@ mod syntax;
 
 pub use block::{
     BlockCache, BlockCacheError, BlockEntry, BlockFingerprint, BlockId, BlockSnapshot,
+};
+pub use delimiter::{
+    DelimiterError, DelimiterIssue, DelimiterIssueReason, DelimiterKind, DelimiterResolver,
+    DelimiterSnapshot, DelimiterSpan,
 };
 pub use dialect::MarkdownDialect;
 pub use parser::MarkdownParser;

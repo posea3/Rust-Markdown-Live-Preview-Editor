@@ -28,6 +28,8 @@ Implemented in this slice:
 - deterministic `BlockFingerprint` values for cache invalidation
 - exact-content reuse across source shifts plus conservative edited-block overlap reconciliation
 - document/syntax revision and source-length validation at the cache boundary
+- `DelimiterResolver` with exact source marker spans for headings, emphasis, strong, strikethrough, inline code, block quotes, list items, links, and autolinks
+- unresolved/ambiguous delimiter forms remain visible and are surfaced as `DelimiterIssue` values instead of being guessed
 
 ## Boundary
 
@@ -75,9 +77,27 @@ This makes it possible to replace or supplement the parser later without changin
 
 The current cache is a correctness boundary, not an incremental parser. It still consumes a complete syntax snapshot. Phase 8 may later replace the reconciliation strategy after profiling without changing the public block identity contract.
 
+## Delimiter resolution
+
+`DelimiterResolver` consumes the canonical `DocumentSnapshot` and its matching `SyntaxSnapshot`. It never rewrites source and never asks downstream Live Preview code to infer punctuation from rendered text.
+
+Resolved spans currently cover:
+
+- ATX heading prefixes and optional closing hashes
+- Setext heading underline markers
+- emphasis / strong / strikethrough opening and closing delimiters
+- variable-length inline-code backtick fences
+- block-quote `>` markers
+- unordered and ordered list markers
+- link label brackets plus inline/reference destination syntax
+- autolink angle brackets
+
+Resolution is conservative. A semantic node whose exact source form cannot be proven produces a `DelimiterIssue`; it produces no concealment span for the ambiguous part. That means later projection can safely leave the raw Markdown visible.
+
+Whitespace adjacent to markers is intentionally not part of the delimiter span. Phase 5 projection policy may decide whether layout whitespace should also collapse when a marker is concealed.
+
 ## Remaining Phase 4 work
 
-- delimiter resolver for exact source markers
 - extension scanner and merge policy
 - richer syntax metadata needed by semantic styling
 - explicit compatibility fixtures for CommonMark/GFM/Obsidian-like extensions

@@ -131,10 +131,10 @@ Implemented:
 - raw-source failure mode
 - full-parse correctness baseline with source-range validation
 - stable top-level block identity/cache boundary with content fingerprints and conservative reconciliation
+- exact source `DelimiterResolver` for the initial Live Preview marker set with conservative unresolved diagnostics
 
 Remaining:
 
-- DelimiterResolver
 - extension scanner/merge policy
 - richer semantic metadata and compatibility fixtures
 
