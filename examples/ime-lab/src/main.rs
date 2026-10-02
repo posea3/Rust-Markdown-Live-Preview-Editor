@@ -908,7 +908,7 @@ impl WindowState {
 
     fn update_accessibility_tree(&mut self) {
         let update = build_tree_update(
-            self.session.document().text(),
+            &self.session.document().text(),
             self.session.selections().primary(),
             self.surface_config.width,
             self.surface_config.height,
@@ -920,7 +920,7 @@ impl WindowState {
     }
 
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
-        let Some(action) = translate_action(request, self.session.document().text()) else {
+        let Some(action) = translate_action(request, &self.session.document().text()) else {
             return;
         };
 
