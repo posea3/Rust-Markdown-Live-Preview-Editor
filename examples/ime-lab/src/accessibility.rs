@@ -92,10 +92,7 @@ pub fn build_tree_update(
     }
 }
 
-pub fn translate_action(
-    request: ActionRequest,
-    text: &str,
-) -> Option<EditorAccessibilityAction> {
+pub fn translate_action(request: ActionRequest, text: &str) -> Option<EditorAccessibilityAction> {
     if request.target_tree != TreeId::ROOT || request.target_node != EDITOR_ID {
         return None;
     }
@@ -147,11 +144,7 @@ fn text_position(units: &[Range<usize>], text_len: usize, anchor: Anchor) -> Tex
     }
 }
 
-fn character_index_for_anchor(
-    units: &[Range<usize>],
-    text_len: usize,
-    anchor: Anchor,
-) -> usize {
+fn character_index_for_anchor(units: &[Range<usize>], text_len: usize, anchor: Anchor) -> usize {
     let offset = anchor.offset.to_usize().min(text_len);
 
     for (index, unit) in units.iter().enumerate() {
@@ -211,10 +204,7 @@ mod tests {
         let text = "a한👨‍👩‍👧‍👦z";
         let units = text_units(text);
         let boundary = units[2].start;
-        let anchor = Anchor::new(
-            TextSize::try_from_usize(boundary).unwrap(),
-            Affinity::After,
-        );
+        let anchor = Anchor::new(TextSize::try_from_usize(boundary).unwrap(), Affinity::After);
         let position = text_position(&units, text.len(), anchor);
         let mapped = anchor_from_position(&units, text.len(), position).unwrap();
 

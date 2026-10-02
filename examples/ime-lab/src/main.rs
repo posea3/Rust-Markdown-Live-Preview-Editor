@@ -3,11 +3,11 @@ mod geometry;
 
 use std::{error::Error, ops::Range, sync::Arc};
 
+use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use accesskit::ActionRequest;
 use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
-use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use arboard::Clipboard;
 use cosmic_text::Motion as CosmicMotion;
 use geometry::{RectRenderer, ScreenRect};
@@ -87,8 +87,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
         window.set_visible(true);
         window.set_ime_allowed(true);
 
-        let state =
-            pollster::block_on(WindowState::new(window, event_loop, accessibility_adapter));
+        let state = pollster::block_on(WindowState::new(window, event_loop, accessibility_adapter));
         state.window.request_redraw();
         self.state = Some(state);
     }
