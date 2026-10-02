@@ -130,17 +130,11 @@ fn node_from_tag(tag: Tag<'_>, range: TextRange) -> SyntaxNode {
         } => SyntaxNode::new(SyntaxKind::Heading(heading_level(level)), range).with_metadata(
             SyntaxMetadata::Heading {
                 id: id.map(|value| value.to_string()),
-                classes: classes
-                    .into_iter()
-                    .map(|value| value.to_string())
-                    .collect(),
+                classes: classes.into_iter().map(|value| value.to_string()).collect(),
                 attributes: attrs
                     .into_iter()
                     .map(|(name, value)| {
-                        SyntaxAttribute::new(
-                            name.to_string(),
-                            value.map(|value| value.to_string()),
-                        )
+                        SyntaxAttribute::new(name.to_string(), value.map(|value| value.to_string()))
                     })
                     .collect(),
             },
@@ -150,16 +144,16 @@ fn node_from_tag(tag: Tag<'_>, range: TextRange) -> SyntaxNode {
                 kind: kind.map(block_quote_kind),
             },
         ),
-        Tag::CodeBlock(kind) => SyntaxNode::new(SyntaxKind::CodeBlock, range).with_metadata(
-            SyntaxMetadata::CodeBlock {
+        Tag::CodeBlock(kind) => {
+            SyntaxNode::new(SyntaxKind::CodeBlock, range).with_metadata(SyntaxMetadata::CodeBlock {
                 kind: match kind {
                     CodeBlockKind::Indented => SyntaxCodeBlockKind::Indented,
                     CodeBlockKind::Fenced(info) => SyntaxCodeBlockKind::Fenced {
                         info: info.to_string(),
                     },
                 },
-            },
-        ),
+            })
+        }
         Tag::HtmlBlock => SyntaxNode::new(SyntaxKind::HtmlBlock, range),
         Tag::List(start) => SyntaxNode::new(
             SyntaxKind::List {
@@ -169,23 +163,20 @@ fn node_from_tag(tag: Tag<'_>, range: TextRange) -> SyntaxNode {
         )
         .with_metadata(SyntaxMetadata::List { start }),
         Tag::Item => SyntaxNode::new(SyntaxKind::ListItem, range),
-        Tag::FootnoteDefinition(label) => {
-            SyntaxNode::new(SyntaxKind::FootnoteDefinition, range).with_metadata(
-                SyntaxMetadata::FootnoteDefinition {
-                    label: label.to_string(),
-                },
-            )
-        }
+        Tag::FootnoteDefinition(label) => SyntaxNode::new(SyntaxKind::FootnoteDefinition, range)
+            .with_metadata(SyntaxMetadata::FootnoteDefinition {
+                label: label.to_string(),
+            }),
         Tag::DefinitionList => SyntaxNode::new(SyntaxKind::DefinitionList, range),
         Tag::DefinitionListTitle => SyntaxNode::new(SyntaxKind::DefinitionListTitle, range),
         Tag::DefinitionListDefinition => {
             SyntaxNode::new(SyntaxKind::DefinitionListDefinition, range)
         }
-        Tag::Table(alignments) => SyntaxNode::new(SyntaxKind::Table, range).with_metadata(
-            SyntaxMetadata::Table {
+        Tag::Table(alignments) => {
+            SyntaxNode::new(SyntaxKind::Table, range).with_metadata(SyntaxMetadata::Table {
                 alignments: alignments.into_iter().map(table_alignment).collect(),
-            },
-        ),
+            })
+        }
         Tag::TableHead => SyntaxNode::new(SyntaxKind::TableHead, range),
         Tag::TableRow => SyntaxNode::new(SyntaxKind::TableRow, range),
         Tag::TableCell => SyntaxNode::new(SyntaxKind::TableCell, range),
@@ -210,13 +201,10 @@ fn node_from_tag(tag: Tag<'_>, range: TextRange) -> SyntaxNode {
         } => SyntaxNode::new(SyntaxKind::Image, range).with_metadata(SyntaxMetadata::Image(
             link_metadata(link_type, dest_url.as_ref(), title.as_ref(), id.as_ref()),
         )),
-        Tag::MetadataBlock(kind) => {
-            SyntaxNode::new(SyntaxKind::MetadataBlock, range).with_metadata(
-                SyntaxMetadata::MetadataBlock {
-                    kind: metadata_block_kind(kind),
-                },
-            )
-        }
+        Tag::MetadataBlock(kind) => SyntaxNode::new(SyntaxKind::MetadataBlock, range)
+            .with_metadata(SyntaxMetadata::MetadataBlock {
+                kind: metadata_block_kind(kind),
+            }),
     }
 }
 
@@ -233,22 +221,16 @@ fn node_from_event(event: Event<'_>, range: TextRange) -> SyntaxNode {
                 content: content.to_string(),
             },
         ),
-        Event::DisplayMath(content) => {
-            SyntaxNode::new(SyntaxKind::DisplayMath, range).with_metadata(
-                SyntaxMetadata::DisplayMath {
-                    content: content.to_string(),
-                },
-            )
-        }
+        Event::DisplayMath(content) => SyntaxNode::new(SyntaxKind::DisplayMath, range)
+            .with_metadata(SyntaxMetadata::DisplayMath {
+                content: content.to_string(),
+            }),
         Event::Html(_) => SyntaxNode::new(SyntaxKind::Html, range),
         Event::InlineHtml(_) => SyntaxNode::new(SyntaxKind::InlineHtml, range),
-        Event::FootnoteReference(label) => {
-            SyntaxNode::new(SyntaxKind::FootnoteReference, range).with_metadata(
-                SyntaxMetadata::FootnoteReference {
-                    label: label.to_string(),
-                },
-            )
-        }
+        Event::FootnoteReference(label) => SyntaxNode::new(SyntaxKind::FootnoteReference, range)
+            .with_metadata(SyntaxMetadata::FootnoteReference {
+                label: label.to_string(),
+            }),
         Event::SoftBreak => SyntaxNode::new(SyntaxKind::SoftBreak, range),
         Event::HardBreak => SyntaxNode::new(SyntaxKind::HardBreak, range),
         Event::Rule => SyntaxNode::new(SyntaxKind::Rule, range),
@@ -453,8 +435,8 @@ mod tests {
             SyntaxMetadata::List { start: Some(7) }
         ));
 
-        let code = find_first(snapshot.root(), &|kind| kind == SyntaxKind::CodeBlock)
-            .expect("code block");
+        let code =
+            find_first(snapshot.root(), &|kind| kind == SyntaxKind::CodeBlock).expect("code block");
         assert!(matches!(
             code.metadata(),
             SyntaxMetadata::CodeBlock {
@@ -462,8 +444,7 @@ mod tests {
             } if info == "rust"
         ));
 
-        let link =
-            find_first(snapshot.root(), &|kind| kind == SyntaxKind::Link).expect("link");
+        let link = find_first(snapshot.root(), &|kind| kind == SyntaxKind::Link).expect("link");
         assert!(matches!(
             link.metadata(),
             SyntaxMetadata::Link(metadata)

@@ -1,10 +1,9 @@
 use mdedit_core::Document;
 use mdedit_markdown::{
-    obsidian_extension_set, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
+    MarkdownDialect, MarkdownParser, OBSIDIAN_BLOCK_ID, OBSIDIAN_CALLOUT, OBSIDIAN_COMMENT,
+    OBSIDIAN_EMBED, OBSIDIAN_HIGHLIGHT, OBSIDIAN_WIKILINK, PulldownCmarkParser,
     SyntaxBlockQuoteKind, SyntaxCodeBlockKind, SyntaxKind, SyntaxLinkType, SyntaxMetadata,
-    SyntaxMetadataBlockKind, SyntaxNode, SyntaxTableAlignment, OBSIDIAN_BLOCK_ID,
-    OBSIDIAN_CALLOUT, OBSIDIAN_COMMENT, OBSIDIAN_EMBED, OBSIDIAN_HIGHLIGHT,
-    OBSIDIAN_WIKILINK,
+    SyntaxMetadataBlockKind, SyntaxNode, SyntaxTableAlignment, obsidian_extension_set,
 };
 
 const COMMONMARK: &str = include_str!("fixtures/commonmark.md");
@@ -16,10 +15,10 @@ fn parse(source: &str, dialect: MarkdownDialect) -> mdedit_markdown::SyntaxSnaps
     PulldownCmarkParser.parse(&document.snapshot(), &dialect)
 }
 
-fn find_first(
-    node: &SyntaxNode,
+fn find_first<'a>(
+    node: &'a SyntaxNode,
     predicate: &impl Fn(SyntaxKind) -> bool,
-) -> Option<&SyntaxNode> {
+) -> Option<&'a SyntaxNode> {
     if predicate(node.kind()) {
         return Some(node);
     }
@@ -112,17 +111,20 @@ fn gfm_fixture_preserves_table_tasks_strike_and_alert_metadata() {
         &mut task_markers,
     );
     assert_eq!(task_markers.len(), 2);
-    assert!(task_markers
-        .iter()
-        .any(|node| node.kind() == SyntaxKind::TaskListMarker { checked: true }));
-    assert!(task_markers
-        .iter()
-        .any(|node| node.kind() == SyntaxKind::TaskListMarker { checked: false }));
+    assert!(
+        task_markers
+            .iter()
+            .any(|node| node.kind() == SyntaxKind::TaskListMarker { checked: true })
+    );
+    assert!(
+        task_markers
+            .iter()
+            .any(|node| node.kind() == SyntaxKind::TaskListMarker { checked: false })
+    );
 
     assert!(find_first(snapshot.root(), &|kind| kind == SyntaxKind::Strikethrough).is_some());
 
-    let quote =
-        find_first(snapshot.root(), &|kind| kind == SyntaxKind::BlockQuote).expect("alert");
+    let quote = find_first(snapshot.root(), &|kind| kind == SyntaxKind::BlockQuote).expect("alert");
     assert!(matches!(
         quote.metadata(),
         SyntaxMetadata::BlockQuote {
@@ -146,14 +148,8 @@ fn obsidian_fixture_combines_parser_metadata_with_opt_in_extensions() {
         }
     ));
 
-    let wiki_link = find_first(syntax.root(), &|kind| {
-        kind == SyntaxKind::Link
-            && matches!(
-                kind,
-                SyntaxKind::Link
-            )
-    })
-    .expect("wikilink parser node");
+    let wiki_link =
+        find_first(syntax.root(), &|kind| kind == SyntaxKind::Link).expect("wikilink parser node");
     assert!(matches!(
         wiki_link.metadata(),
         SyntaxMetadata::Link(metadata)
