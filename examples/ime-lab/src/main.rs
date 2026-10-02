@@ -17,7 +17,8 @@ use glyphon::{
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, Revision, SelectionRange, SelectionSet, TextRange,
+    TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
 use trace_capture::TraceCapture;
@@ -194,6 +195,8 @@ struct WindowState {
     dragging: bool,
 
     display_text: String,
+    display_revision: Option<Revision>,
+    preedit_text: Option<String>,
     preedit_range: Option<Range<usize>>,
     caret_xy: (f32, f32),
     caret_height: f32,
@@ -311,6 +314,8 @@ impl WindowState {
             drag_anchor: None,
             dragging: false,
             display_text: String::new(),
+            display_revision: None,
+            preedit_text: None,
             preedit_range: None,
             caret_xy: (0.0, 0.0),
             caret_height: LINE_HEIGHT,
@@ -772,6 +777,7 @@ impl WindowState {
         self.text_buffer.set_scroll(scroll);
         self.text_buffer
             .shape_until_scroll(&mut self.font_system, false);
+        self.layout_dirty = false;
         self.text_render_dirty = true;
         self.ensure_caret_visible = false;
 
@@ -806,21 +812,31 @@ impl WindowState {
 
     fn refresh_layout(&mut self) {
         let scroll_before = self.text_buffer.scroll();
-        let next_display_text = match self.session.display_text() {
-            Ok(text) => text,
-            Err(error) => {
-                eprintln!("display projection error: {error}");
-                self.session.document().text()
-            }
-        };
-        let next_preedit_range = self
+        let revision = self.session.document().revision();
+        let next_preedit_text = self
             .session
             .composition()
-            .map(|composition| composition.display_preedit_range());
+            .map(|composition| composition.preedit());
+        let display_changed = self.display_revision != Some(revision)
+            || self.preedit_text.as_deref() != next_preedit_text;
 
-        if next_display_text != self.display_text || next_preedit_range != self.preedit_range {
+        if display_changed {
+            let next_display_text = match self.session.display_text() {
+                Ok(text) => text,
+                Err(error) => {
+                    eprintln!("display projection error: {error}");
+                    self.session.document().text()
+                }
+            };
+            let next_preedit_range = self
+                .session
+                .composition()
+                .map(|composition| composition.display_preedit_range());
             let old_scroll = self.text_buffer.scroll();
+
             self.display_text = next_display_text;
+            self.display_revision = Some(revision);
+            self.preedit_text = next_preedit_text.map(str::to_owned);
             self.preedit_range = next_preedit_range;
 
             let normal = Attrs::new()
@@ -906,9 +922,13 @@ impl WindowState {
                 "preedit"
             }
         });
+        let source_len = self
+            .session
+            .document()
+            .len()
+            .map_or(0, |length| length.to_usize());
         let next_title = format!(
-            "mdedit IME Lab | source={} bytes | composition={composition_label} | scroll={}:{:.0}",
-            self.session.document().text().len(),
+            "mdedit IME Lab | source={source_len} bytes | composition={composition_label} | scroll={}:{:.0}",
             scroll.line,
             scroll.vertical
         );
