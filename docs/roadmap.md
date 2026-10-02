@@ -130,10 +130,10 @@ Implemented:
 - `MarkdownDialect`
 - raw-source failure mode
 - full-parse correctness baseline with source-range validation
+- stable top-level block identity/cache boundary with content fingerprints and conservative reconciliation
 
 Remaining:
 
-- block identity/cache boundary
 - DelimiterResolver
 - extension scanner/merge policy
 - richer semantic metadata and compatibility fixtures

@@ -6,11 +6,13 @@
 //! syntax and dialect abstractions. It does not implement Live Preview or
 //! conceal Markdown source markers.
 
+mod block;
 mod dialect;
 mod parser;
 mod pulldown;
 mod syntax;
 
+pub use block::{BlockCache, BlockCacheError, BlockEntry, BlockFingerprint, BlockId, BlockSnapshot};
 pub use dialect::MarkdownDialect;
 pub use parser::MarkdownParser;
 pub use pulldown::PulldownCmarkParser;
