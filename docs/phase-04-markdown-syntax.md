@@ -34,6 +34,8 @@ Implemented in this slice:
 - generic suppression of Markdown-style extensions inside code, HTML, metadata blocks, and raw-source fallback regions
 - opt-in Obsidian compatibility scanner using actual Obsidian syntax for wikilinks, embeds, highlights, comments, callouts, and block IDs
 - `MarkdownDialect::obsidian()` preset for the standard parser features used alongside the Obsidian extension scanner
+- parser-owned semantic metadata preserved in project types for headings, block quotes, code blocks, lists, footnotes, tables, links/images, metadata blocks, and math/code leaf nodes
+- file-backed CommonMark/GFM/Obsidian compatibility fixtures
 
 ## Boundary
 
@@ -119,10 +121,27 @@ CommonMark/GFM/LaTeX-adjacent constructs already handled by the parser remain pa
 
 This layer recognizes syntax only. Vault path resolution, file rename handling, resource loading, embed rendering, callout styling, and host navigation remain outside `mdedit-markdown`.
 
+## Semantic metadata
+
+`SyntaxNode` now retains parser-owned information in project-owned `SyntaxMetadata` values. This prevents downstream rendering, widgets, accessibility, and host integration from depending on pulldown-cmark types.
+
+The metadata boundary currently preserves:
+
+- heading id/classes/custom attributes when enabled by the selected dialect
+- GFM alert/block-quote kind
+- indented versus fenced code blocks and fenced info strings
+- ordered-list start values
+- footnote definition/reference labels
+- table column alignments
+- link/image type, destination, title, and reference label
+- YAML/pluses metadata-block kind
+- normalized inline-code and math content
+
+Compatibility tests use file-backed Markdown samples rather than synthesized event streams. CommonMark and GFM fixtures follow their published syntax, while the Obsidian fixture uses actual Obsidian forms for frontmatter, wikilinks, embeds, highlights, comments, callouts, and block IDs.
+
 ## Remaining Phase 4 work
 
-- richer syntax metadata needed by semantic styling
-- broader CommonMark/GFM/Obsidian compatibility fixtures
 - parse snapshot reconciliation rules for later background/incremental parsing
+- additional compatibility cases discovered during Phase 5 projection work
 
 Live Preview projection remains Phase 5.

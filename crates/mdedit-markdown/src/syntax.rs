@@ -1,5 +1,7 @@
 use mdedit_core::{Revision, TextRange, TextSize};
 
+use crate::SyntaxMetadata;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RawFallbackReason {
     InvalidSourceRange,
@@ -57,6 +59,7 @@ pub enum SyntaxKind {
 pub struct SyntaxNode {
     kind: SyntaxKind,
     range: TextRange,
+    metadata: SyntaxMetadata,
     children: Vec<SyntaxNode>,
 }
 
@@ -66,6 +69,7 @@ impl SyntaxNode {
         Self {
             kind,
             range,
+            metadata: SyntaxMetadata::None,
             children: Vec::new(),
         }
     }
@@ -81,8 +85,18 @@ impl SyntaxNode {
     }
 
     #[must_use]
+    pub const fn metadata(&self) -> &SyntaxMetadata {
+        &self.metadata
+    }
+
+    #[must_use]
     pub fn children(&self) -> &[SyntaxNode] {
         &self.children
+    }
+
+    pub(crate) fn with_metadata(mut self, metadata: SyntaxMetadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     pub(crate) fn push_child(&mut self, child: SyntaxNode) {

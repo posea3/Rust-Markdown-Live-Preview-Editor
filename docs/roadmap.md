@@ -134,6 +134,8 @@ Implemented:
 - exact source `DelimiterResolver` for the initial Live Preview marker set with conservative unresolved diagnostics
 - generic `SyntaxExtension` scanner/merge engine with deterministic overlap policy and protected syntax regions
 - opt-in Obsidian compatibility scanner backed by real wikilink/embed/highlight/comment/callout/block-ID syntax
+- project-owned semantic metadata for parser information needed by styling/widgets/host integration
+- file-backed CommonMark/GFM/Obsidian compatibility fixtures
 
 Remaining:
 
