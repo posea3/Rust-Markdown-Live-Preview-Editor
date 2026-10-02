@@ -132,11 +132,12 @@ Implemented:
 - full-parse correctness baseline with source-range validation
 - stable top-level block identity/cache boundary with content fingerprints and conservative reconciliation
 - exact source `DelimiterResolver` for the initial Live Preview marker set with conservative unresolved diagnostics
+- generic `SyntaxExtension` scanner/merge engine with deterministic overlap policy and protected syntax regions
+- opt-in Obsidian compatibility scanner backed by real wikilink/embed/highlight/comment/callout/block-ID syntax
 
 Remaining:
 
-- extension scanner/merge policy
-- richer semantic metadata and compatibility fixtures
+- richer semantic metadata and broader compatibility fixtures
 
 First rendering milestone keeps all Markdown markers visible and adds only semantic styles.
 

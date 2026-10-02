@@ -30,6 +30,10 @@ Implemented in this slice:
 - document/syntax revision and source-length validation at the cache boundary
 - `DelimiterResolver` with exact source marker spans for headings, emphasis, strong, strikethrough, inline code, block quotes, list items, links, and autolinks
 - unresolved/ambiguous delimiter forms remain visible and are surfaced as `DelimiterIssue` values instead of being guessed
+- generic `SyntaxExtension` scanner API with deterministic priority/overlap merge policy
+- generic suppression of Markdown-style extensions inside code, HTML, metadata blocks, and raw-source fallback regions
+- opt-in Obsidian compatibility scanner using actual Obsidian syntax for wikilinks, embeds, highlights, comments, callouts, and block IDs
+- `MarkdownDialect::obsidian()` preset for the standard parser features used alongside the Obsidian extension scanner
 
 ## Boundary
 
@@ -96,11 +100,29 @@ Resolution is conservative. A semantic node whose exact source form cannot be pr
 
 Whitespace adjacent to markers is intentionally not part of the delimiter span. Phase 5 projection policy may decide whether layout whitespace should also collapse when a marker is concealed.
 
+## Extension scanner and merge policy
+
+The extension layer is generic. Third-party applications register implementations of `SyntaxExtension`, which emit source-ranged `ExtensionCandidate` values. The merge engine validates UTF-8/source bounds, suppresses Markdown-style extensions inside code/HTML/metadata/raw-fallback regions, then resolves overlapping claims deterministically by priority and containment policy.
+
+No Obsidian-specific type is required by the generic engine.
+
+For immediate compatibility, `ObsidianSyntaxExtension` is shipped as an opt-in implementation and uses current Obsidian Flavored Markdown forms rather than invented test syntax. The initial compatibility surface recognizes:
+
+- `[[Note]]`, aliases, heading links, and block references
+- `![[embed]]`, including the pipe suffix used by Obsidian embeds
+- `==highlight==`
+- `%%comment%%`, including multiline comments
+- blockquote callout headers such as `> [!warning]- Title`
+- block IDs such as `Paragraph text ^block-id`
+
+CommonMark/GFM/LaTeX-adjacent constructs already handled by the parser remain parser-owned instead of being duplicated in the Obsidian scanner.
+
+This layer recognizes syntax only. Vault path resolution, file rename handling, resource loading, embed rendering, callout styling, and host navigation remain outside `mdedit-markdown`.
+
 ## Remaining Phase 4 work
 
-- extension scanner and merge policy
 - richer syntax metadata needed by semantic styling
-- explicit compatibility fixtures for CommonMark/GFM/Obsidian-like extensions
+- broader CommonMark/GFM/Obsidian compatibility fixtures
 - parse snapshot reconciliation rules for later background/incremental parsing
 
 Live Preview projection remains Phase 5.

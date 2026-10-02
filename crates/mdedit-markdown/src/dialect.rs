@@ -52,6 +52,24 @@ impl MarkdownDialect {
     }
 
     #[must_use]
+    pub const fn obsidian() -> Self {
+        Self {
+            tables: true,
+            footnotes: true,
+            strikethrough: true,
+            task_lists: true,
+            gfm: true,
+            heading_attributes: false,
+            math: true,
+            wikilinks: true,
+            definition_lists: false,
+            metadata_blocks: true,
+            superscript: false,
+            subscript: false,
+        }
+    }
+
+    #[must_use]
     pub const fn extended() -> Self {
         Self {
             tables: true,
@@ -148,6 +166,24 @@ mod tests {
         assert!(!dialect.strikethrough());
         assert!(!dialect.task_lists());
         assert!(!dialect.wikilinks());
+    }
+
+    #[test]
+    fn obsidian_enables_standard_features_used_by_obsidian() {
+        let dialect = MarkdownDialect::obsidian();
+
+        assert!(dialect.tables());
+        assert!(dialect.footnotes());
+        assert!(dialect.strikethrough());
+        assert!(dialect.task_lists());
+        assert!(dialect.gfm_extensions());
+        assert!(dialect.math());
+        assert!(dialect.wikilinks());
+        assert!(dialect.metadata_blocks());
+        assert!(!dialect.heading_attributes());
+        assert!(!dialect.definition_lists());
+        assert!(!dialect.superscript());
+        assert!(!dialect.subscript());
     }
 
     #[test]

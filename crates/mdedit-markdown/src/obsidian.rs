@@ -98,7 +98,11 @@ fn scan_wikilinks(
 
         let mut candidate = ExtensionCandidate::new(if embed { EMBED } else { WIKILINK }, range)
             .with_priority(220)
-            .with_overlap_policy(ExtensionOverlapPolicy::Exclusive)
+            .with_overlap_policy(if embed {
+                ExtensionOverlapPolicy::Exclusive
+            } else {
+                ExtensionOverlapPolicy::AllowContained
+            })
             .with_attribute("target", target)
             .with_attribute("path", path)
             .with_attribute("embed", if embed { "true" } else { "false" });
