@@ -162,7 +162,7 @@ fn scan_callouts(
         let line_end = source[line_start..]
             .find('\n')
             .map_or(source.len(), |offset| line_start + offset);
-        let line = &source[line_start..line_end];
+        let line = source[line_start..line_end].trim_end_matches('\r');
 
         if let Some((marker_start, marker_end, callout_type, fold, title)) =
             parse_callout_line(line)
@@ -449,5 +449,14 @@ mod tests {
         assert_eq!(callouts.len(), 1);
         assert_eq!(callouts[0].attribute("type"), Some("todo"));
         assert_eq!(callouts[0].attribute("fold"), Some("+"));
+    }
+
+    #[test]
+    fn callout_title_is_crlf_neutral() {
+        let snapshot = scan("> [!warning]- Custom title\r\n> Body\r\n");
+        let callouts = matches(&snapshot, CALLOUT);
+
+        assert_eq!(callouts.len(), 1);
+        assert_eq!(callouts[0].attribute("title"), Some("Custom title"));
     }
 }
