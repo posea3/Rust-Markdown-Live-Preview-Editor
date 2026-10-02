@@ -93,6 +93,7 @@ Implemented in the first Phase 3 slice:
 - undo/redo and grapheme deletion integration
 - focus-loss / IME-disabled composition cancellation regression tests
 - AccessKit window/text-input/text-run semantic tree with selection and edit actions
+- versioned semantic EditorInput trace capture/replay for converting platform acceptance failures into CI regressions
 
 Remaining Phase 3 hardening:
 

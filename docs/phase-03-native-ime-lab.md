@@ -115,6 +115,7 @@ The initial lab supports:
 - caret position feeding `Window::set_ime_cursor_area`
 - AccessKit `Window -> MultilineTextInput -> TextRun` semantics
 - AccessKit text selection, replace-selected-text, and set-value action bridging
+- versioned semantic editor trace capture/replay for IME, focus, selection, navigation, deletion, and history events
 
 ## Rendering boundary
 
@@ -147,6 +148,25 @@ cosmic-text is not the source editor model.
 - Narrator/VoiceOver text, selection, and edit actions still require manual acceptance
 
 These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
+
+## Capturing a platform regression trace
+
+Set `MDEDIT_TRACE_FILE` when running the IME lab. The lab rewrites that file after every semantic editor input, so an interrupted or crashed acceptance session still leaves the latest complete trace.
+
+Windows PowerShell:
+
+```powershell
+$env:MDEDIT_TRACE_FILE="ime-windows.trace"
+cargo run -p mdedit-ime-lab
+```
+
+macOS/Linux:
+
+```bash
+MDEDIT_TRACE_FILE=ime-macos.trace cargo run -p mdedit-ime-lab
+```
+
+The trace stores the initial canonical source/selection plus every `EditorInput` using a versioned, UTF-8-safe text format. A captured trace can be loaded with `EditorTrace::decode` and replayed through `EditorTrace::replay` without winit, cosmic-text, or a platform IME. When a manual acceptance case exposes a bug, keep the trace as a regression fixture and assert its final canonical source, selection, composition state, and undo behavior in CI.
 
 
 ## MSRV adjustment

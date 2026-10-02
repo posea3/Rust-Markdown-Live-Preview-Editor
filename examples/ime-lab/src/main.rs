@@ -1,5 +1,6 @@
 mod accessibility;
 mod geometry;
+mod trace_capture;
 
 use std::{error::Error, ops::Range, sync::Arc};
 
@@ -19,6 +20,7 @@ use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
+use trace_capture::TraceCapture;
 use wgpu::{
     CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor,
     LoadOp, MultisampleState, Operations, PresentMode, RenderPassColorAttachment,
@@ -180,6 +182,7 @@ struct WindowState {
     accessibility_adapter: AccessKitAdapter,
 
     session: EditorSession,
+    trace_capture: Option<TraceCapture>,
     clipboard: Option<Clipboard>,
     modifiers: ModifiersState,
     cursor_position: PhysicalPosition<f64>,
@@ -250,6 +253,14 @@ impl WindowState {
             Some(surface_config.height as f32 - TEXT_TOP * 2.0),
         );
 
+        let mut session = EditorSession::new(
+            "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
+        )
+        .expect("create editor session");
+        let end = session.document().len().expect("document length");
+        session.set_caret(Anchor::new(end, Affinity::After));
+        let trace_capture = TraceCapture::from_env(&session);
+
         let mut state = Self {
             instance,
             device,
@@ -264,10 +275,8 @@ impl WindowState {
             rect_renderer,
             text_buffer,
             accessibility_adapter,
-            session: EditorSession::new(
-                "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
-            )
-            .expect("create editor session"),
+            session,
+            trace_capture,
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
             cursor_position: PhysicalPosition::new(0.0, 0.0),
@@ -282,15 +291,13 @@ impl WindowState {
             window,
         };
 
-        let end = state.session.document().len().expect("document length");
-        state.session.set_caret(Anchor::new(end, Affinity::After));
         state.refresh_layout();
         state
     }
 
     fn set_focused(&mut self, focused: bool) {
         self.window.set_ime_allowed(focused);
-        if let Err(error) = self.session.handle(EditorInput::Focused(focused)) {
+        if let Err(error) = self.apply_input(EditorInput::Focused(focused)) {
             eprintln!("focus input error: {error}");
         }
         self.preferred_x = None;
@@ -325,7 +332,7 @@ impl WindowState {
             Ime::Disabled => EditorInput::ImeDisabled,
         };
 
-        if let Err(error) = self.session.handle(input) {
+        if let Err(error) = self.apply_input(input) {
             eprintln!("IME input error: {error}");
         }
         self.preferred_x = None;
@@ -402,9 +409,9 @@ impl WindowState {
 
         if character.eq_ignore_ascii_case("z") {
             let result = if self.modifiers.shift_key() {
-                self.session.redo()
+                self.apply_input(EditorInput::Redo)
             } else {
-                self.session.undo()
+                self.apply_input(EditorInput::Undo)
             };
             if let Err(error) = result {
                 eprintln!("history error: {error}");
@@ -414,7 +421,7 @@ impl WindowState {
         }
 
         if character.eq_ignore_ascii_case("y") {
-            if let Err(error) = self.session.redo() {
+            if let Err(error) = self.apply_input(EditorInput::Redo) {
                 eprintln!("redo error: {error}");
             }
             self.after_caret_action();
@@ -431,7 +438,9 @@ impl WindowState {
                 0,
             )
             .expect("select all");
-            self.session.set_selection(selection);
+            if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
+                eprintln!("select all error: {error}");
+            }
             self.after_caret_action();
             return true;
         }
@@ -484,14 +493,14 @@ impl WindowState {
     }
 
     fn insert_text(&mut self, text: &str) {
-        if let Err(error) = self.session.insert_text(text) {
+        if let Err(error) = self.apply_input(EditorInput::InsertText(text.to_owned())) {
             eprintln!("insert error: {error}");
         }
         self.after_caret_action();
     }
 
     fn move_cursor(&mut self, movement: Movement, extend: bool) {
-        if let Err(error) = self.session.move_selection(movement, extend) {
+        if let Err(error) = self.apply_input(EditorInput::Move { movement, extend }) {
             eprintln!("movement error: {error}");
         }
         self.after_caret_action();
@@ -539,7 +548,12 @@ impl WindowState {
         };
 
         match SelectionSet::new(vec![selection], 0) {
-            Ok(selection) => self.session.set_selection(selection),
+            Ok(selection) => {
+                if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
+                    eprintln!("horizontal selection input error: {error}");
+                    return;
+                }
+            }
             Err(error) => {
                 eprintln!("horizontal selection error: {error}");
                 return;
@@ -600,7 +614,12 @@ impl WindowState {
         };
 
         match SelectionSet::new(vec![selection], 0) {
-            Ok(selection) => self.session.set_selection(selection),
+            Ok(selection) => {
+                if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
+                    eprintln!("vertical selection input error: {error}");
+                    return;
+                }
+            }
             Err(error) => {
                 eprintln!("vertical selection error: {error}");
                 return;
@@ -612,7 +631,7 @@ impl WindowState {
     }
 
     fn delete(&mut self, direction: DeleteDirection) {
-        if let Err(error) = self.session.delete(direction) {
+        if let Err(error) = self.apply_input(EditorInput::Delete(direction)) {
             eprintln!("delete error: {error}");
         }
         self.after_caret_action();
@@ -649,7 +668,12 @@ impl WindowState {
         };
         self.drag_anchor = Some(anchor);
         self.dragging = true;
-        self.session.set_caret(anchor);
+        if let Err(error) =
+            self.apply_input(EditorInput::SetSelection(SelectionSet::caret(anchor)))
+        {
+            eprintln!("drag caret input error: {error}");
+            return;
+        }
         self.preferred_x = None;
         self.ensure_caret_visible = false;
         self.request_redraw();
@@ -686,7 +710,10 @@ impl WindowState {
             0,
         )
         .expect("drag selection");
-        self.session.set_selection(selection);
+        if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
+            eprintln!("drag selection input error: {error}");
+            return;
+        }
         self.preferred_x = None;
         self.ensure_caret_visible = false;
     }
@@ -932,7 +959,12 @@ impl WindowState {
             EditorAccessibilityAction::SetSelection(selection) => {
                 match SelectionSet::new(vec![selection], 0) {
                     Ok(selection) => {
-                        self.session.set_selection(selection);
+                        if let Err(error) =
+                            self.apply_input(EditorInput::SetSelection(selection))
+                        {
+                            eprintln!("accessibility selection input error: {error}");
+                            return;
+                        }
                         self.after_caret_action();
                     }
                     Err(error) => eprintln!("accessibility selection error: {error}"),
@@ -957,8 +989,18 @@ impl WindowState {
             0,
         )
         .expect("full document selection");
-        self.session.set_selection(selection);
+        if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
+            eprintln!("accessibility full selection input error: {error}");
+            return;
+        }
         self.insert_text(text);
+    }
+
+    fn apply_input(&mut self, input: EditorInput) -> Result<bool, mdedit_input::SessionError> {
+        if let Some(capture) = self.trace_capture.as_mut() {
+            capture.record(&input);
+        }
+        self.session.handle(input)
     }
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {

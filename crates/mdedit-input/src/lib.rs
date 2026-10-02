@@ -9,7 +9,9 @@
 mod composition;
 mod event;
 mod session;
+mod trace;
 
 pub use composition::{CompositionError, CompositionState};
 pub use event::{EditorInput, PlatformRequest, Point, Rect, Size};
 pub use session::{EditorSession, SessionError};
+pub use trace::{EDITOR_TRACE_VERSION, EditorTrace, TraceError};
