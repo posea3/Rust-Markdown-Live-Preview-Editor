@@ -150,6 +150,10 @@ cargo run --release -p mdedit-ime-lab
 
 The default `cargo run` uses Rust's debug profile and is useful for diagnostics, but it is not representative of final editor latency. The Windows surface also keeps FIFO presentation to avoid tearing while limiting `desired_maximum_frame_latency` to 1 for lower input-to-display latency.
 
+## Horizontal caret acceptance finding
+
+Instrumented Windows runs showed horizontal input handling in roughly sub-millisecond to low-single-digit millisecond CPU time, with no meaningful FIFO vs Mailbox improvement. The remaining perceived slowness was traced to a correctness bug rather than throughput: at an ordinary LTR grapheme boundary the first Left/Right press could change only the cosmic-text cursor affinity at the same line/index, producing no visible movement, and the second press performed the actual grapheme move. Horizontal navigation now treats same-line/same-index affinity changes as the same logical caret stop and skips them. A regression test locks one-key-per-visible-grapheme movement while retaining distinct logical BiDi boundary transitions.
+
 ## Input latency diagnostics
 
 Use the optimized build for latency checks:
