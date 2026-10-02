@@ -197,13 +197,14 @@ Windows acceptance on the tested Intel UHD Graphics 630 machine:
 - Japanese IME: **PENDING / BLOCKED** because the Windows Japanese language/IME pack could not be installed on the test machine
 - Chinese IME: **PENDING / BLOCKED** for the same environment reason
 - Narrator: **PENDING**
-- macOS Korean/Japanese/Chinese IME and VoiceOver: **PENDING**
+- macOS Korean/Japanese/Chinese IME: **PENDING**
+- VoiceOver: **PENDING**
 - focus-loss and IME disable/re-enable edge cases: **PENDING**
 
-Two Windows issues were found during acceptance and are addressed on the Phase 3 fix branch:
+Two Windows issues were found during acceptance and are now incorporated into the Phase 3 branch:
 
 1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. For Windows, the IME lab now defaults to DX12 before applying wgpu environment overrides. `WGPU_BACKEND` can still explicitly override that default because the final `InstanceDescriptor` uses `with_env()`.
-2. Visual Left/Right caret movement felt slow. The original implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. Follow-up profiling also found redundant shaping, full glyphon text preparation on caret-only redraws, eager accessibility-tree construction while accessibility was inactive, repeated window-title updates, O(n) trace-file rewrites when tracing was enabled, and full Rope-to-String display projection copies on caret-only moves. Those hot-path costs have been removed or cached. Manual Windows acceptance reports that sustained key-repeat is now fast and single-step movement is improved, but single-key feedback still does not feel as immediate as Word/Hangul. This remains an **OPEN latency issue**, now instrumented with `MDEDIT_LATENCY_TRACE` and selectable present modes so CPU/event latency can be separated from compositor/vsync latency.
+2. Visual Left/Right caret movement initially appeared slow. The original implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. Follow-up profiling removed redundant shaping, full glyphon text preparation on caret-only redraws, eager accessibility-tree construction while accessibility was inactive, repeated window-title updates, O(n) trace-file rewrites when tracing was enabled, and full Rope-to-String display projection copies on caret-only moves. Instrumented FIFO/Mailbox comparisons then showed that presentation mode was not the root cause of the remaining two-key symptom. The actual correctness bug was an affinity-only cosmic-text caret stop at the same line/index: the first arrow press could change affinity without moving visibly, and the second press performed the visible move. Commit `f32e81e` skips those redundant ordinary horizontal stops while preserving distinct logical BiDi boundary transitions. Final Windows manual acceptance confirms one Left/Right press equals one visible step and sustained movement is normal.
 
 The Japanese/Chinese and accessibility items remain intentionally marked pending rather than treated as passed.
 
