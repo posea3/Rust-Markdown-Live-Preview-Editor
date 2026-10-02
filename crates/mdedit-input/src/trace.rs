@@ -67,7 +67,6 @@ impl EditorTrace {
     pub fn decode(trace: &str) -> Result<Self, TraceError> {
         let mut lines = trace
             .lines()
-            .map(str::trim_end)
             .filter(|line| !line.is_empty() && !line.starts_with('#'));
 
         let version = lines.next().ok_or(TraceError::MissingVersion)?;
