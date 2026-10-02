@@ -388,9 +388,7 @@ fn resolve_wrapper(
 fn valid_wrapper(source: &str, range: TextRange, wrapper: WrapperKind) -> bool {
     let slice = &source[range.as_usize_range()];
     match wrapper {
-        WrapperKind::Emphasis => {
-            slice.len() == 1 && matches!(slice.as_bytes(), [b'*'] | [b'_'])
-        }
+        WrapperKind::Emphasis => slice.len() == 1 && matches!(slice.as_bytes(), [b'*'] | [b'_']),
         WrapperKind::Strong => {
             slice.len() == 2 && (slice.as_bytes() == b"**" || slice.as_bytes() == b"__")
         }
@@ -655,8 +653,7 @@ fn push_span(
 
     let start = TextSize::try_from_usize(start).map_err(|_| DelimiterError::DocumentTooLarge)?;
     let end = TextSize::try_from_usize(end).map_err(|_| DelimiterError::DocumentTooLarge)?;
-    let range =
-        TextRange::new(start, end).map_err(|_| DelimiterError::InvalidDelimiterRange)?;
+    let range = TextRange::new(start, end).map_err(|_| DelimiterError::InvalidDelimiterRange)?;
     push_existing_span(output, owner, kind, range);
     Ok(())
 }
@@ -693,7 +690,8 @@ fn validate_node_range(source: &str, range: TextRange) -> Result<(), DelimiterEr
 }
 
 fn absolute_range(start: TextSize, end: TextSize) -> Result<TextRange, DelimiterError> {
-    TextRange::new(start, end).map_err(|_| DelimiterError::InvalidSyntaxRange(TextRange::empty(start)))
+    TextRange::new(start, end)
+        .map_err(|_| DelimiterError::InvalidSyntaxRange(TextRange::empty(start)))
 }
 
 const fn delimiter_kind_code(kind: DelimiterKind) -> u8 {
@@ -754,13 +752,18 @@ impl fmt::Display for DelimiterError {
                 syntax.get()
             ),
             Self::InvalidSyntaxRange(range) => {
-                write!(formatter, "syntax range {range:?} is invalid for delimiter resolution")
+                write!(
+                    formatter,
+                    "syntax range {range:?} is invalid for delimiter resolution"
+                )
             }
             Self::InvalidDelimiterBounds { start, end } => {
                 write!(formatter, "delimiter bounds {start}..{end} are invalid")
             }
             Self::InvalidDelimiterRange => write!(formatter, "delimiter range is invalid"),
-            Self::DocumentTooLarge => write!(formatter, "document exceeds the supported source size"),
+            Self::DocumentTooLarge => {
+                write!(formatter, "document exceeds the supported source size")
+            }
         }
     }
 }
@@ -933,8 +936,7 @@ mod tests {
     fn rejects_revision_mismatch() {
         let mut document = Document::new("**a**").unwrap();
         let old_snapshot = document.snapshot();
-        let syntax =
-            PulldownCmarkParser.parse(&old_snapshot, &MarkdownDialect::commonmark());
+        let syntax = PulldownCmarkParser.parse(&old_snapshot, &MarkdownDialect::commonmark());
 
         let transaction = Transaction::new(
             document.revision(),
