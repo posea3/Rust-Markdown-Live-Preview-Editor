@@ -1520,10 +1520,6 @@ fn same_logical_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
     left.line == right.line && left.index == right.index
 }
 
-fn same_cosmic_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
-    left.line == right.line && left.index == right.index && left.affinity == right.affinity
-}
-
 fn display_anchor_to_cursor(text: &str, anchor: Anchor) -> CosmicCursor {
     let cursor = display_offset_to_cursor(text, anchor.offset.to_usize());
     CosmicCursor::new_with_affinity(
