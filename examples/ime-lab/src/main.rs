@@ -21,6 +21,7 @@ use mdedit_core::{
 };
 use mdedit_input::{EditorInput, EditorSession};
 use trace_capture::TraceCapture;
+use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
     CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Instance, InstanceDescriptor,
     LoadOp, MultisampleState, Operations, PresentMode, RenderPassColorAttachment,
@@ -212,9 +213,16 @@ impl WindowState {
         let physical_size = window.inner_size();
 
         eprintln!("[mdedit-ime-lab] wgpu: creating instance");
-        let instance = Instance::new(InstanceDescriptor::new_with_display_handle_from_env(
-            Box::new(event_loop.owned_display_handle()),
+        let mut instance_descriptor = InstanceDescriptor::new_with_display_handle(Box::new(
+            event_loop.owned_display_handle(),
         ));
+        apply_platform_backend_default(&mut instance_descriptor);
+        let instance_descriptor = instance_descriptor.with_env();
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: enabled backends={:?}",
+            instance_descriptor.backends
+        );
+        let instance = Instance::new(instance_descriptor);
         eprintln!("[mdedit-ime-lab] wgpu: instance created; requesting adapter");
         let adapter = instance
             .request_adapter(&RequestAdapterOptions::default())
@@ -1180,32 +1188,79 @@ impl WindowState {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct VisualCaretCell {
+    left: f32,
+    right: f32,
+    left_cursor: CosmicCursor,
+    right_cursor: CosmicCursor,
+}
+
 fn visual_horizontal_target(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
     cursor: CosmicCursor,
     direction: i32,
 ) -> Option<CosmicCursor> {
-    let (current_x, current_top, current_height) = buffer.layout_runs().find_map(|run| {
-        run.cursor_position(&cursor)
-            .map(|x| (x, run.line_top, run.line_height))
-    })?;
+    let target = buffer.layout_runs().find_map(|run| {
+        let current_x = run.cursor_position(&cursor)?;
+        let mut cells = Vec::with_capacity(run.glyphs.len());
 
-    let y = current_top + current_height * 0.5;
-    let width = buffer.size().0.unwrap_or(4096.0).max(1.0);
-    let max_steps = width.ceil() as usize + 4;
+        for glyph in run.glyphs {
+            let cluster = &run.text[glyph.start..glyph.end];
+            let grapheme_count = cluster.grapheme_indices(true).count().max(1);
+            let cell_width = glyph.w / grapheme_count as f32;
 
-    for step in 1..=max_steps {
-        let x = current_x + direction as f32 * step as f32;
-        if x < -2.0 || x > width + 2.0 {
-            break;
+            for (ordinal, (relative_start, grapheme)) in
+                cluster.grapheme_indices(true).enumerate()
+            {
+                let start = glyph.start + relative_start;
+                let end = start + grapheme.len();
+                let left = glyph.x + cell_width * ordinal as f32;
+                let right = left + cell_width;
+
+                let (left_cursor, right_cursor) = if glyph.level.is_rtl() {
+                    (
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            end,
+                            glyphon::Affinity::Before,
+                        ),
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            start,
+                            glyphon::Affinity::After,
+                        ),
+                    )
+                } else {
+                    (
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            start,
+                            glyphon::Affinity::After,
+                        ),
+                        CosmicCursor::new_with_affinity(
+                            run.line_i,
+                            end,
+                            glyphon::Affinity::Before,
+                        ),
+                    )
+                };
+
+                cells.push(VisualCaretCell {
+                    left,
+                    right,
+                    left_cursor,
+                    right_cursor,
+                });
+            }
         }
 
-        if let Some(candidate) = buffer.hit(x, y)
-            && !same_cosmic_cursor(candidate, cursor)
-        {
-            return Some(candidate);
-        }
+        visual_neighbor(&cells, current_x, cursor, direction)
+    });
+
+    if target.is_some() {
+        return target;
     }
 
     let motion = if direction < 0 {
@@ -1216,6 +1271,67 @@ fn visual_horizontal_target(
     buffer
         .cursor_motion(font_system, cursor, None, motion)
         .map(|(cursor, _)| cursor)
+}
+
+fn visual_neighbor(
+    cells: &[VisualCaretCell],
+    current_x: f32,
+    cursor: CosmicCursor,
+    direction: i32,
+) -> Option<CosmicCursor> {
+    const EPSILON: f32 = 0.01;
+
+    let mut best: Option<(f32, f32, CosmicCursor)> = None;
+
+    for cell in cells {
+        let (eligible, distance, span, near_cursor, far_cursor) = if direction < 0 {
+            (
+                cell.left < current_x - EPSILON,
+                (current_x - cell.right).max(0.0),
+                (current_x - cell.left).abs(),
+                cell.right_cursor,
+                cell.left_cursor,
+            )
+        } else {
+            (
+                cell.right > current_x + EPSILON,
+                (cell.left - current_x).max(0.0),
+                (cell.right - current_x).abs(),
+                cell.left_cursor,
+                cell.right_cursor,
+            )
+        };
+
+        if !eligible {
+            continue;
+        }
+
+        let candidate = if same_cosmic_cursor(near_cursor, cursor) {
+            far_cursor
+        } else {
+            near_cursor
+        };
+        if same_cosmic_cursor(candidate, cursor) {
+            continue;
+        }
+
+        let is_better = best.is_none_or(|(best_distance, best_span, _)| {
+            distance < best_distance - EPSILON
+                || ((distance - best_distance).abs() <= EPSILON && span < best_span)
+        });
+        if is_better {
+            best = Some((distance, span, candidate));
+        }
+    }
+
+    best.map(|(_, _, cursor)| cursor)
+}
+
+fn apply_platform_backend_default(_descriptor: &mut InstanceDescriptor) {
+    #[cfg(target_os = "windows")]
+    {
+        _descriptor.backends = wgpu::Backends::DX12;
+    }
 }
 
 fn same_cosmic_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
@@ -1275,4 +1391,77 @@ fn cursor_to_display_offset(text: &str, cursor: CosmicCursor) -> Option<usize> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cursor(index: usize, affinity: glyphon::Affinity) -> CosmicCursor {
+        CosmicCursor::new_with_affinity(0, index, affinity)
+    }
+
+    #[test]
+    fn visual_neighbor_moves_between_adjacent_ltr_cells_without_pixel_scanning() {
+        let c0 = cursor(0, glyphon::Affinity::After);
+        let c1 = cursor(1, glyphon::Affinity::Before);
+        let c1_after = cursor(1, glyphon::Affinity::After);
+        let c2 = cursor(2, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: c0,
+                right_cursor: c1,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: c1_after,
+                right_cursor: c2,
+            },
+        ];
+
+        assert_eq!(visual_neighbor(&cells, 0.0, c0, 1), Some(c1));
+        assert_eq!(visual_neighbor(&cells, 20.0, c2, -1), Some(c1_after));
+    }
+
+    #[test]
+    fn visual_neighbor_preserves_same_x_bidi_boundary_transition() {
+        let left_start = cursor(0, glyphon::Affinity::After);
+        let left_end = cursor(1, glyphon::Affinity::Before);
+        let right_start = cursor(4, glyphon::Affinity::After);
+        let right_end = cursor(3, glyphon::Affinity::Before);
+        let cells = [
+            VisualCaretCell {
+                left: 0.0,
+                right: 10.0,
+                left_cursor: left_start,
+                right_cursor: left_end,
+            },
+            VisualCaretCell {
+                left: 10.0,
+                right: 20.0,
+                left_cursor: right_start,
+                right_cursor: right_end,
+            },
+        ];
+
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, left_end, 1),
+            Some(right_start)
+        );
+        assert_eq!(
+            visual_neighbor(&cells, 10.0, right_start, -1),
+            Some(left_end)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_defaults_wgpu_to_dx12_before_environment_override() {
+        let mut descriptor = InstanceDescriptor::new_without_display_handle();
+        apply_platform_backend_default(&mut descriptor);
+        assert_eq!(descriptor.backends, wgpu::Backends::DX12);
+    }
 }
