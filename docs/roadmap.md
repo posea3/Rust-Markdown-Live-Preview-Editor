@@ -118,7 +118,7 @@ Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start 
 
 ## Phase 4 - Markdown syntax engine
 
-Status: **in progress — parser, block identity/cache, and exact delimiter foundations implemented**
+Status: **in progress — syntax, metadata, delimiter, block identity, extensions, and compatibility fixtures implemented**
 
 Implemented:
 
@@ -139,7 +139,8 @@ Implemented:
 
 Remaining:
 
-- richer semantic metadata and broader compatibility fixtures
+- parse snapshot reconciliation rules for later background/incremental parsing
+- additional compatibility cases discovered during Phase 5 projection work
 
 First rendering milestone keeps all Markdown markers visible and adds only semantic styles.
 
@@ -184,9 +185,11 @@ Order:
 
 Widgets emit editor/host actions. They never mutate the buffer directly.
 
-## Phase 7 - Public extension API
+## Phase 7 - Extension API hardening
 
-Ship sample extensions and compatibility tests.
+The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
+
+Ship additional sample extensions, compatibility tests, and API-stability guidance.
 
 Target use cases:
 
