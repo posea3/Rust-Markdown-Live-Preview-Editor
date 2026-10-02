@@ -260,7 +260,9 @@ impl WindowState {
             present_mode: PresentMode::Fifo,
             alpha_mode: CompositeAlphaMode::Opaque,
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            // Text-editor interaction is latency-sensitive. Keep FIFO to avoid tearing,
+            // but avoid queueing a second frame behind the compositor.
+            desired_maximum_frame_latency: 1,
             color_space: SurfaceColorSpace::Auto,
         };
         eprintln!("[mdedit-ime-lab] wgpu: configuring surface");
