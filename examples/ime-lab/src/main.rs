@@ -2,7 +2,7 @@ mod accessibility;
 mod geometry;
 mod trace_capture;
 
-use std::{error::Error, ops::Range, sync::Arc};
+use std::{env, error::Error, ops::Range, sync::Arc, time::Instant};
 
 use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use accesskit::ActionRequest;
@@ -122,7 +122,13 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             }
             WindowEvent::Ime(ime) => state.handle_ime(ime),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if !event.repeat {
+                    state.begin_latency_probe(event.logical_key.as_ref());
+                }
                 state.handle_key(event.logical_key.as_ref(), event.text.as_deref());
+                if !event.repeat {
+                    state.mark_latency_input_handled();
+                }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor_position = position;
@@ -140,8 +146,11 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             },
             WindowEvent::MouseWheel { delta, .. } => state.scroll(delta),
             WindowEvent::RedrawRequested => {
+                state.mark_latency_redraw_received();
                 let continue_drag_scroll = state.continue_drag_auto_scroll();
-                if let Err(error) = state.render() {
+                let render_result = state.render();
+                state.finish_latency_probe();
+                if let Err(error) = render_result {
                     eprintln!("render error: {error}");
                 }
                 if continue_drag_scroll {
@@ -206,6 +215,8 @@ struct WindowState {
     text_render_dirty: bool,
     viewport_dirty: bool,
     window_title: String,
+    latency_trace_enabled: bool,
+    latency_probe: Option<LatencyProbe>,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -251,17 +262,24 @@ impl WindowState {
             .create_surface(window.clone())
             .expect("create window surface");
         eprintln!("[mdedit-ime-lab] wgpu: surface created");
+        let capabilities = surface.get_capabilities(&adapter);
+        let present_mode = choose_present_mode(&capabilities.present_modes);
+        eprintln!(
+            "[mdedit-ime-lab] wgpu: supported present modes={:?}; selected={:?}",
+            capabilities.present_modes, present_mode
+        );
+
         let format = TextureFormat::Bgra8UnormSrgb;
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format,
             width: physical_size.width.max(1),
             height: physical_size.height.max(1),
-            present_mode: PresentMode::Fifo,
+            present_mode,
             alpha_mode: CompositeAlphaMode::Opaque,
             view_formats: vec![],
-            // Text-editor interaction is latency-sensitive. Keep FIFO to avoid tearing,
-            // but avoid queueing a second frame behind the compositor.
+            // Text-editor interaction is latency-sensitive. Avoid queueing a second
+            // frame behind the compositor regardless of the selected present mode.
             desired_maximum_frame_latency: 1,
             color_space: SurfaceColorSpace::Auto,
         };
@@ -327,6 +345,8 @@ impl WindowState {
             text_render_dirty: true,
             viewport_dirty: true,
             window_title: String::new(),
+            latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
+            latency_probe: None,
             window,
         };
 
@@ -1246,8 +1266,114 @@ impl WindowState {
         Ok(())
     }
 
+    fn begin_latency_probe(&mut self, key: Key<&str>) {
+        if !self.latency_trace_enabled {
+            return;
+        }
+
+        let label = match key {
+            Key::Named(NamedKey::ArrowLeft) => "arrow-left",
+            Key::Named(NamedKey::ArrowRight) => "arrow-right",
+            Key::Named(NamedKey::ArrowUp) => "arrow-up",
+            Key::Named(NamedKey::ArrowDown) => "arrow-down",
+            _ => return,
+        };
+
+        self.latency_probe = Some(LatencyProbe {
+            label,
+            input_received: Instant::now(),
+            input_handled: None,
+            redraw_received: None,
+        });
+    }
+
+    fn mark_latency_input_handled(&mut self) {
+        if let Some(probe) = self.latency_probe.as_mut() {
+            probe.input_handled = Some(Instant::now());
+        }
+    }
+
+    fn mark_latency_redraw_received(&mut self) {
+        if let Some(probe) = self.latency_probe.as_mut() {
+            probe.redraw_received = Some(Instant::now());
+        }
+    }
+
+    fn finish_latency_probe(&mut self) {
+        let Some(probe) = self.latency_probe.take() else {
+            return;
+        };
+
+        let presented = Instant::now();
+        let handled = probe.input_handled.unwrap_or(probe.input_received);
+        let redraw = probe.redraw_received.unwrap_or(handled);
+        eprintln!(
+            "[mdedit-latency] {} handle={:.3}ms redraw_wait={:.3}ms render_present={:.3}ms total={:.3}ms",
+            probe.label,
+            duration_ms(handled.duration_since(probe.input_received)),
+            duration_ms(redraw.duration_since(handled)),
+            duration_ms(presented.duration_since(redraw)),
+            duration_ms(presented.duration_since(probe.input_received)),
+        );
+    }
+
     fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LatencyProbe {
+    label: &'static str,
+    input_received: Instant,
+    input_handled: Option<Instant>,
+    redraw_received: Option<Instant>,
+}
+
+fn duration_ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+fn env_flag(name: &str) -> bool {
+    env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
+    let requested = env::var("MDEDIT_PRESENT_MODE").ok();
+    let Some(requested) = requested.as_deref() else {
+        return PresentMode::Fifo;
+    };
+
+    let normalized = requested.trim().to_ascii_lowercase();
+    let requested_mode = match normalized.as_str() {
+        "fifo" => PresentMode::Fifo,
+        "auto-vsync" | "autovsync" => PresentMode::AutoVsync,
+        "auto-no-vsync" | "autonovsync" => PresentMode::AutoNoVsync,
+        "mailbox" => PresentMode::Mailbox,
+        "immediate" => PresentMode::Immediate,
+        other => {
+            eprintln!(
+                "[mdedit-ime-lab] unknown MDEDIT_PRESENT_MODE={other:?}; using Fifo"
+            );
+            return PresentMode::Fifo;
+        }
+    };
+
+    match requested_mode {
+        PresentMode::Mailbox | PresentMode::Immediate | PresentMode::FifoRelaxed
+            if !supported.contains(&requested_mode) =>
+        {
+            eprintln!(
+                "[mdedit-ime-lab] requested present mode {requested_mode:?} is unsupported; using AutoNoVsync"
+            );
+            PresentMode::AutoNoVsync
+        }
+        _ => requested_mode,
     }
 }
 
