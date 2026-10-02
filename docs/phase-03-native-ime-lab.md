@@ -140,18 +140,76 @@ glyphon / wgpu
 
 cosmic-text is not the source editor model.
 
-## Remaining Phase 3 hardening
+## Performance acceptance note
 
-- Korean IME still requires manual Windows/macOS acceptance testing
-- Japanese/Chinese IME still requires manual acceptance testing
-- focus-loss and IME disable/re-enable edge cases still require manual acceptance
-- Narrator/VoiceOver text, selection, and edit actions still require manual acceptance
+For subjective input-latency comparisons against production editors such as Word or Hangul, use an optimized build:
 
-These limitations are intentionally recorded rather than hidden. They are the next Phase 3 hardening work before Markdown begins.
+```bash
+cargo run --release -p mdedit-ime-lab
+```
+
+The default `cargo run` uses Rust's debug profile and is useful for diagnostics, but it is not representative of final editor latency. The Windows surface also keeps FIFO presentation to avoid tearing while limiting `desired_maximum_frame_latency` to 1 for lower input-to-display latency.
+
+## Horizontal caret acceptance finding
+
+Instrumented Windows runs showed horizontal input handling in roughly sub-millisecond to low-single-digit millisecond CPU time, with no meaningful FIFO vs Mailbox improvement. The remaining perceived slowness was traced to a correctness bug rather than throughput: at an ordinary LTR grapheme boundary the first Left/Right press could change only the cosmic-text cursor affinity at the same line/index, producing no visible movement, and the second press performed the actual grapheme move. Horizontal navigation now treats same-line/same-index affinity changes as the same logical caret stop and skips them. A regression test locks one-key-per-visible-grapheme movement while retaining distinct logical BiDi boundary transitions.
+
+## Input latency diagnostics
+
+Use the optimized build for latency checks:
+
+```powershell
+$env:MDEDIT_LATENCY_TRACE="1"
+Remove-Item Env:MDEDIT_TRACE_FILE -ErrorAction SilentlyContinue
+Remove-Item Env:MDEDIT_PRESENT_MODE -ErrorAction SilentlyContinue
+cargo run --release -p mdedit-ime-lab
+```
+
+A single non-repeated arrow-key press emits a line like:
+
+```text
+[mdedit-latency] arrow-right handle=...ms redraw_wait=...ms render_present=...ms total=...ms
+```
+
+The timing ends when the present call returns; it does not include the monitor's final scanout. This distinction is useful: a small CPU-side total with visibly delayed feedback points toward presentation/compositor/vsync latency rather than caret-navigation work.
+
+To compare presentation modes without changing code:
+
+```powershell
+$env:MDEDIT_PRESENT_MODE="mailbox"
+cargo run --release -p mdedit-ime-lab
+```
+
+or:
+
+```powershell
+$env:MDEDIT_PRESENT_MODE="auto-no-vsync"
+cargo run --release -p mdedit-ime-lab
+```
+
+`mailbox` is used only when reported by the surface; unsupported explicit modes fall back safely. `auto-no-vsync` lets wgpu choose Immediate, then Mailbox, then Fifo.
+
+## Phase 3 manual acceptance status
+
+Windows acceptance on the tested Intel UHD Graphics 630 machine:
+
+- Korean IME composition/commit/editing/selection replacement: **PASS**
+- Japanese IME: **PENDING / BLOCKED** because the Windows Japanese language/IME pack could not be installed on the test machine
+- Chinese IME: **PENDING / BLOCKED** for the same environment reason
+- Narrator: **PENDING**
+- macOS Korean/Japanese/Chinese IME and VoiceOver: **PENDING**
+- focus-loss and IME disable/re-enable edge cases: **PENDING**
+
+Two Windows issues were found during acceptance and are addressed on the Phase 3 fix branch:
+
+1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. For Windows, the IME lab now defaults to DX12 before applying wgpu environment overrides. `WGPU_BACKEND` can still explicitly override that default because the final `InstanceDescriptor` uses `with_env()`.
+2. Visual Left/Right caret movement felt slow. The original implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. Follow-up profiling also found redundant shaping, full glyphon text preparation on caret-only redraws, eager accessibility-tree construction while accessibility was inactive, repeated window-title updates, O(n) trace-file rewrites when tracing was enabled, and full Rope-to-String display projection copies on caret-only moves. Those hot-path costs have been removed or cached. Manual Windows acceptance reports that sustained key-repeat is now fast and single-step movement is improved, but single-key feedback still does not feel as immediate as Word/Hangul. This remains an **OPEN latency issue**, now instrumented with `MDEDIT_LATENCY_TRACE` and selectable present modes so CPU/event latency can be separated from compositor/vsync latency.
+
+The Japanese/Chinese and accessibility items remain intentionally marked pending rather than treated as passed.
 
 ## Capturing a platform regression trace
 
-Set `MDEDIT_TRACE_FILE` when running the IME lab. The lab rewrites that file after every semantic editor input, so an interrupted or crashed acceptance session still leaves the latest complete trace.
+Set `MDEDIT_TRACE_FILE` when running the IME lab. The lab writes the initial trace header once and then appends one encoded event line per semantic editor input, so an interrupted or crashed acceptance session still leaves the latest complete trace without rewriting the growing file on every key press.
 
 Windows PowerShell:
 
