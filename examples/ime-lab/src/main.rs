@@ -941,7 +941,11 @@ impl WindowState {
                     .set_text(&self.display_text, &normal, Shaping::Advanced, None);
             }
 
-            ensure_buffer_lines_match_display_text(&mut self.text_buffer, &self.display_text, &normal);
+            ensure_buffer_lines_match_display_text(
+                &mut self.text_buffer,
+                &self.display_text,
+                &normal,
+            );
             self.text_buffer.set_scroll(old_scroll);
             self.layout_dirty = true;
             self.text_render_dirty = true;
