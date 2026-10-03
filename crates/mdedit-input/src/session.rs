@@ -449,17 +449,17 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_discards_preedit_without_mutating_source() {
+    fn focus_loss_finalizes_visible_preedit() {
         let mut session = EditorSession::new("abc").unwrap();
         session.set_caret(Anchor::new(TextSize::new(1), Affinity::After));
         session.ime_preedit("한".to_owned(), Some(3..3)).unwrap();
 
         session.handle(EditorInput::Focused(false)).unwrap();
 
-        assert_eq!(session.document().text(), "abc");
+        assert_eq!(session.document().text(), "a한bc");
         assert!(session.composition().is_none());
         assert!(!session.focused());
-        assert_eq!(session.display_text().unwrap(), "abc");
+        assert_eq!(session.display_text().unwrap(), "a한bc");
     }
 
     #[test]
