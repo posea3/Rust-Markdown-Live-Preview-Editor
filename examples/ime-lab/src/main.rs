@@ -907,21 +907,25 @@ impl WindowState {
             .session
             .composition()
             .map(|composition| composition.preedit());
-        let display_changed = self.display_revision != Some(revision)
-            || self.preedit_text.as_deref() != next_preedit_text;
+
+        if let Err(error) = self.live_preview.refresh(&self.session) {
+            eprintln!("[mdedit-ime-lab] live preview projection error: {error}");
+        }
+
+        let next_display_text = self
+            .live_preview
+            .display_text()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                self.session
+                    .display_text()
+                    .unwrap_or_else(|_| self.session.document().text())
+            });
+        let next_preedit_range = self.live_preview.preedit_range();
+        let display_changed = self.display_text != next_display_text
+            || self.preedit_range != next_preedit_range;
 
         if display_changed {
-            let next_display_text = match self.session.display_text() {
-                Ok(text) => text,
-                Err(error) => {
-                    eprintln!("display projection error: {error}");
-                    self.session.document().text()
-                }
-            };
-            let next_preedit_range = self
-                .session
-                .composition()
-                .map(|composition| composition.display_preedit_range());
             let old_scroll = self.text_buffer.scroll();
 
             self.display_text = next_display_text;
@@ -968,11 +972,10 @@ impl WindowState {
         }
 
         let display_caret = self
-            .session
-            .composition()
-            .and_then(|composition| composition.display_cursor_offset().ok())
-            .unwrap_or_else(|| self.session.selections().primary().head.offset);
-        let cursor = display_offset_to_cursor(&self.display_text, display_caret.to_usize());
+            .live_preview
+            .display_caret_offset(&self.session)
+            .unwrap_or_else(|| self.session.selections().primary().head.offset.to_usize());
+        let cursor = display_offset_to_cursor(&self.display_text, display_caret);
 
         if self.ensure_caret_visible {
             let caret_is_visible =
@@ -1055,18 +1058,22 @@ impl WindowState {
             .iter()
             .filter_map(|selection| {
                 let (start, end) = selection.ordered_offsets();
-                (start != end).then(|| {
-                    (
-                        display_anchor_to_cursor(
-                            &self.display_text,
-                            Anchor::new(start, Affinity::Before),
-                        ),
-                        display_anchor_to_cursor(
-                            &self.display_text,
-                            Anchor::new(end, Affinity::After),
-                        ),
-                    )
-                })
+                if start == end {
+                    return None;
+                }
+
+                let start = self.live_preview.source_anchor_to_display(
+                    &self.session,
+                    Anchor::new(start, Affinity::Before),
+                )?;
+                let end = self.live_preview.source_anchor_to_display(
+                    &self.session,
+                    Anchor::new(end, Affinity::After),
+                )?;
+                Some((
+                    display_offset_to_cursor(&self.display_text, start),
+                    display_offset_to_cursor(&self.display_text, end),
+                ))
             })
             .collect::<Vec<_>>();
 
