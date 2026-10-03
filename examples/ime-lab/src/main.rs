@@ -1372,7 +1372,17 @@ fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: Cos
 }
 
 fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
-    let physical = match physical_key {
+    if let Key::Character(character) = key {
+        let mut chars = character.chars();
+        if let Some(character) = chars.next().map(|character| character.to_ascii_lowercase())
+            && chars.next().is_none()
+            && matches!(character, 'a' | 'c' | 'v' | 'x' | 'y' | 'z')
+        {
+            return Some(character);
+        }
+    }
+
+    match physical_key {
         PhysicalKey::Code(KeyCode::KeyA) => Some('a'),
         PhysicalKey::Code(KeyCode::KeyC) => Some('c'),
         PhysicalKey::Code(KeyCode::KeyV) => Some('v'),
@@ -1380,18 +1390,7 @@ fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char
         PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
         PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
         _ => None,
-    };
-    if physical.is_some() {
-        return physical;
     }
-
-    let Key::Character(character) = key else {
-        return None;
-    };
-    let mut chars = character.chars();
-    let character = chars.next()?.to_ascii_lowercase();
-    (chars.next().is_none() && matches!(character, 'a' | 'c' | 'v' | 'x' | 'y' | 'z'))
-        .then_some(character)
 }
 
 fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
@@ -1755,6 +1754,11 @@ mod tests {
         assert_eq!(
             shortcut_character(Key::Character("ㅁ"), &PhysicalKey::Code(KeyCode::KeyA),),
             Some('a'),
+        );
+        assert_eq!(
+            shortcut_character(Key::Character("z"), &PhysicalKey::Code(KeyCode::KeyW),),
+            Some('z'),
+            "Latin logical layouts must take precedence over the physical fallback",
         );
     }
 
