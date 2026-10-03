@@ -15,9 +15,9 @@ A source-first, native Rust Markdown editing engine with Live Preview.
 - Phase 0: repository foundation — complete
 - Phase 1: document/transaction/history core — complete
 - Phase 2: selection, Unicode navigation, and grapheme-safe deletion — complete
-- Phase 3: native input/IME lab — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending
+- Phase 3: native input/IME lab — implementation complete
 
-The current Phase 3 slice includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, semantic trace/replay, Windows DX12 startup diagnostics, and the affinity-only horizontal caret-stop fix. Windows Korean IME, one-key-per-visible-step Left/Right navigation, sustained movement, and Intel UHD Graphics 630 DX12 startup have passed manual acceptance. Windows Japanese/Chinese IME, macOS Korean/Japanese/Chinese IME, Narrator, and VoiceOver remain pending. Markdown parsing and Live Preview are intentionally not enabled on this branch.
+Phase 3 includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, semantic trace/replay, Windows DX12 startup diagnostics, macOS IME hardening, and the affinity-only horizontal caret-stop fix. Windows Korean and macOS Korean/Japanese/Chinese core IME acceptance passed, including macOS focus loss/refocus. Windows Japanese/Chinese manual acceptance is deferred because those IME packs were unavailable on the test machine. Narrator and VoiceOver manual acceptance is deferred to a later Markdown/Live Preview validation pass. The known macOS first-Korean-syllable split immediately after switching input source is tracked as upstream winit issue #3095 rather than duplicated with an editor-layer workaround.
 
 ## Run the native IME lab
 
