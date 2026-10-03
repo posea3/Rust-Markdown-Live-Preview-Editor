@@ -709,14 +709,16 @@ fn validate_inputs(
     Ok(())
 }
 
+type RevealGroupKey = (u32, u32, u32);
+type PendingRevealGroup = (SyntaxKind, TextRange, Vec<DelimiterSpan>);
+
 fn build_reveal_groups(
     root: &SyntaxNode,
     delimiters: &DelimiterSnapshot,
     policy: RevealPolicy,
     context: &RevealContext,
 ) -> Result<Vec<RevealGroup>, ProjectionFallbackReason> {
-    let mut grouped: BTreeMap<(u32, u32, u32), (SyntaxKind, TextRange, Vec<DelimiterSpan>)> =
-        BTreeMap::new();
+    let mut grouped: BTreeMap<RevealGroupKey, PendingRevealGroup> = BTreeMap::new();
 
     for delimiter in delimiters.spans() {
         let Some(owner_range) = smallest_owner_range(root, delimiter.owner(), delimiter.range())
