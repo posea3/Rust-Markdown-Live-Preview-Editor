@@ -137,11 +137,7 @@ pub struct ReflowMeasurement {
 
 impl ReflowMeasurement {
     #[must_use]
-    pub const fn new(
-        anchor: ReflowAnchor,
-        before: LayoutPosition,
-        after: LayoutPosition,
-    ) -> Self {
+    pub const fn new(anchor: ReflowAnchor, before: LayoutPosition, after: LayoutPosition) -> Self {
         Self {
             anchor,
             before,
@@ -214,14 +210,8 @@ mod tests {
             ReflowAnchor::same_source(&before, &before_stops, &after, &after_stops, source)
                 .unwrap();
 
-        assert_eq!(
-            anchor.before_projected().projected(),
-            ProjectedSize::new(1)
-        );
-        assert_eq!(
-            anchor.after_projected().projected(),
-            ProjectedSize::new(3)
-        );
+        assert_eq!(anchor.before_projected().projected(), ProjectedSize::new(1));
+        assert_eq!(anchor.after_projected().projected(), ProjectedSize::new(3));
         assert_eq!(anchor.before_source(), source);
         assert_eq!(anchor.after_source(), source);
     }
@@ -241,18 +231,12 @@ mod tests {
             ReflowAnchor::same_source(&before, &before_stops, &after, &after_stops, source)
                 .unwrap();
 
-        assert_eq!(
-            anchor.before_projected().projected(),
-            ProjectedSize::ZERO
-        );
+        assert_eq!(anchor.before_projected().projected(), ProjectedSize::ZERO);
         assert_eq!(
             anchor.before_projected().to_source(&before_stops),
             Some(source)
         );
-        assert_eq!(
-            anchor.after_projected().projected(),
-            ProjectedSize::new(2)
-        );
+        assert_eq!(anchor.after_projected().projected(), ProjectedSize::new(2));
         assert_eq!(
             anchor.after_projected().to_source(&after_stops),
             Some(source)
