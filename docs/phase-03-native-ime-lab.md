@@ -209,14 +209,14 @@ For a text editor, visible marked text should not be silently discarded on focus
 
 **Implementation: COMPLETE**
 
-Phase 3 is closed as an implementation milestone. Core Windows/macOS IME behavior required to continue editor development has been validated, with explicitly documented deferred/platform-owned items below.
+Phase 3 is closed as an implementation milestone. Core Windows/macOS IME behavior required to continue editor development has been validated, with explicitly documented deferred/platform-owned items below. Windows Japanese IME has now also passed manual acceptance.
 
 Manual acceptance:
 
 - Windows Korean IME composition/commit/editing/selection replacement: **PASS**
 - Windows Left/Right one press = one visible caret step and sustained movement: **PASS**
 - Windows Intel UHD Graphics 630 DX12 startup: **PASS**
-- Windows Japanese IME: **DEFERRED / ENVIRONMENT BLOCKED** because the Japanese language/IME pack could not be installed on the test machine
+- Windows Japanese IME: **PASS**
 - Windows Chinese IME: **DEFERRED / ENVIRONMENT BLOCKED** for the same reason
 - macOS Korean normal composition/editing/selection/undo-redo: **PASS**
 - macOS Japanese IME composition/candidate/editing/full-preedit deletion: **PASS**
