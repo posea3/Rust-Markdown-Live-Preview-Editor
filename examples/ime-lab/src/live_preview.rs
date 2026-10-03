@@ -373,8 +373,8 @@ mod tests {
 
     #[test]
     fn collapsed_boundary_round_trips_through_native_mapping() {
-        let mut session = EditorSession::new("**bold**").unwrap();
-        session.set_caret(anchor(8, Affinity::After));
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(anchor(13, Affinity::After));
 
         let mut state = LivePreviewState::new();
         state.refresh(&session).unwrap();
