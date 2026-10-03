@@ -189,6 +189,16 @@ cargo run --release -p mdedit-ime-lab
 
 `mailbox` is used only when reported by the surface; unsupported explicit modes fall back safely. `auto-no-vsync` lets wgpu choose Immediate, then Mailbox, then Fifo.
 
+## macOS upstream IME constraints
+
+Current macOS acceptance is affected by open winit 0.30.x AppKit issues in addition to application-level bugs:
+
+- `rust-windowing/winit#3095`: immediately after switching to Korean, the first Jamo can escape as ordinary keyboard input before AppKit starts marked-text composition, splitting the first syllable. The observed `IMKCFRunLoopWakeUpReliable` console message is part of the same cold-start failure. An upstream mitigation exists as PR #4693, currently based on winit 0.31 beta and not directly interchangeable with this project's winit 0.30.x / accesskit_winit dependency set.
+- `rust-windowing/winit#4526`: macOS can leak the final key-release event after an IME-owned Backspace clears all preedit.
+- `rust-windowing/winit#4626`: dropping a 0.30.13 window with marked text active can abort in a late `insertText` callback. The IME lab disables IME and clears local composition before teardown as the documented application workaround.
+
+The editor layer now ignores stray empty `Ime::Preedit("", None)` events when no composition exists, preserves an empty preedit only when it belongs to an existing composition awaiting commit, and resumes normal raw-key handling after an empty composition boundary.
+
 ## Phase 3 manual acceptance status
 
 Windows acceptance on the tested Intel UHD Graphics 630 machine:
