@@ -129,6 +129,13 @@ impl EditorSession {
         text: String,
         selection: Option<std::ops::Range<usize>>,
     ) -> Result<bool, SessionError> {
+        // winit/AppKit may emit an empty Preedit after a commit or while tearing
+        // down an IME session. An empty preedit without an existing composition
+        // is only a clearing signal; it must not create a phantom composition.
+        if text.is_empty() && self.composition.is_none() {
+            return Ok(false);
+        }
+
         if self.composition.is_none() {
             let primary = self.selections.primary();
             let (start, end) = primary.ordered_offsets();
@@ -341,6 +348,34 @@ mod tests {
 
         assert_eq!(session.document().text(), "abc");
         assert_eq!(session.display_text().unwrap(), "a한bc");
+    }
+
+    #[test]
+    fn stray_empty_preedit_does_not_create_phantom_composition() {
+        let mut session = EditorSession::new("abc").unwrap();
+
+        let changed = session.ime_preedit(String::new(), None).unwrap();
+
+        assert!(!changed);
+        assert!(session.composition().is_none());
+        assert_eq!(session.display_text().unwrap(), "abc");
+    }
+
+    #[test]
+    fn empty_preedit_after_commit_does_not_reopen_composition() {
+        let mut session = EditorSession::new("").unwrap();
+        session.ime_preedit("ㅎ".to_owned(), Some(3..3)).unwrap();
+        session.ime_preedit(String::new(), None).unwrap();
+        session.ime_commit("한").unwrap();
+
+        assert!(session.composition().is_none());
+        assert_eq!(session.document().text(), "한");
+
+        let changed = session.ime_preedit(String::new(), None).unwrap();
+
+        assert!(!changed);
+        assert!(session.composition().is_none());
+        assert_eq!(session.document().text(), "한");
     }
 
     #[test]
