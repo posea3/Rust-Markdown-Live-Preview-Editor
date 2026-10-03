@@ -1157,15 +1157,18 @@ impl WindowState {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let session = &self.session;
+        let Some(selection) = self.accessibility_display_selection() else {
+            return;
+        };
+        let display_text = self.display_text.clone();
         let width = self.surface_config.width;
         let height = self.surface_config.height;
         let scale_factor = self.window.scale_factor();
 
         self.accessibility_adapter.update_if_active(|| {
             build_tree_update(
-                &session.document().text(),
-                session.selections().primary(),
+                &display_text,
+                selection,
                 width,
                 height,
                 scale_factor,
@@ -1175,8 +1178,44 @@ impl WindowState {
         });
     }
 
+    fn accessibility_display_selection(&self) -> Option<SelectionRange> {
+        let primary = self.session.selections().primary();
+        let anchor = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.anchor)?;
+        let head = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.head)?;
+
+        Some(SelectionRange {
+            anchor: Anchor::new(
+                TextSize::try_from_usize(anchor).ok()?,
+                primary.anchor.affinity,
+            ),
+            head: Anchor::new(TextSize::try_from_usize(head).ok()?, primary.head.affinity),
+        })
+    }
+
+    fn accessibility_selection_to_source(
+        &self,
+        selection: SelectionRange,
+    ) -> Option<SelectionRange> {
+        let anchor = self.live_preview.display_to_source_anchor(
+            &self.session,
+            selection.anchor.offset.to_usize(),
+            selection.anchor.affinity,
+        )?;
+        let head = self.live_preview.display_to_source_anchor(
+            &self.session,
+            selection.head.offset.to_usize(),
+            selection.head.affinity,
+        )?;
+
+        Some(SelectionRange { anchor, head })
+    }
+
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
-        let Some(action) = translate_action(request, &self.session.document().text()) else {
+        let Some(action) = translate_action(request, &self.display_text) else {
             return;
         };
 
@@ -1186,6 +1225,10 @@ impl WindowState {
                 self.window.set_ime_allowed(true);
             }
             EditorAccessibilityAction::SetSelection(selection) => {
+                let Some(selection) = self.accessibility_selection_to_source(selection) else {
+                    eprintln!("accessibility selection could not be mapped through live preview");
+                    return;
+                };
                 match SelectionSet::new(vec![selection], 0) {
                     Ok(selection) => {
                         if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
