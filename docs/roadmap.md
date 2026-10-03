@@ -147,22 +147,25 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Add `mdedit-live`.
+Status: **in progress — projection, source mapping, styles, conceal spans, and reveal groups implemented**
 
-Implement:
+Implemented in the first slice:
 
-- Projection
-- ProjectedBlock / ProjectedSpan
-- ProjectionMap
-- Concealed spans
-- RevealGroup
-- RevealPolicy
-- caret-stop model
+- framework-independent `mdedit-live` crate
+- `Projection`
+- `ProjectedBlock` / `ProjectedSpan`
+- project-owned projected coordinate types
+- bidirectional `ProjectionMap` with explicit before/after bias at collapsed boundaries
+- semantic `StyleSpan` values
+- exact delimiter-backed `ConcealSpan`
+- `RevealGroup` / `RevealPolicy`
+- caret intersection reveal
 - selection intersection reveal
-- IME force reveal
-- reflow/caret scroll compensation
+- IME composition force reveal through source-range context
+- source-visible safe default
+- raw projection fallback on inconsistent syntax/concealment ownership
 
-Initial supported concealment:
+Initial exact-byte concealment covers resolved markers for:
 
 - headings
 - strong
@@ -171,7 +174,16 @@ Initial supported concealment:
 - inline code
 - block quote marker
 - list marker
-- link syntax
+- link syntax / autolinks
+
+Remaining:
+
+- structural separator/padding collapse policy
+- caret-stop model
+- reveal-policy refinement for nested/adjacent constructs
+- projected hit-test/selection helpers for the view layer
+- reflow/caret scroll compensation
+- native view integration and acceptance
 
 ## Phase 6 - Widgets
 
