@@ -122,9 +122,7 @@ impl ProjectedCaretStops {
             .binary_search_by_key(&projected, |stop| stop.projected)
         {
             Ok(index) => match direction {
-                CaretDirection::Backward => {
-                    index.checked_sub(1).and_then(|i| self.stops.get(i))
-                }
+                CaretDirection::Backward => index.checked_sub(1).and_then(|i| self.stops.get(i)),
                 CaretDirection::Forward => self.stops.get(index + 1),
             },
             Err(index) => match direction {
@@ -296,19 +294,11 @@ mod tests {
         let stops = ProjectedCaretStops::from_projection(&projection);
 
         assert_eq!(
-            stops.move_from_source(
-                &projection,
-                TextSize::new(1),
-                CaretDirection::Backward,
-            ),
+            stops.move_from_source(&projection, TextSize::new(1), CaretDirection::Backward,),
             Some(TextSize::ZERO)
         );
         assert_eq!(
-            stops.move_from_source(
-                &projection,
-                TextSize::new(1),
-                CaretDirection::Forward,
-            ),
+            stops.move_from_source(&projection, TextSize::new(1), CaretDirection::Forward,),
             Some(TextSize::new(3))
         );
     }
