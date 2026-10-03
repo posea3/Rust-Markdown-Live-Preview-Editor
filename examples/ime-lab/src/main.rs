@@ -22,6 +22,7 @@ use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
+use mdedit_live::{LayoutPosition, ReflowMeasurement};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -904,9 +905,22 @@ impl WindowState {
             .composition()
             .map(|composition| composition.preedit());
 
-        if let Err(error) = self.live_preview.refresh(&self.session) {
-            eprintln!("[mdedit-ime-lab] live preview projection error: {error}");
-        }
+        let reflow = match self.live_preview.refresh(&self.session) {
+            Ok(refresh) => refresh.reflow(),
+            Err(error) => {
+                eprintln!("[mdedit-ime-lab] live preview projection error: {error}");
+                None
+            }
+        };
+        let reflow_before = reflow.and_then(|reflow| {
+            measure_layout_position(
+                &mut self.text_buffer,
+                &mut self.font_system,
+                &self.display_text,
+                reflow.before_display_offset(),
+            )
+            .map(|position| (reflow, position))
+        });
 
         let next_display_text = self
             .live_preview
@@ -964,6 +978,28 @@ impl WindowState {
             self.text_buffer.set_scroll(old_scroll);
             self.layout_dirty = true;
             self.text_render_dirty = true;
+        }
+
+        if let Some((reflow, before)) = reflow_before {
+            if let Some(after) = measure_layout_position(
+                &mut self.text_buffer,
+                &mut self.font_system,
+                &self.display_text,
+                reflow.after_display_offset(),
+            ) {
+                let measurement = ReflowMeasurement::new(reflow.anchor(), before, after);
+                if let Some(adjustment) = measurement.scroll_adjustment() {
+                    if adjustment.block().abs() > f32::EPSILON {
+                        let mut scroll = self.text_buffer.scroll();
+                        scroll.vertical += adjustment.block();
+                        self.text_buffer.set_scroll(scroll);
+                        self.text_buffer
+                            .shape_until_scroll(&mut self.font_system, false);
+                        self.layout_dirty = false;
+                        self.text_render_dirty = true;
+                    }
+                }
+            }
         }
 
         let display_caret = self
@@ -1686,6 +1722,28 @@ fn cosmic_to_core_affinity(affinity: glyphon::Affinity) -> Affinity {
         glyphon::Affinity::Before => Affinity::Before,
         glyphon::Affinity::After => Affinity::After,
     }
+}
+
+fn measure_layout_position(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    text: &str,
+    display_offset: usize,
+) -> Option<LayoutPosition> {
+    if display_offset > text.len() || !text.is_char_boundary(display_offset) {
+        return None;
+    }
+
+    let cursor = display_offset_to_cursor(text, display_offset);
+    if cursor.line >= buffer.lines.len() {
+        return None;
+    }
+
+    buffer.shape_until_cursor(font_system, cursor, false);
+    buffer.layout_runs().find_map(|run| {
+        run.cursor_position(&cursor)
+            .and_then(|inline| LayoutPosition::new(inline, run.line_top))
+    })
 }
 
 fn display_offset_to_cursor(text: &str, offset: usize) -> CosmicCursor {
