@@ -4,6 +4,7 @@ members = [
     "crates/mdedit-core",
     "crates/mdedit-input",
     "crates/mdedit-markdown",
+    "crates/mdedit-live",
     "examples/ime-lab",
 ]
 
