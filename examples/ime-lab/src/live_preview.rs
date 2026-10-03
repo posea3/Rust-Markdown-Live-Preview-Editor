@@ -515,7 +515,9 @@ mod tests {
 
         session.set_caret(anchor(3, Affinity::After));
         let refresh = state.refresh(&session).unwrap();
-        let reflow = refresh.reflow().expect("same-revision reveal should reflow");
+        let reflow = refresh
+            .reflow()
+            .expect("same-revision reveal should reflow");
 
         assert_eq!(reflow.anchor().before_source(), anchor(3, Affinity::After));
         assert_eq!(reflow.before_display_offset(), 1);
