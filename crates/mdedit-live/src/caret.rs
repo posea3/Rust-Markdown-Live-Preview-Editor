@@ -117,20 +117,22 @@ impl ProjectedCaretStops {
         direction: CaretDirection,
     ) -> Option<TextSize> {
         let projected = projection.map().source_to_projected(source)?;
-        let index = match self
+        let target = match self
             .stops
             .binary_search_by_key(&projected, |stop| stop.projected)
         {
-            Ok(index) => index,
-            Err(index) => match direction {
-                CaretDirection::Backward => index.checked_sub(1)?,
-                CaretDirection::Forward => index,
+            Ok(index) => match direction {
+                CaretDirection::Backward => {
+                    index.checked_sub(1).and_then(|i| self.stops.get(i))
+                }
+                CaretDirection::Forward => self.stops.get(index + 1),
             },
-        };
-
-        let target = match direction {
-            CaretDirection::Backward => index.checked_sub(1).and_then(|i| self.stops.get(i)),
-            CaretDirection::Forward => self.stops.get(index + 1),
+            Err(index) => match direction {
+                CaretDirection::Backward => {
+                    index.checked_sub(1).and_then(|i| self.stops.get(i))
+                }
+                CaretDirection::Forward => self.stops.get(index),
+            },
         }?;
 
         Some(target.source_for_entry(direction))
@@ -266,8 +268,7 @@ mod tests {
 
         let mut source = TextSize::new(2);
         let mut moves = 0;
-        while let Some(next) =
-            stops.move_from_source(&projection, source, CaretDirection::Forward)
+        while let Some(next) = stops.move_from_source(&projection, source, CaretDirection::Forward)
         {
             source = next;
             moves += 1;
@@ -286,6 +287,29 @@ mod tests {
                 .stops()
                 .iter()
                 .all(|stop| !stop.is_collapsed_boundary())
+        );
+    }
+
+    #[test]
+    fn movement_from_inside_a_projected_grapheme_snaps_once_in_direction() {
+        let projection = projection("한글", RevealPolicy::SourceVisible);
+        let stops = ProjectedCaretStops::from_projection(&projection);
+
+        assert_eq!(
+            stops.move_from_source(
+                &projection,
+                TextSize::new(1),
+                CaretDirection::Backward,
+            ),
+            Some(TextSize::ZERO)
+        );
+        assert_eq!(
+            stops.move_from_source(
+                &projection,
+                TextSize::new(1),
+                CaretDirection::Forward,
+            ),
+            Some(TextSize::new(3))
         );
     }
 
