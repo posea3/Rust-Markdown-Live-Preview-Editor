@@ -249,6 +249,7 @@ struct WindowState {
     latency_trace_enabled: bool,
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
+    live_preview_trace_enabled: bool,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -390,6 +391,7 @@ impl WindowState {
             latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
+            live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
             window,
         };
 
@@ -955,6 +957,26 @@ impl WindowState {
         let next_preedit_range = self.live_preview.preedit_range();
         let display_changed =
             self.display_text != next_display_text || self.preedit_range != next_preedit_range;
+
+        if self.live_preview_trace_enabled && display_changed {
+            let primary = self.session.selections().primary();
+            let projected_anchor = self
+                .live_preview
+                .source_anchor_to_display(&self.session, primary.anchor);
+            let projected_head = self
+                .live_preview
+                .source_anchor_to_display(&self.session, primary.head);
+            let reflow_offsets =
+                reflow.map(|value| (value.before_display_offset(), value.after_display_offset()));
+
+            eprintln!(
+                "[mdedit-live-preview] source_len={} display_len={} source_selection={}..{} projected_selection={projected_anchor:?}..{projected_head:?} preedit={next_preedit_range:?} reflow={reflow_offsets:?}",
+                self.session.document().text().len(),
+                next_display_text.len(),
+                primary.anchor.offset.to_usize(),
+                primary.head.offset.to_usize(),
+            );
+        }
 
         if display_changed {
             let old_scroll = self.text_buffer.scroll();
