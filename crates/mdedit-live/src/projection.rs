@@ -609,11 +609,7 @@ impl Projection {
         let omitted_ranges = concealed
             .iter()
             .map(|span| span.source_range)
-            .chain(
-                structural_padding
-                    .iter()
-                    .map(|span| span.source_range),
-            )
+            .chain(structural_padding.iter().map(|span| span.source_range))
             .collect();
         let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
         let text = materialize_projection(&source, map.concealed_ranges());
@@ -991,15 +987,15 @@ fn push_structural_padding(
         return Err(ProjectionBuildError::InvalidStructuralPaddingBounds { start, end });
     }
 
-    let start = TextSize::try_from_usize(start)
-        .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
-    let end =
-        TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
-    let source_range = TextRange::new(start, end)
-        .map_err(|_| ProjectionBuildError::InvalidStructuralPaddingBounds {
+    let start =
+        TextSize::try_from_usize(start).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let end = TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let source_range = TextRange::new(start, end).map_err(|_| {
+        ProjectionBuildError::InvalidStructuralPaddingBounds {
             start: start.to_usize(),
             end: end.to_usize(),
-        })?;
+        }
+    })?;
     output.push(StructuralPaddingSpan {
         kind,
         source_range,
@@ -1248,7 +1244,10 @@ pub enum ProjectionBuildError {
     },
     ProjectedLengthOverflow,
     ConcealmentExceedsSource,
-    InvalidStructuralPaddingBounds { start: usize, end: usize },
+    InvalidStructuralPaddingBounds {
+        start: usize,
+        end: usize,
+    },
     DocumentTooLarge,
 }
 
@@ -1292,7 +1291,10 @@ impl fmt::Display for ProjectionBuildError {
                 write!(formatter, "concealment exceeds the canonical source length")
             }
             Self::InvalidStructuralPaddingBounds { start, end } => {
-                write!(formatter, "structural padding bounds {start}..{end} are invalid")
+                write!(
+                    formatter,
+                    "structural padding bounds {start}..{end} are invalid"
+                )
             }
             Self::DocumentTooLarge => {
                 write!(formatter, "document exceeds the supported source size")
@@ -1548,7 +1550,9 @@ mod tests {
 
         assert_eq!(projection.text(), "    code\n");
         assert_eq!(
-            projection.structural_padding_spans()[0].source_range().len(),
+            projection.structural_padding_spans()[0]
+                .source_range()
+                .len(),
             TextSize::new(1)
         );
     }
