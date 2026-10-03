@@ -1065,8 +1065,8 @@ mod tests {
         );
         assert!(projection.styles().iter().any(|style| {
             style.kind() == StyleKind::Strong
-                && style.source_range().as_usize_range() == 0..8
-                && style.projected_range().as_usize_range() == 0..8
+                && style.source_range().as_usize_range() == (0..8)
+                && style.projected_range().as_usize_range() == (0..8)
         }));
     }
 
@@ -1121,7 +1121,7 @@ mod tests {
             Some(TextSize::new(8))
         );
         assert!(projection.styles().iter().any(|style| {
-            style.kind() == StyleKind::Strong && style.projected_range().as_usize_range() == 0..4
+            style.kind() == StyleKind::Strong && style.projected_range().as_usize_range() == (0..4)
         }));
     }
 
