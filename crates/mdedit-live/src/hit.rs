@@ -1,8 +1,6 @@
 use mdedit_core::{Affinity, Anchor, SelectionRange, TextSize};
 
-use crate::{
-    ProjectedCaretStop, ProjectedCaretStops, ProjectedSize, Projection, ProjectionBias,
-};
+use crate::{ProjectedCaretStop, ProjectedCaretStops, ProjectedSize, Projection, ProjectionBias};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitBias {
@@ -262,7 +260,9 @@ mod tests {
         let projection = projection("**bold**", RevealPolicy::ConcealInactive);
         let stops = ProjectedCaretStops::from_projection(&projection);
 
-        let opening_before = stops.hit_test(ProjectedSize::ZERO, HitBias::Before).unwrap();
+        let opening_before = stops
+            .hit_test(ProjectedSize::ZERO, HitBias::Before)
+            .unwrap();
         let opening_after = stops.hit_test(ProjectedSize::ZERO, HitBias::After).unwrap();
         let closing_before = stops
             .hit_test(ProjectedSize::new(4), HitBias::Before)
@@ -282,14 +282,8 @@ mod tests {
         let projection = projection("abc", RevealPolicy::SourceVisible);
         let stops = ProjectedCaretStops::from_projection(&projection);
 
-        assert_eq!(
-            stops.hit_test(ProjectedSize::new(4), HitBias::Before),
-            None
-        );
-        assert_eq!(
-            stops.hit_test(ProjectedSize::new(4), HitBias::After),
-            None
-        );
+        assert_eq!(stops.hit_test(ProjectedSize::new(4), HitBias::Before), None);
+        assert_eq!(stops.hit_test(ProjectedSize::new(4), HitBias::After), None);
     }
 
     #[test]
@@ -310,14 +304,8 @@ mod tests {
         let projected_reversed =
             ProjectedSelection::from_source(&projection, &stops, reversed).unwrap();
 
-        assert_eq!(
-            projected_forward.anchor().projected(),
-            ProjectedSize::ZERO
-        );
-        assert_eq!(
-            projected_forward.focus().projected(),
-            ProjectedSize::new(4)
-        );
+        assert_eq!(projected_forward.anchor().projected(), ProjectedSize::ZERO);
+        assert_eq!(projected_forward.focus().projected(), ProjectedSize::new(4));
         assert_eq!(projected_forward.to_source(&stops), Some(forward));
         assert_eq!(projected_reversed.to_source(&stops), Some(reversed));
         assert!(projected_reversed.to_source(&stops).unwrap().is_reversed());
@@ -373,10 +361,7 @@ mod tests {
         assert_eq!(before.projected(), ProjectedSize::ZERO);
         assert_eq!(after.projected(), ProjectedSize::ZERO);
         assert_eq!(before.to_source(&stops).unwrap().offset, TextSize::ZERO);
-        assert_eq!(
-            after.to_source(&stops).unwrap().offset,
-            TextSize::new(2)
-        );
+        assert_eq!(after.to_source(&stops).unwrap().offset, TextSize::new(2));
     }
 
     #[test]
@@ -399,9 +384,6 @@ mod tests {
         assert_eq!(before.projected(), ProjectedSize::ZERO);
         assert_eq!(after.projected(), ProjectedSize::new(3));
         assert_eq!(before.to_source(&stops).unwrap().offset, TextSize::ZERO);
-        assert_eq!(
-            after.to_source(&stops).unwrap().offset,
-            TextSize::new(3)
-        );
+        assert_eq!(after.to_source(&stops).unwrap().offset, TextSize::new(3));
     }
 }
