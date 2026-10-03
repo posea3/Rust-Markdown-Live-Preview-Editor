@@ -116,6 +116,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
         match event {
             WindowEvent::CloseRequested => {
                 eprintln!("[mdedit-ime-lab] close requested");
+                state.prepare_for_window_teardown();
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => state.resize(size),
@@ -372,6 +373,15 @@ impl WindowState {
         state.refresh_layout();
         eprintln!("[mdedit-ime-lab] initialization complete");
         state
+    }
+
+    fn prepare_for_window_teardown(&mut self) {
+        // winit 0.30.x can receive a late NSTextInputClient::insertText callback
+        // while a macOS window is being dropped with marked text active. Disable
+        // IME while the native window is still alive so AppKit clears marked text
+        // before teardown (rust-windowing/winit#4626).
+        self.window.set_ime_allowed(false);
+        self.session.cancel_composition();
     }
 
     fn set_focused(&mut self, focused: bool) {
@@ -1371,6 +1381,12 @@ impl WindowState {
 
     fn request_redraw(&self) {
         self.window.request_redraw();
+    }
+}
+
+impl Drop for WindowState {
+    fn drop(&mut self) {
+        self.prepare_for_window_teardown();
     }
 }
 
