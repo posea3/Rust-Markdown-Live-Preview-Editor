@@ -18,6 +18,4 @@ pub use projection::{
     ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
     StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan,
 };
-pub use reflow::{
-    LayoutPosition, ReflowAnchor, ReflowMeasurement, ScrollAdjustment,
-};
+pub use reflow::{LayoutPosition, ReflowAnchor, ReflowMeasurement, ScrollAdjustment};
