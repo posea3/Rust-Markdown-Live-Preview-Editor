@@ -10,7 +10,7 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::Motion as CosmicMotion;
+use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
@@ -941,6 +941,7 @@ impl WindowState {
                     .set_text(&self.display_text, &normal, Shaping::Advanced, None);
             }
 
+            ensure_buffer_lines_match_display_text(&mut self.text_buffer, &self.display_text, &normal);
             self.text_buffer.set_scroll(old_scroll);
             self.layout_dirty = true;
             self.text_render_dirty = true;
@@ -957,8 +958,19 @@ impl WindowState {
             let caret_is_visible =
                 !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
             if !caret_is_visible {
-                self.text_buffer
-                    .shape_until_cursor(&mut self.font_system, cursor, false);
+                if cursor.line < self.text_buffer.lines.len() {
+                    self.text_buffer
+                        .shape_until_cursor(&mut self.font_system, cursor, false);
+                } else {
+                    eprintln!(
+                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; shaping visible scroll instead",
+                        cursor.line,
+                        self.text_buffer.lines.len(),
+                        self.display_text.len(),
+                    );
+                    self.text_buffer
+                        .shape_until_scroll(&mut self.font_system, false);
+                }
                 self.layout_dirty = false;
             }
             self.ensure_caret_visible = false;
@@ -1411,6 +1423,25 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
+fn ensure_buffer_lines_match_display_text(
+    buffer: &mut Buffer,
+    display_text: &str,
+    attrs: &Attrs<'_>,
+) {
+    // cosmic-text 0.19 BidiParagraphs intentionally omits a final empty
+    // paragraph when text ends with a newline. Editor caret semantics still
+    // require that trailing empty source line to exist as a BufferLine.
+    let expected_lines = display_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    while buffer.lines.len() < expected_lines {
+        buffer.lines.push(BufferLine::new(
+            String::new(),
+            LineEnding::None,
+            AttrsList::new(attrs),
+            Shaping::Advanced,
+        ));
+    }
+}
+
 fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: CosmicCursor) -> bool {
     let first = start.line.min(end.line);
     let last = start.line.max(end.line);
@@ -1677,6 +1708,41 @@ mod tests {
 
     fn cursor(index: usize, affinity: glyphon::Affinity) -> CosmicCursor {
         CosmicCursor::new_with_affinity(0, index, affinity)
+    }
+
+    #[test]
+    fn trailing_newline_gets_explicit_empty_buffer_line() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+
+        buffer.set_text("abc\n", &attrs, Shaping::Advanced, None);
+        assert_eq!(buffer.lines.len(), 1);
+
+        ensure_buffer_lines_match_display_text(&mut buffer, "abc\n", &attrs);
+
+        assert_eq!(buffer.lines.len(), 2);
+        assert_eq!(buffer.lines[1].text(), "");
+        let cursor = display_offset_to_cursor("abc\n", 4);
+        assert_eq!(cursor.line, 1);
+        assert_eq!(cursor.index, 0);
+
+        buffer.shape_until_cursor(&mut font_system, cursor, false);
+    }
+
+    #[test]
+    fn empty_japanese_preedit_on_trailing_line_has_valid_buffer_cursor() {
+        let source = "line\n";
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+
+        buffer.set_text(source, &attrs, Shaping::Advanced, None);
+        ensure_buffer_lines_match_display_text(&mut buffer, source, &attrs);
+
+        let cursor = display_offset_to_cursor(source, source.len());
+        assert!(cursor.line < buffer.lines.len());
+        buffer.shape_until_cursor(&mut font_system, cursor, false);
     }
 
     #[test]
