@@ -210,11 +210,7 @@ mod tests {
         let stops = ProjectedCaretStops::from_projection(&projection);
 
         let target = stops
-            .move_from_source(
-                &projection,
-                TextSize::new(3),
-                CaretDirection::Backward,
-            )
+            .move_from_source(&projection, TextSize::new(3), CaretDirection::Backward)
             .unwrap();
 
         assert_eq!(target, TextSize::new(2));
@@ -226,11 +222,7 @@ mod tests {
         let stops = ProjectedCaretStops::from_projection(&projection);
 
         let target = stops
-            .move_from_source(
-                &projection,
-                TextSize::new(5),
-                CaretDirection::Forward,
-            )
+            .move_from_source(&projection, TextSize::new(5), CaretDirection::Forward)
             .unwrap();
 
         assert_eq!(target, TextSize::new(6));
@@ -243,8 +235,7 @@ mod tests {
 
         let mut source = TextSize::new(2);
         let mut visited = vec![source.get()];
-        while let Some(next) =
-            stops.move_from_source(&projection, source, CaretDirection::Forward)
+        while let Some(next) = stops.move_from_source(&projection, source, CaretDirection::Forward)
         {
             source = next;
             visited.push(source.get());
