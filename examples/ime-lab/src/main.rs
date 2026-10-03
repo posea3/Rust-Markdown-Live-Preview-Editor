@@ -220,6 +220,7 @@ struct WindowState {
     window_title: String,
     latency_trace_enabled: bool,
     latency_probe: Option<LatencyProbe>,
+    ime_trace_enabled: bool,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -350,6 +351,7 @@ impl WindowState {
             window_title: String::new(),
             latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
             latency_probe: None,
+            ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             window,
         };
 
@@ -388,6 +390,10 @@ impl WindowState {
     }
 
     fn handle_ime(&mut self, ime: Ime) {
+        if self.ime_trace_enabled {
+            eprintln!("[mdedit-ime] event={ime:?}");
+        }
+
         let input = match ime {
             Ime::Enabled => EditorInput::ImeEnabled,
             Ime::Preedit(text, selection) => EditorInput::ImePreedit {
@@ -412,11 +418,31 @@ impl WindowState {
         let shortcut = self.modifiers.control_key() || self.modifiers.super_key();
         let extend = self.modifiers.shift_key();
 
-        // Native IMEs own ordinary editing/candidate-navigation keys while a
-        // composition is active. macOS may still deliver raw key events for
-        // Backspace/Space/Enter/arrows in addition to Ime::Preedit updates.
-        if self.session.composition().is_some() && !shortcut {
-            return;
+        // Native IMEs own ordinary editing/candidate-navigation keys while
+        // visible preedit is active. A trailing empty Preedit is only a clearing
+        // boundary; if a raw key follows it, end that empty composition and let
+        // the editor handle the key normally.
+        if !shortcut {
+            if self
+                .session
+                .composition()
+                .is_some_and(|composition| !composition.preedit().is_empty())
+            {
+                return;
+            }
+            if self.session.composition().is_some() {
+                self.session.cancel_composition();
+            }
+        }
+
+        if self.ime_trace_enabled {
+            eprintln!(
+                "[mdedit-ime] key pressed logical={:?} physical={:?} text={:?} composition={}",
+                event.logical_key,
+                event.physical_key,
+                event.text,
+                self.session.composition().is_some(),
+            );
         }
 
         let handled = if shortcut {
