@@ -1891,13 +1891,14 @@ mod tests {
 
         let fixture = initial_document(true);
         assert_eq!(fixture, LIVE_PREVIEW_ACCEPTANCE_DOCUMENT);
-        assert!(fixture.contains("**strong text**"));
-        assert!(fixture.contains("**outer *inner* tail**"));
-        assert!(fixture.contains("Setext heading\n--------------"));
-        assert!(fixture.contains("> > Nested block quote"));
-        assert!(fixture.contains("한글"));
-        assert!(fixture.contains("日本語"));
-        assert!(fixture.contains("中文"));
+        let normalized = fixture.replace("\r\n", "\n");
+        assert!(normalized.contains("**strong text**"));
+        assert!(normalized.contains("**outer *inner* tail**"));
+        assert!(normalized.contains("Setext heading\n--------------"));
+        assert!(normalized.contains("> > Nested block quote"));
+        assert!(normalized.contains("한글"));
+        assert!(normalized.contains("日本語"));
+        assert!(normalized.contains("中文"));
     }
 
     #[test]
