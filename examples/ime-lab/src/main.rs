@@ -1365,11 +1365,7 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
-fn selection_intersects_source_line(
-    line_i: usize,
-    start: CosmicCursor,
-    end: CosmicCursor,
-) -> bool {
+fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: CosmicCursor) -> bool {
     let first = start.line.min(end.line);
     let last = start.line.max(end.line);
     (first..=last).contains(&line_i)
