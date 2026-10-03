@@ -147,7 +147,7 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Status: **in progress — projection, source mapping, reveal, caret stops, and projected interaction helpers implemented**
+Status: **in progress — projection, reveal, projected interaction, and reflow compensation contracts implemented; native integration remains**
 
 Implemented in the first slice:
 
@@ -176,6 +176,11 @@ Implemented in the first slice:
 - `ProjectedSelectionEndpoint` / `ProjectedSelection` source-to-projected and projected-to-source mapping
 - anchor/focus direction preservation, including selections whose endpoints collapse to the same projected position
 - range-local selection mapping compatible with future `SelectionSet` multi-selection integration without ownership coupling
+- `ReflowAnchor` before/after projected tracking for a canonical caret/selection anchor
+- same-source reveal/conceal reflow mapping plus externally ChangeMap-mapped cross-revision anchor support
+- finite logical `LayoutPosition` measurements on inline/block axes without view-framework types
+- `ReflowMeasurement` / `ScrollAdjustment` contract where the view adds after-minus-before layout delta to its scroll offset
+- explicit separation of scroll clamping, wrap width, shaped geometry, viewport policy, and auto-scroll into the native view
 
 Initial exact-byte concealment covers resolved markers for:
 
@@ -190,8 +195,8 @@ Initial exact-byte concealment covers resolved markers for:
 
 Remaining:
 
-- reflow/caret scroll compensation
-- native view integration and acceptance
+- native view integration with Phase 3 cosmic-text/glyphon/wgpu editor infrastructure
+- native Live Preview acceptance, including deferred Narrator/VoiceOver validation
 
 ## Phase 6 - Widgets
 

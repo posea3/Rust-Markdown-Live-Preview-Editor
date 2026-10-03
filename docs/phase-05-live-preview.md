@@ -36,6 +36,8 @@ The first Phase 5 slice adds the framework-independent `mdedit-live` crate with:
 - Unicode-grapheme `ProjectedCaretStops` for one visible horizontal step per movement
 - `HitBias` / `ProjectedHit` for projected-byte interaction snapping
 - `ProjectedSelectionEndpoint` / `ProjectedSelection` for direction-preserving source/viewport selection mapping
+- `ReflowAnchor` for before/after projected tracking of a canonical source anchor
+- `LayoutPosition` / `ReflowMeasurement` / `ScrollAdjustment` for unit-agnostic caret scroll compensation
 
 No winit, cosmic-text, glyphon, wgpu, egui, or other view/runtime type is exposed by this crate.
 
@@ -236,6 +238,55 @@ mouse x/y
   -> canonical source offset
 ```
 
+## Reflow and caret scroll compensation
+
+Reveal/conceal changes can alter projected text width, line wrapping, caret position, and total document height. The projection layer now provides a contract for keeping a chosen canonical anchor visually stable without owning a viewport or a layout engine.
+
+`ReflowAnchor` records:
+
+- the canonical source anchor before reflow
+- the canonical source anchor after reflow
+- the corresponding projected selection endpoint before reflow
+- the corresponding projected selection endpoint after reflow
+
+For reveal/conceal changes on the same canonical source, `ReflowAnchor::same_source` tracks one `Anchor` through both projections.
+
+For edits that also change the canonical document revision, `ReflowAnchor::mapped_source` accepts distinct before/after source anchors. The host remains responsible for mapping those anchors through `ChangeMap`; `mdedit-live` does not merge revision mapping into `ProjectionMap`.
+
+After the native view shapes the old and new projected text, it measures the tracked endpoints in the same document-layout coordinate system and supplies two finite `LayoutPosition` values. These positions use logical `inline` and `block` axes rather than windowing or renderer types.
+
+`ReflowMeasurement::scroll_adjustment` returns:
+
+```text
+inline adjustment = after.inline - before.inline
+block adjustment  = after.block  - before.block
+```
+
+The view adds the requested adjustment to its current scroll offset to keep the tracked anchor at the same viewport location. The view owns policy:
+
+- whether inline compensation is used or only block-axis compensation is applied
+- scroll-bound clamping
+- viewport dimensions and wrap width
+- cosmic-text or other shaping/layout objects
+- device-pixel/logical-pixel conversion
+- follow-caret margins and ordinary caret auto-scroll
+
+Non-finite layout measurements and overflowing deltas are rejected rather than propagated. If a source anchor cannot be represented by either projection, no compensation anchor is produced.
+
+A native integration pass can therefore follow this sequence:
+
+```text
+canonical caret/head
+  -> optional ChangeMap across document revisions
+  -> ReflowAnchor before/after projected endpoints
+  -> native shaped layout measures both endpoints
+  -> ReflowMeasurement
+  -> ScrollAdjustment
+  -> view applies/clamps scroll
+```
+
+This keeps reflow continuity in the projection contract while leaving actual scrolling and layout ownership outside `mdedit-live`.
+
 ## Semantic styling
 
 The projection currently publishes project-owned style spans for:
@@ -259,5 +310,5 @@ If the syntax snapshot is already a raw fallback, if a delimiter cannot be assoc
 
 ## Remaining Phase 5 work
 
-- reflow/caret scroll compensation contract
-- native acceptance integration in the editor view
+- native view integration
+- native Live Preview and accessibility acceptance
