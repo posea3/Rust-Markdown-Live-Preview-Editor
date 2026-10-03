@@ -4,7 +4,7 @@ use mdedit_core::{Affinity, Anchor, Revision, SelectionSet, TextRange};
 use mdedit_input::EditorSession;
 use mdedit_live::{
     HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize, Projection,
-    RevealContext, RevealPolicy,
+    ReflowAnchor, RevealContext, RevealPolicy,
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
@@ -30,18 +30,31 @@ impl LivePreviewState {
         }
     }
 
-    pub fn refresh(&mut self, session: &EditorSession) -> Result<bool, String> {
+    pub fn refresh(&mut self, session: &EditorSession) -> Result<LivePreviewRefresh, String> {
         if self
             .frame
             .as_ref()
             .is_some_and(|frame| frame.matches(session))
         {
-            return Ok(false);
+            return Ok(LivePreviewRefresh::unchanged());
         }
 
-        let frame = LivePreviewFrame::build(session, &mut self.block_cache)?;
-        self.frame = Some(frame);
-        Ok(true)
+        let next = match LivePreviewFrame::build(session, &mut self.block_cache) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.frame = None;
+                return Err(error);
+            }
+        };
+        let reflow = self
+            .frame
+            .as_ref()
+            .and_then(|previous| previous.reflow_to(&next, session.selections().primary().head));
+        self.frame = Some(next);
+        Ok(LivePreviewRefresh {
+            changed: true,
+            reflow,
+        })
     }
 
     #[must_use]
@@ -92,6 +105,53 @@ impl LivePreviewState {
     #[cfg(test)]
     fn frame(&self) -> Option<&LivePreviewFrame> {
         self.frame.as_ref()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LivePreviewRefresh {
+    changed: bool,
+    reflow: Option<LivePreviewReflow>,
+}
+
+impl LivePreviewRefresh {
+    const fn unchanged() -> Self {
+        Self {
+            changed: false,
+            reflow: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn changed(self) -> bool {
+        self.changed
+    }
+
+    #[must_use]
+    pub const fn reflow(self) -> Option<LivePreviewReflow> {
+        self.reflow
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LivePreviewReflow {
+    anchor: ReflowAnchor,
+}
+
+impl LivePreviewReflow {
+    #[must_use]
+    pub const fn anchor(self) -> ReflowAnchor {
+        self.anchor
+    }
+
+    #[must_use]
+    pub fn before_display_offset(self) -> usize {
+        self.anchor.before_projected().projected().to_usize()
+    }
+
+    #[must_use]
+    pub fn after_display_offset(self) -> usize {
+        self.anchor.after_projected().projected().to_usize()
     }
 }
 
@@ -199,6 +259,21 @@ impl LivePreviewFrame {
             preedit_range,
             composition_cursor,
         })
+    }
+
+    fn reflow_to(&self, next: &Self, source: Anchor) -> Option<LivePreviewReflow> {
+        if self.revision != next.revision || self.overlay.is_some() || next.overlay.is_some() {
+            return None;
+        }
+
+        ReflowAnchor::same_source(
+            &self.projection,
+            &self.stops,
+            &next.projection,
+            &next.stops,
+            source,
+        )
+        .map(|anchor| LivePreviewReflow { anchor })
     }
 
     fn matches(&self, session: &EditorSession) -> bool {
@@ -353,7 +428,7 @@ mod tests {
         session.set_caret(anchor(13, Affinity::After));
 
         let mut state = LivePreviewState::new();
-        assert!(state.refresh(&session).unwrap());
+        assert!(state.refresh(&session).unwrap().changed());
 
         let frame = state.frame().unwrap();
         assert_eq!(frame.display_text(), "bold tail");
@@ -421,12 +496,30 @@ mod tests {
 
         let mut state = LivePreviewState::new();
         assert!(state.refresh(&session).unwrap());
-        assert!(!state.refresh(&session).unwrap());
+        assert!(!state.refresh(&session).unwrap().changed());
         assert_eq!(state.frame().unwrap().display_text(), "bold tail");
 
         session.set_caret(anchor(3, Affinity::After));
         assert!(state.refresh(&session).unwrap());
         assert_eq!(state.frame().unwrap().display_text(), "**bold** tail");
+    }
+
+    #[test]
+    fn refresh_exposes_same_source_reflow_across_reveal_change() {
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(anchor(13, Affinity::After));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        assert_eq!(state.frame().unwrap().display_text(), "bold tail");
+
+        session.set_caret(anchor(3, Affinity::After));
+        let refresh = state.refresh(&session).unwrap();
+        let reflow = refresh.reflow().expect("same-revision reveal should reflow");
+
+        assert_eq!(reflow.anchor().before_source(), anchor(3, Affinity::After));
+        assert_eq!(reflow.before_display_offset(), 1);
+        assert_eq!(reflow.after_display_offset(), 3);
     }
 
     #[test]
