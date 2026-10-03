@@ -19,7 +19,7 @@ use glyphon::{
 };
 use live_preview::LivePreviewState;
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, Revision, SelectionRange, SelectionSet, TextRange,
+    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange,
     TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
@@ -225,7 +225,6 @@ struct WindowState {
     dragging: bool,
 
     display_text: String,
-    display_revision: Option<Revision>,
     preedit_text: Option<String>,
     preedit_range: Option<Range<usize>>,
     caret_xy: (f32, f32),
@@ -357,7 +356,6 @@ impl WindowState {
             drag_anchor: None,
             dragging: false,
             display_text: String::new(),
-            display_revision: None,
             preedit_text: None,
             preedit_range: None,
             caret_xy: (0.0, 0.0),
@@ -902,7 +900,6 @@ impl WindowState {
 
     fn refresh_layout(&mut self) {
         let scroll_before = self.text_buffer.scroll();
-        let revision = self.session.document().revision();
         let next_preedit_text = self
             .session
             .composition()
@@ -929,7 +926,6 @@ impl WindowState {
             let old_scroll = self.text_buffer.scroll();
 
             self.display_text = next_display_text;
-            self.display_revision = Some(revision);
             self.preedit_text = next_preedit_text.map(str::to_owned);
             self.preedit_range = next_preedit_range;
 
