@@ -1731,7 +1731,12 @@ mod tests {
         let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
         let attrs = Attrs::new().family(Family::SansSerif);
 
-        buffer.set_text("abc\n", &attrs, Shaping::Advanced, None);
+        buffer.set_rich_text(
+            [("abc\n", attrs.clone())],
+            &attrs,
+            Shaping::Advanced,
+            None,
+        );
         assert_eq!(buffer.lines.len(), 1);
 
         ensure_buffer_lines_match_display_text(&mut buffer, "abc\n", &attrs);
@@ -1752,7 +1757,13 @@ mod tests {
         let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
         let attrs = Attrs::new().family(Family::SansSerif);
 
-        buffer.set_text(source, &attrs, Shaping::Advanced, None);
+        buffer.set_rich_text(
+            [(source, attrs.clone())],
+            &attrs,
+            Shaping::Advanced,
+            None,
+        );
+        assert_eq!(buffer.lines.len(), 1);
         ensure_buffer_lines_match_display_text(&mut buffer, source, &attrs);
 
         let cursor = display_offset_to_cursor(source, source.len());
