@@ -209,7 +209,7 @@ For a text editor, visible marked text should not be silently discarded on focus
 
 **Implementation: COMPLETE**
 
-Phase 3 is closed as an implementation milestone. Core Windows/macOS IME behavior required to continue editor development has been validated, with explicitly documented deferred/platform-owned items below. Windows Japanese IME has now also passed manual acceptance.
+Phase 3 is closed as an implementation milestone. Core Windows/macOS IME behavior required to continue editor development has been validated, with explicitly documented deferred/platform-owned items below. Windows Japanese and Chinese IME have now also passed manual acceptance.
 
 Manual acceptance:
 
@@ -217,7 +217,7 @@ Manual acceptance:
 - Windows Left/Right one press = one visible caret step and sustained movement: **PASS**
 - Windows Intel UHD Graphics 630 DX12 startup: **PASS**
 - Windows Japanese IME: **PASS**
-- Windows Chinese IME: **DEFERRED / ENVIRONMENT BLOCKED** for the same reason
+- Windows Chinese IME: **PASS**
 - macOS Korean normal composition/editing/selection/undo-redo: **PASS**
 - macOS Japanese IME composition/candidate/editing/full-preedit deletion: **PASS**
 - macOS Chinese IME composition/candidate/editing: **PASS**
@@ -245,7 +245,7 @@ macOS acceptance also closed application-level regressions found during testing:
 - IME is disabled before native window teardown to avoid late marked-text callbacks
 - focus loss finalizes visible preedit instead of silently discarding it
 
-Phase 4 and later editor work may proceed on this Phase 3 base. The deferred accessibility checks and upstream Korean cold-start issue remain tracked validation/dependency items rather than implementation blockers.
+Phase 4 and later editor work may proceed on this Phase 3 base. Windows/macOS Korean/Japanese/Chinese core IME acceptance is complete. The deferred accessibility checks and upstream Korean cold-start issue remain tracked validation/dependency items rather than implementation blockers.
 
 ## Capturing a platform regression trace
 
