@@ -23,6 +23,22 @@ MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
 
 Use an optimized build for subjective caret/input latency checks.
 
+When debugging projection or reflow behavior, enable the projection trace as well.
+
+Windows PowerShell:
+
+```powershell
+$env:MDEDIT_LIVE_PREVIEW_TRACE = "1"
+```
+
+macOS:
+
+```bash
+MDEDIT_LIVE_PREVIEW_TRACE=1 MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
+```
+
+The projection trace records source/display lengths, canonical and projected primary selection offsets, preedit display range, and before/after reflow offsets whenever the projected display changes.
+
 The fixture lives at:
 
 ```text
@@ -173,3 +189,4 @@ For failures, include:
 - actual result
 - whether canonical source was corrupted
 - `MDEDIT_TRACE_FILE` trace when input behavior is involved
+- `MDEDIT_LIVE_PREVIEW_TRACE=1` log when projection, hit mapping, or reflow is involved
