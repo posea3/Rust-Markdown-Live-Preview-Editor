@@ -495,12 +495,12 @@ mod tests {
         session.set_caret(anchor(13, Affinity::After));
 
         let mut state = LivePreviewState::new();
-        assert!(state.refresh(&session).unwrap());
+        assert!(state.refresh(&session).unwrap().changed());
         assert!(!state.refresh(&session).unwrap().changed());
         assert_eq!(state.frame().unwrap().display_text(), "bold tail");
 
         session.set_caret(anchor(3, Affinity::After));
-        assert!(state.refresh(&session).unwrap());
+        assert!(state.refresh(&session).unwrap().changed());
         assert_eq!(state.frame().unwrap().display_text(), "**bold** tail");
     }
 
