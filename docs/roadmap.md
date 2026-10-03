@@ -168,6 +168,9 @@ Implemented in the first slice:
 - conservative list padding rule that preserves four-space code indentation after markers
 - Unicode-grapheme `ProjectedCaretStops` with direction-aware source-edge selection at collapsed boundaries
 - hidden delimiter/padding offsets do not become invisible horizontal movement steps
+- specificity-aware reveal resolution for nested constructs
+- half-open selection/composition overlap so boundary-only adjacency does not reveal neighbors
+- compact combined delimiter refinement (`***x***` reveals only the syntax layer being edited)
 
 Initial exact-byte concealment covers resolved markers for:
 
@@ -182,7 +185,6 @@ Initial exact-byte concealment covers resolved markers for:
 
 Remaining:
 
-- reveal-policy refinement for nested/adjacent constructs
 - projected hit-test/selection helpers for the view layer
 - reflow/caret scroll compensation
 - native view integration and acceptance

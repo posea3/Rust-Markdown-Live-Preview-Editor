@@ -75,14 +75,37 @@ Every resolved delimiter is attached to the smallest matching syntax node that o
 
 The inner and outer constructs remain distinct reveal groups even though their adjacent hidden markers collapse to a single display boundary.
 
-A group is revealed when:
+Reveal resolution is specificity-aware.
 
-- `RevealPolicy::SourceVisible` is active
-- a caret lies within or on the construct
-- a selection intersects/touches the construct
-- an IME composition range intersects/touches the construct
+- `RevealPolicy::SourceVisible` still reveals every group.
+- A caret or zero-length IME composition reveals the most specific nested group containing that source point.
+- If two candidate groups have the same source extent, neither is discarded only because of nesting order.
+- A non-empty selection/composition uses half-open overlap semantics, so merely touching the start/end boundary of an adjacent construct does not reveal it.
+- When a non-empty interaction lies completely inside a nested child, that child shadows its containing parent.
+- When an interaction crosses out of the child and genuinely spans both child and parent content, both groups reveal.
+- Adjacent constructs remain independent unless the interaction actually overlaps both.
 
-The IME rule is expressed only in source coordinates. The native input layer remains independent from `mdedit-live`; a host/view adapter supplies the current composition range through `RevealContext`.
+For example:
+
+```markdown
+**outer *inner* tail**
+```
+
+a caret inside `inner` reveals only the emphasis source markers:
+
+```markdown
+outer *inner* tail
+```
+
+while a caret in outer-only content reveals only the strong source markers:
+
+```markdown
+**outer inner tail**
+```
+
+Compact combined delimiters follow the same syntax-tree specificity. With `***x***`, a caret in `x` reveals the inner strong pair as `**x**`; a caret on the outer delimiter reveals the outer emphasis pair as `*x*`.
+
+The IME rule remains expressed only in source coordinates. The native input layer remains independent from `mdedit-live`; a host/view adapter supplies the current composition range through `RevealContext`.
 
 ## ProjectionMap
 
@@ -205,7 +228,6 @@ If the syntax snapshot is already a raw fallback, if a delimiter cannot be assoc
 
 ## Remaining Phase 5 work
 
-- reveal-policy refinement for nested/adjacent constructs
 - projected selection/hit-test helpers needed by the view layer
 - reflow/caret scroll compensation contract
 - native acceptance integration in the editor view
