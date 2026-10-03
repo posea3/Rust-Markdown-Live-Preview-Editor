@@ -1,5 +1,6 @@
 mod accessibility;
 mod geometry;
+mod live_preview;
 mod trace_capture;
 
 use std::{env, error::Error, ops::Range, sync::Arc, time::Instant};
@@ -12,6 +13,7 @@ use accesskit_winit::{
 use arboard::Clipboard;
 use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
 use geometry::{RectRenderer, ScreenRect};
+use live_preview::LivePreviewState;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
@@ -214,6 +216,7 @@ struct WindowState {
     accessibility_adapter: AccessKitAdapter,
 
     session: EditorSession,
+    live_preview: LivePreviewState,
     trace_capture: Option<TraceCapture>,
     clipboard: Option<Clipboard>,
     modifiers: ModifiersState,
@@ -346,6 +349,7 @@ impl WindowState {
             text_buffer,
             accessibility_adapter,
             session,
+            live_preview: LivePreviewState::new(),
             trace_capture,
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
@@ -634,9 +638,16 @@ impl WindowState {
 
     fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
+        self.refresh_layout();
 
         let primary = self.session.selections().primary();
-        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
+        let Some(display_offset) = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.head)
+        else {
+            return;
+        };
+        let cursor = display_offset_to_cursor(&self.display_text, display_offset);
 
         let target = visual_horizontal_target(
             &mut self.text_buffer,
@@ -652,14 +663,13 @@ impl WindowState {
         else {
             return;
         };
-        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
-            return;
-        };
-
-        let head = Anchor::new(
+        let Some(head) = self.live_preview.display_to_source_anchor(
+            &self.session,
             target_offset,
             cosmic_to_core_affinity(target_cursor.affinity),
-        );
+        ) else {
+            return;
+        };
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -693,7 +703,13 @@ impl WindowState {
         self.refresh_layout();
 
         let primary = self.session.selections().primary();
-        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
+        let Some(display_offset) = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.head)
+        else {
+            return;
+        };
+        let cursor = display_offset_to_cursor(&self.display_text, display_offset);
         self.text_buffer
             .shape_until_cursor(&mut self.font_system, cursor, false);
 
@@ -718,14 +734,13 @@ impl WindowState {
         else {
             return;
         };
-        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
-            return;
-        };
-
-        let head = Anchor::new(
+        let Some(head) = self.live_preview.display_to_source_anchor(
+            &self.session,
             target_offset,
             cosmic_to_core_affinity(target_cursor.affinity),
-        );
+        ) else {
+            return;
+        };
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -881,18 +896,8 @@ impl WindowState {
             .shape_until_scroll(&mut self.font_system, false);
         let cursor = self.text_buffer.hit(x, y)?;
         let display_offset = cursor_to_display_offset(&self.display_text, cursor)?;
-        let display_size = TextSize::try_from_usize(display_offset).ok()?;
-
-        let source_offset =
-            self.session
-                .composition()
-                .map_or(Some(display_size), |composition| {
-                    composition
-                        .display_to_source(display_size, Affinity::After)
-                        .ok()
-                })?;
-
-        Some(Anchor::new(source_offset, Affinity::After))
+        self.live_preview
+            .display_to_source_anchor(&self.session, display_offset, Affinity::After)
     }
 
     fn refresh_layout(&mut self) {
