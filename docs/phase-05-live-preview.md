@@ -308,7 +308,27 @@ Projection input snapshots must agree on revision and source length.
 
 If the syntax snapshot is already a raw fallback, if a delimiter cannot be associated with its owning syntax node, or if conceal spans overlap unexpectedly, the projection falls back to source-visible text instead of hiding uncertain bytes.
 
+## Native view integration status
+
+The Phase 3 IME lab now consumes the Phase 5 projection directly.
+
+Integrated paths include:
+
+- projected display text rendered through cosmic-text / glyphon / wgpu
+- source-to-display caret mapping
+- display hit testing back to canonical source anchors
+- horizontal and vertical visual movement through projected coordinates
+- drag selection through projected hit testing
+- IME preedit overlay without mutating canonical source
+- reveal/conceal reflow measurement with block-axis scroll compensation
+- selection highlight mapping from canonical source to projected display
+- AccessKit text and selection exposure in projected display coordinates
+- AccessKit selection actions mapped back to canonical source coordinates
+
+Accessibility full-value replacement is intentionally rejected while the display projection conceals Markdown source markers. Replacing the entire projected value cannot be losslessly mapped back to canonical Markdown without deleting hidden syntax. Selection-based edit actions remain available through the projection mapping.
+
 ## Remaining Phase 5 work
 
-- native view integration
-- native Live Preview and accessibility acceptance
+- native Live Preview manual acceptance on Windows and macOS
+- Narrator / VoiceOver manual acceptance against projected Markdown semantics
+- fix any platform-specific regressions found by those acceptance passes
