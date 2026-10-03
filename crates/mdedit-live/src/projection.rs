@@ -224,6 +224,41 @@ impl ConcealSpan {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StructuralPaddingKind {
+    HeadingIndent,
+    HeadingSeparator,
+    HeadingClosingSeparator,
+    SetextIndent,
+    SetextLineEnding,
+    BlockQuoteSeparator,
+    ListSeparator,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StructuralPaddingSpan {
+    kind: StructuralPaddingKind,
+    source_range: TextRange,
+    group: RevealGroupId,
+}
+
+impl StructuralPaddingSpan {
+    #[must_use]
+    pub const fn kind(self) -> StructuralPaddingKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn source_range(self) -> TextRange {
+        self.source_range
+    }
+
+    #[must_use]
+    pub const fn group(self) -> RevealGroupId {
+        self.group
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProjectedSpan {
     source_range: TextRange,
@@ -496,6 +531,7 @@ pub struct Projection {
     styles: Vec<StyleSpan>,
     reveal_groups: Vec<RevealGroup>,
     concealed: Vec<ConcealSpan>,
+    structural_padding: Vec<StructuralPaddingSpan>,
 }
 
 impl Projection {
@@ -557,7 +593,9 @@ impl Projection {
             })
             .collect::<Vec<_>>();
 
-        if has_overlapping_concealment(&concealed) {
+        let structural_padding = build_structural_padding(&source, &reveal_groups)?;
+
+        if has_overlapping_projection_ranges(&concealed, &structural_padding) {
             return Self::raw(
                 document.revision(),
                 syntax.source_len(),
@@ -568,10 +606,16 @@ impl Projection {
             );
         }
 
-        let map = ProjectionMap::from_concealed(
-            syntax.source_len(),
-            concealed.iter().map(|span| span.source_range).collect(),
-        )?;
+        let omitted_ranges = concealed
+            .iter()
+            .map(|span| span.source_range)
+            .chain(
+                structural_padding
+                    .iter()
+                    .map(|span| span.source_range),
+            )
+            .collect();
+        let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
         let text = materialize_projection(&source, map.concealed_ranges());
         let projected_blocks = project_blocks(blocks, &map)?;
         let styles = project_styles(syntax.root(), &map)?;
@@ -586,6 +630,7 @@ impl Projection {
             styles,
             reveal_groups,
             concealed,
+            structural_padding,
         })
     }
 
@@ -611,6 +656,7 @@ impl Projection {
             styles,
             reveal_groups: Vec::new(),
             concealed: Vec::new(),
+            structural_padding: Vec::new(),
         })
     }
 
@@ -657,6 +703,11 @@ impl Projection {
     #[must_use]
     pub fn concealed_spans(&self) -> &[ConcealSpan] {
         &self.concealed
+    }
+
+    #[must_use]
+    pub fn structural_padding_spans(&self) -> &[StructuralPaddingSpan] {
+        &self.structural_padding
     }
 }
 
@@ -792,10 +843,225 @@ fn smallest_owner_range_into(
     }
 }
 
-fn has_overlapping_concealment(concealed: &[ConcealSpan]) -> bool {
+fn build_structural_padding(
+    source: &str,
+    groups: &[RevealGroup],
+) -> Result<Vec<StructuralPaddingSpan>, ProjectionBuildError> {
+    let mut padding = Vec::new();
+
+    for group in groups.iter().filter(|group| !group.revealed) {
+        for delimiter in &group.delimiters {
+            let range = delimiter.range().as_usize_range();
+            match delimiter.kind() {
+                DelimiterKind::HeadingPrefix => {
+                    let line_start = source[..range.start]
+                        .rfind('\n')
+                        .map_or(0, |index| index + 1);
+                    if source.as_bytes()[line_start..range.start]
+                        .iter()
+                        .all(|byte| *byte == b' ')
+                    {
+                        push_structural_padding(
+                            &mut padding,
+                            source,
+                            group.id,
+                            StructuralPaddingKind::HeadingIndent,
+                            line_start,
+                            range.start,
+                        )?;
+                    }
+
+                    let end = horizontal_whitespace_end(source, range.end, source.len());
+                    push_structural_padding(
+                        &mut padding,
+                        source,
+                        group.id,
+                        StructuralPaddingKind::HeadingSeparator,
+                        range.end,
+                        end,
+                    )?;
+                }
+                DelimiterKind::HeadingSuffix => {
+                    let start = horizontal_whitespace_start(source, range.start, 0);
+                    push_structural_padding(
+                        &mut padding,
+                        source,
+                        group.id,
+                        StructuralPaddingKind::HeadingClosingSeparator,
+                        start,
+                        range.start,
+                    )?;
+                }
+                DelimiterKind::SetextUnderline => {
+                    let line_start = source[..range.start]
+                        .rfind('\n')
+                        .map_or(0, |index| index + 1);
+                    if source.as_bytes()[line_start..range.start]
+                        .iter()
+                        .all(|byte| matches!(byte, b' ' | b'\t'))
+                    {
+                        push_structural_padding(
+                            &mut padding,
+                            source,
+                            group.id,
+                            StructuralPaddingKind::SetextIndent,
+                            line_start,
+                            range.start,
+                        )?;
+                    }
+
+                    let mut end = horizontal_whitespace_end(source, range.end, source.len());
+                    if source.as_bytes().get(end) == Some(&b'\r')
+                        && source.as_bytes().get(end + 1) == Some(&b'\n')
+                    {
+                        end += 2;
+                    } else if source.as_bytes().get(end) == Some(&b'\n') {
+                        end += 1;
+                    }
+                    push_structural_padding(
+                        &mut padding,
+                        source,
+                        group.id,
+                        StructuralPaddingKind::SetextLineEnding,
+                        range.end,
+                        end,
+                    )?;
+                }
+                DelimiterKind::BlockQuoteMarker => {
+                    let end = match source.as_bytes().get(range.end) {
+                        Some(b' ' | b'\t') => range.end + 1,
+                        _ => range.end,
+                    };
+                    push_structural_padding(
+                        &mut padding,
+                        source,
+                        group.id,
+                        StructuralPaddingKind::BlockQuoteSeparator,
+                        range.end,
+                        end,
+                    )?;
+                }
+                DelimiterKind::ListMarker => {
+                    let end = list_separator_end(source, range.end);
+                    push_structural_padding(
+                        &mut padding,
+                        source,
+                        group.id,
+                        StructuralPaddingKind::ListSeparator,
+                        range.end,
+                        end,
+                    )?;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    padding.sort_by_key(|span| {
+        (
+            span.source_range.start().get(),
+            span.source_range.end().get(),
+            structural_padding_kind_code(span.kind),
+        )
+    });
+    padding.dedup_by(|left, right| {
+        left.kind == right.kind
+            && left.source_range == right.source_range
+            && left.group == right.group
+    });
+    Ok(padding)
+}
+
+fn push_structural_padding(
+    output: &mut Vec<StructuralPaddingSpan>,
+    source: &str,
+    group: RevealGroupId,
+    kind: StructuralPaddingKind,
+    start: usize,
+    end: usize,
+) -> Result<(), ProjectionBuildError> {
+    if start == end {
+        return Ok(());
+    }
+    if start > end
+        || end > source.len()
+        || !source.is_char_boundary(start)
+        || !source.is_char_boundary(end)
+    {
+        return Err(ProjectionBuildError::InvalidStructuralPaddingBounds { start, end });
+    }
+
+    let start = TextSize::try_from_usize(start)
+        .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let end =
+        TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let source_range = TextRange::new(start, end)
+        .map_err(|_| ProjectionBuildError::InvalidStructuralPaddingBounds {
+            start: start.to_usize(),
+            end: end.to_usize(),
+        })?;
+    output.push(StructuralPaddingSpan {
+        kind,
+        source_range,
+        group,
+    });
+    Ok(())
+}
+
+fn horizontal_whitespace_end(source: &str, start: usize, limit: usize) -> usize {
+    let mut cursor = start;
+    let bytes = source.as_bytes();
+    while cursor < limit && matches!(bytes[cursor], b' ' | b'\t') {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn horizontal_whitespace_start(source: &str, end: usize, limit: usize) -> usize {
+    let mut cursor = end;
+    let bytes = source.as_bytes();
+    while cursor > limit && matches!(bytes[cursor - 1], b' ' | b'\t') {
+        cursor -= 1;
+    }
+    cursor
+}
+
+fn list_separator_end(source: &str, start: usize) -> usize {
+    let bytes = source.as_bytes();
+    match bytes.get(start) {
+        Some(b'\t') => start + 1,
+        Some(b' ') => {
+            let mut cursor = start;
+            while cursor < bytes.len() && bytes[cursor] == b' ' {
+                cursor += 1;
+            }
+            let count = cursor - start;
+            if count <= 4 { cursor } else { start + 1 }
+        }
+        _ => start,
+    }
+}
+
+const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
+    match kind {
+        StructuralPaddingKind::HeadingIndent => 0,
+        StructuralPaddingKind::HeadingSeparator => 1,
+        StructuralPaddingKind::HeadingClosingSeparator => 2,
+        StructuralPaddingKind::SetextIndent => 3,
+        StructuralPaddingKind::SetextLineEnding => 4,
+        StructuralPaddingKind::BlockQuoteSeparator => 5,
+        StructuralPaddingKind::ListSeparator => 6,
+    }
+}
+
+fn has_overlapping_projection_ranges(
+    concealed: &[ConcealSpan],
+    structural_padding: &[StructuralPaddingSpan],
+) -> bool {
     let mut ranges = concealed
         .iter()
         .map(|span| span.source_range)
+        .chain(structural_padding.iter().map(|span| span.source_range))
         .collect::<Vec<_>>();
     ranges.sort_by_key(|range| (range.start().get(), range.end().get()));
 
@@ -982,6 +1248,7 @@ pub enum ProjectionBuildError {
     },
     ProjectedLengthOverflow,
     ConcealmentExceedsSource,
+    InvalidStructuralPaddingBounds { start: usize, end: usize },
     DocumentTooLarge,
 }
 
@@ -1023,6 +1290,9 @@ impl fmt::Display for ProjectionBuildError {
             Self::ProjectedLengthOverflow => write!(formatter, "projected length overflow"),
             Self::ConcealmentExceedsSource => {
                 write!(formatter, "concealment exceeds the canonical source length")
+            }
+            Self::InvalidStructuralPaddingBounds { start, end } => {
+                write!(formatter, "structural padding bounds {start}..{end} are invalid")
             }
             Self::DocumentTooLarge => {
                 write!(formatter, "document exceeds the supported source size")
@@ -1182,18 +1452,148 @@ mod tests {
     }
 
     #[test]
-    fn structural_projection_hides_only_proven_marker_bytes() {
+    fn structural_projection_collapses_heading_marker_and_separator_separately() {
         let projection = build(
             "# Heading\n",
             RevealPolicy::ConcealInactive,
             &RevealContext::new(),
         );
 
-        assert_eq!(projection.text(), " Heading\n");
+        assert_eq!(projection.text(), "Heading\n");
         assert_eq!(projection.concealed_spans().len(), 1);
         assert_eq!(
             projection.concealed_spans()[0].kind(),
             DelimiterKind::HeadingPrefix
+        );
+        assert_eq!(projection.structural_padding_spans().len(), 1);
+        assert_eq!(
+            projection.structural_padding_spans()[0].kind(),
+            StructuralPaddingKind::HeadingSeparator
+        );
+        assert_eq!(
+            projection
+                .map()
+                .projected_to_source(ProjectedSize::ZERO, ProjectionBias::After),
+            Some(TextSize::new(2))
+        );
+    }
+
+    #[test]
+    fn heading_indent_and_closing_marker_padding_collapse_without_joining_syntax_ownership() {
+        let projection = build(
+            "  ###   Heading   ###\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), "Heading\n");
+        assert!(
+            projection
+                .structural_padding_spans()
+                .iter()
+                .any(|span| span.kind() == StructuralPaddingKind::HeadingIndent)
+        );
+        assert!(
+            projection
+                .structural_padding_spans()
+                .iter()
+                .any(|span| span.kind() == StructuralPaddingKind::HeadingSeparator)
+        );
+        assert!(
+            projection
+                .structural_padding_spans()
+                .iter()
+                .any(|span| span.kind() == StructuralPaddingKind::HeadingClosingSeparator)
+        );
+    }
+
+    #[test]
+    fn block_quote_and_list_separators_collapse_but_reveal_with_their_owner() {
+        let quote = build(
+            "> one\n> > two\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+        assert_eq!(quote.text(), "one\ntwo\n");
+        assert!(
+            quote
+                .structural_padding_spans()
+                .iter()
+                .all(|span| span.kind() == StructuralPaddingKind::BlockQuoteSeparator)
+        );
+
+        let list = build(
+            "-   one\n10. two\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+        assert_eq!(list.text(), "one\ntwo\n");
+
+        let revealed = build(
+            "-   one\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::new(5)),
+        );
+        assert_eq!(revealed.text(), "-   one\n");
+        assert!(revealed.structural_padding_spans().is_empty());
+    }
+
+    #[test]
+    fn list_padding_preserves_code_indentation_when_more_than_four_spaces_follow_marker() {
+        let projection = build(
+            "-     code\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), "    code\n");
+        assert_eq!(
+            projection.structural_padding_spans()[0].source_range().len(),
+            TextSize::new(1)
+        );
+    }
+
+    #[test]
+    fn setext_marker_line_collapses_without_leaving_a_blank_projection_line() {
+        let projection = build(
+            "Heading\n  ===  \nNext\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), "Heading\nNext\n");
+        assert!(
+            projection
+                .structural_padding_spans()
+                .iter()
+                .any(|span| span.kind() == StructuralPaddingKind::SetextIndent)
+        );
+        assert!(
+            projection
+                .structural_padding_spans()
+                .iter()
+                .any(|span| span.kind() == StructuralPaddingKind::SetextLineEnding)
+        );
+    }
+
+    #[test]
+    fn structural_padding_mapping_stays_on_utf8_boundaries() {
+        let projection = build(
+            "# 한글\n",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), "한글\n");
+        assert_eq!(
+            projection.map().source_to_projected(TextSize::new(2)),
+            Some(ProjectedSize::ZERO)
+        );
+        assert_eq!(
+            projection
+                .map()
+                .projected_to_source(ProjectedSize::ZERO, ProjectionBias::After),
+            Some(TextSize::new(2))
         );
     }
 

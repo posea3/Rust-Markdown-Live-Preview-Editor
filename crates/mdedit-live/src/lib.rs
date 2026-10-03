@@ -10,6 +10,6 @@ mod projection;
 pub use projection::{
     ConcealSpan, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, Projection,
     ProjectionBias, ProjectionBuildError, ProjectionFallbackReason, ProjectionMap,
-    ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy, StyleKind,
-    StyleSpan,
+    ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy, StructuralPaddingKind,
+    StructuralPaddingSpan, StyleKind, StyleSpan,
 };
