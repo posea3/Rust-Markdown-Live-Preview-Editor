@@ -242,14 +242,18 @@ impl LivePreviewFrame {
         display_offset: usize,
         affinity: Affinity,
     ) -> Option<Anchor> {
-        if display_offset > self.display_text.len() || !self.display_text.is_char_boundary(display_offset)
+        if display_offset > self.display_text.len()
+            || !self.display_text.is_char_boundary(display_offset)
         {
             return None;
         }
 
-        let projected = self.overlay.as_ref().map_or(Some(display_offset), |overlay| {
-            overlay.display_to_projected(display_offset, affinity)
-        })?;
+        let projected = self
+            .overlay
+            .as_ref()
+            .map_or(Some(display_offset), |overlay| {
+                overlay.display_to_projected(display_offset, affinity)
+            })?;
         let projected = ProjectedSize::new(u32::try_from(projected).ok()?);
         let bias = match affinity {
             Affinity::Before => HitBias::Before,
@@ -432,13 +436,7 @@ mod tests {
             display: 2..8,
         };
 
-        assert_eq!(
-            overlay.projected_to_display(7, Affinity::After),
-            Some(10)
-        );
-        assert_eq!(
-            overlay.display_to_projected(10, Affinity::After),
-            Some(7)
-        );
+        assert_eq!(overlay.projected_to_display(7, Affinity::After), Some(10));
+        assert_eq!(overlay.display_to_projected(10, Affinity::After), Some(7));
     }
 }
