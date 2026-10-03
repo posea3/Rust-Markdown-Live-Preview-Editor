@@ -126,9 +126,7 @@ impl ProjectedCaretStops {
                 CaretDirection::Forward => self.stops.get(index + 1),
             },
             Err(index) => match direction {
-                CaretDirection::Backward => {
-                    index.checked_sub(1).and_then(|i| self.stops.get(i))
-                }
+                CaretDirection::Backward => index.checked_sub(1).and_then(|i| self.stops.get(i)),
                 CaretDirection::Forward => self.stops.get(index),
             },
         }?;
