@@ -137,7 +137,6 @@ impl RevealContext {
     pub fn compositions(&self) -> &[TextRange] {
         &self.compositions
     }
-
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -818,7 +817,9 @@ fn reveal_point(groups: &mut [RevealGroup], point: TextSize) {
     let candidates = groups
         .iter()
         .enumerate()
-        .filter_map(|(index, group)| range_contains_point(group.source_range, point).then_some(index))
+        .filter_map(|(index, group)| {
+            range_contains_point(group.source_range, point).then_some(index)
+        })
         .collect::<Vec<_>>();
 
     let reveal = candidates
