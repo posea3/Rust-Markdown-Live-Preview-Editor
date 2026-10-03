@@ -199,6 +199,12 @@ Current macOS acceptance is affected by open winit 0.30.x AppKit issues in addit
 
 The editor layer now ignores stray empty `Ime::Preedit("", None)` events when no composition exists, preserves an empty preedit only when it belongs to an existing composition awaiting commit, and resumes normal raw-key handling after an empty composition boundary.
 
+## macOS focus-loss policy
+
+Manual acceptance showed that Korean, Japanese, and Chinese preedit disappeared when the IME lab lost focus, while no ghost preedit remained and input resumed normally after refocus. That behavior matched the previous implementation because `EditorInput::Focused(false)` unconditionally cancelled composition.
+
+For a text editor, visible marked text should not be silently discarded on focus loss. The macOS path now finalizes a non-empty preedit into the document before disabling IME; an empty preedit is cancelled without mutating source text. If AppKit has already committed the composition before the focus event, there is no remaining local composition and no duplicate commit occurs.
+
 ## Phase 3 manual acceptance status
 
 Windows acceptance on the tested Intel UHD Graphics 630 machine:
