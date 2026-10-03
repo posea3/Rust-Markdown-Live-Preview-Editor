@@ -7,7 +7,7 @@ Status: **complete**
 Deliverables:
 
 - Cargo workspace
-- Rust 1.89 baseline
+- Rust 1.90 baseline
 - CI for Windows/macOS/Linux
 - project-owned TextSize/TextRange/Revision types
 - unsafe forbidden in core
@@ -66,33 +66,55 @@ Exit gate:
 
 ## Phase 3 - Raw native editor / IME lab
 
-Next.
+Status: **in progress — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending**
 
-Create a deliberately Markdown-free native editor executable.
+Implemented in the first Phase 3 slice:
 
-Stack:
-
-- winit
-- cosmic-text
-- glyphon/wgpu
-- arboard
-- AccessKit hooks
-
-Implement:
-
-- EditorInput / PlatformRequest boundary
-- caret
-- selection
-- pointer hit testing
-- drag selection
-- scrolling
+- framework-independent `mdedit-input` crate
+- `EditorInput` / `PlatformRequest` boundary
+- ephemeral `CompositionState`
+- preedit display projection without canonical source mutation
+- IME commit as one document transaction
+- winit native IME event bridge in the acceptance lab
+- cosmic-text shaping and hit testing
+- glyphon/wgpu text rendering
+- caret placement and IME candidate rectangle
+- mouse caret placement and drag selection
+- visual Up/Down movement across soft-wrapped layout lines
+- shaped visual left/right movement across BiDi text
+- sticky preferred-X vertical navigation
+- dedicated GPU caret geometry
+- rectangular GPU selection geometry using cosmic-text BiDi highlight spans
+- wheel/trackpad scrolling with persistent viewport state
+- caret auto-scroll after edits/navigation
+- drag-selection auto-scroll outside the visible viewport
 - soft wrapping
-- clipboard
-- Windows/macOS IME
-- ephemeral CompositionState
-- IME candidate rectangle
+- clipboard copy/cut/paste
+- undo/redo and grapheme deletion integration
+- focus-loss / IME-disabled composition cancellation regression tests
+- AccessKit window/text-input/text-run semantic tree with selection and edit actions
+- versioned semantic EditorInput trace capture/replay for converting platform acceptance failures into CI regressions
+- Windows DX12-first wgpu startup with adapter/backend diagnostics and environment overrides
+- affinity-only horizontal caret-stop filtering so one Left/Right press produces one visible step
+- caret-only redraw/layout/accessibility hot-path reductions validated during Windows acceptance
 
-Do not start Live Preview until Korean IME, undo/redo, selection, and mouse editing are stable here.
+Manual acceptance now confirmed on Windows:
+
+- Korean IME: PASS
+- Left/Right one press = one visible caret step: PASS
+- sustained horizontal movement: PASS
+- Intel UHD Graphics 630 DX12 startup: PASS
+- FIFO/Mailbox comparison: not the cause of the former two-key caret symptom
+
+Remaining Phase 3 hardening:
+
+- Windows Japanese IME acceptance
+- Windows Chinese IME acceptance
+- macOS Korean/Japanese/Chinese IME acceptance
+- manual focus-loss/composition edge-case acceptance
+- Narrator/VoiceOver text, selection, and edit-action acceptance
+
+Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start Phase 5 Live Preview until the required IME, undo/redo, selection, mouse editing, and accessibility gates are stable on the intended Tier 1 platforms.
 
 ## Phase 4 - Markdown syntax engine
 

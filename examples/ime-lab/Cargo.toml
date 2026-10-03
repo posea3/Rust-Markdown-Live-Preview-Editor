@@ -1,0 +1,24 @@
+[package]
+name = "mdedit-ime-lab"
+description = "Native winit + cosmic-text + glyphon IME acceptance lab for mdedit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+accesskit = "0.25.1"
+accesskit_winit = "0.34.1"
+arboard = "3.6"
+cosmic-text = "0.19"
+glyphon = "0.12"
+mdedit-core = { path = "../../crates/mdedit-core" }
+mdedit-input = { path = "../../crates/mdedit-input" }
+pollster = "0.4"
+unicode-segmentation = "1.13"
+wgpu = "30.0"
+winit = "0.30.13"
+
+[lints]
+workspace = true
