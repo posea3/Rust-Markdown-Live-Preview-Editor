@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 mdedit-core = { path = "../mdedit-core" }
 mdedit-markdown = { path = "../mdedit-markdown" }
+unicode-segmentation = "1.13.3"
 
 [lints]
 workspace = true
