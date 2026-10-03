@@ -48,6 +48,17 @@ const CARET_WIDTH: f32 = 2.0;
 const DRAG_SCROLL_MARGIN: f32 = 42.0;
 const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
+const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
+const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
+    include_str!("../fixtures/live-preview-acceptance.md");
+
+fn initial_document(live_preview_acceptance: bool) -> &'static str {
+    if live_preview_acceptance {
+        LIVE_PREVIEW_ACCEPTANCE_DOCUMENT
+    } else {
+        DEFAULT_IME_DOCUMENT
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<AccessKitEvent>::with_user_event().build()?;
@@ -325,12 +336,22 @@ impl WindowState {
             Some(surface_config.height as f32 - TEXT_TOP * 2.0),
         );
 
-        let mut session = EditorSession::new(
-            "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
-        )
-        .expect("create editor session");
-        let end = session.document().len().expect("document length");
-        session.set_caret(Anchor::new(end, Affinity::After));
+        let live_preview_acceptance = env_flag("MDEDIT_LIVE_PREVIEW_ACCEPTANCE");
+        let initial_document = initial_document(live_preview_acceptance);
+        if live_preview_acceptance {
+            eprintln!("[mdedit-ime-lab] live preview acceptance fixture enabled");
+        }
+
+        let mut session = EditorSession::new(initial_document).expect("create editor session");
+        let initial_caret = if live_preview_acceptance {
+            initial_document
+                .find("Use this document")
+                .and_then(|offset| TextSize::try_from_usize(offset).ok())
+                .unwrap_or(TextSize::new(0))
+        } else {
+            session.document().len().expect("document length")
+        };
+        session.set_caret(Anchor::new(initial_caret, Affinity::After));
         let trace_capture = TraceCapture::from_env(&session);
 
         let mut state = Self {
@@ -1837,6 +1858,21 @@ mod tests {
 
     fn cursor(index: usize, affinity: glyphon::Affinity) -> CosmicCursor {
         CosmicCursor::new_with_affinity(0, index, affinity)
+    }
+
+    #[test]
+    fn live_preview_acceptance_fixture_is_opt_in_and_markdown_rich() {
+        assert_eq!(initial_document(false), DEFAULT_IME_DOCUMENT);
+
+        let fixture = initial_document(true);
+        assert_eq!(fixture, LIVE_PREVIEW_ACCEPTANCE_DOCUMENT);
+        assert!(fixture.contains("**strong text**"));
+        assert!(fixture.contains("**outer *inner* tail**"));
+        assert!(fixture.contains("Setext heading\n--------------"));
+        assert!(fixture.contains("> > Nested block quote"));
+        assert!(fixture.contains("한글"));
+        assert!(fixture.contains("日本語"));
+        assert!(fixture.contains("中文"));
     }
 
     #[test]
