@@ -147,7 +147,7 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Status: **in progress — projection, reveal, projected interaction, and reflow compensation contracts implemented; native integration remains**
+Status: **in progress — projection contracts and native integration implemented; Windows/macOS and screen-reader acceptance remain**
 
 Implemented in the first slice:
 
@@ -193,10 +193,21 @@ Initial exact-byte concealment covers resolved markers for:
 - list marker
 - link syntax / autolinks
 
+Native integration now includes:
+
+- projected display rendering through the Phase 3 cosmic-text/glyphon/wgpu editor
+- source/display caret and selection mapping
+- projected mouse/drag hit testing and visual navigation
+- IME preedit overlay on projected text
+- reveal/conceal reflow compensation
+- AccessKit projected text/selection exposure with selection actions mapped back to canonical source
+- opt-in Markdown acceptance fixture and platform checklist
+
 Remaining:
 
-- native view integration with Phase 3 cosmic-text/glyphon/wgpu editor infrastructure
-- native Live Preview acceptance, including deferred Narrator/VoiceOver validation
+- Windows/macOS native Live Preview manual acceptance
+- Narrator/VoiceOver manual acceptance
+- platform-specific fixes found by those acceptance passes
 
 ## Phase 6 - Widgets
 
