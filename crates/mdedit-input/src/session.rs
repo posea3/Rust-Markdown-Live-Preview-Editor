@@ -97,13 +97,30 @@ impl EditorSession {
             EditorInput::Undo => self.undo(),
             EditorInput::Redo => self.redo(),
             EditorInput::Focused(focused) => {
-                self.focused = focused;
                 if !focused {
-                    self.cancel_composition();
+                    self.finish_composition_on_focus_loss()?;
                 }
+                self.focused = focused;
                 Ok(true)
             }
         }
+    }
+
+    fn finish_composition_on_focus_loss(&mut self) -> Result<(), SessionError> {
+        let Some(preedit) = self
+            .composition
+            .as_ref()
+            .map(|composition| composition.preedit().to_owned())
+        else {
+            return Ok(());
+        };
+
+        if preedit.is_empty() {
+            self.cancel_composition();
+        } else {
+            self.ime_commit(&preedit)?;
+        }
+        Ok(())
     }
 
     pub fn insert_text(&mut self, text: &str) -> Result<bool, SessionError> {
