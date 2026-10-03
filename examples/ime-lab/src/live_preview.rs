@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use mdedit_core::{Affinity, Anchor, Revision, SelectionRange, SelectionSet, TextRange};
+use mdedit_core::{Affinity, Anchor, Revision, SelectionSet, TextRange};
 use mdedit_input::EditorSession;
 use mdedit_live::{
     HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize, Projection,
