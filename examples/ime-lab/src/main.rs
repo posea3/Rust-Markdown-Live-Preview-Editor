@@ -1001,6 +1001,10 @@ impl WindowState {
         let mut rects = Vec::new();
         for run in self.text_buffer.layout_runs() {
             for (start, end) in &selections {
+                if !selection_intersects_source_line(run.line_i, *start, *end) {
+                    continue;
+                }
+
                 for (x, width) in run.highlight(*start, *end) {
                     rects.push(ScreenRect::new(
                         TEXT_LEFT + x,
@@ -1361,6 +1365,16 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
+fn selection_intersects_source_line(
+    line_i: usize,
+    start: CosmicCursor,
+    end: CosmicCursor,
+) -> bool {
+    let first = start.line.min(end.line);
+    let last = start.line.max(end.line);
+    (first..=last).contains(&line_i)
+}
+
 fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
     let physical = match physical_key {
         PhysicalKey::Code(KeyCode::KeyA) => Some('a'),
@@ -1711,6 +1725,29 @@ mod tests {
             visual_neighbor(&cells, 10.0, right_start, -1),
             Some(left_end)
         );
+    }
+
+    #[test]
+    fn selection_highlight_skips_unrelated_source_lines() {
+        let start = CosmicCursor::new(2, 3);
+        let end = CosmicCursor::new(2, 6);
+
+        assert!(!selection_intersects_source_line(0, start, end));
+        assert!(!selection_intersects_source_line(1, start, end));
+        assert!(selection_intersects_source_line(2, start, end));
+        assert!(!selection_intersects_source_line(3, start, end));
+    }
+
+    #[test]
+    fn selection_highlight_includes_only_lines_between_multiline_endpoints() {
+        let start = CosmicCursor::new(2, 3);
+        let end = CosmicCursor::new(4, 6);
+
+        assert!(!selection_intersects_source_line(1, start, end));
+        assert!(selection_intersects_source_line(2, start, end));
+        assert!(selection_intersects_source_line(3, start, end));
+        assert!(selection_intersects_source_line(4, start, end));
+        assert!(!selection_intersects_source_line(5, start, end));
     }
 
     #[test]
