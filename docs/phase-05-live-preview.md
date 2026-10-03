@@ -34,6 +34,8 @@ The first Phase 5 slice adds the framework-independent `mdedit-live` crate with:
 - raw projection fallback
 - separate structural padding spans for headings, Setext marker lines, block quotes, and list separators
 - Unicode-grapheme `ProjectedCaretStops` for one visible horizontal step per movement
+- `HitBias` / `ProjectedHit` for projected-byte interaction snapping
+- `ProjectedSelectionEndpoint` / `ProjectedSelection` for direction-preserving source/viewport selection mapping
 
 No winit, cosmic-text, glyphon, wgpu, egui, or other view/runtime type is exposed by this crate.
 
@@ -205,6 +207,35 @@ If an externally supplied source offset maps inside a projected grapheme rather 
 
 This is intentionally a logical projection model, not a shaped BiDi visual-order engine. A future view adapter combines these stops with cosmic-text (or another shaper) visual cell order. The Phase 3 rule remains: affinity-only state changes at the same visible location must not consume an additional Left/Right press.
 
+## Projected hit testing and selection
+
+The projection layer now exposes a one-dimensional interaction contract for a future native view. It still does not know about pixel x/y coordinates or cosmic-text layout objects.
+
+`ProjectedCaretStops::hit_test` accepts a projected UTF-8 byte position plus an explicit `HitBias::Before` or `HitBias::After`.
+
+- a byte position inside a visible grapheme snaps to the valid caret stop on the requested side
+- a hit outside the projected document is rejected
+- at a collapsed delimiter/padding boundary, the same bias selects `source_before` or `source_after` rather than guessing a canonical source offset
+- the returned `ProjectedHit` records both the requested byte position and the snapped projected/source position
+
+Selection mapping is built from the same caret-stop contract.
+
+`ProjectedSelectionEndpoint::from_source` converts a core `Anchor` to a valid projected endpoint. If the source anchor already equals one of the exact canonical edges of a collapsed boundary, that edge is preserved. If a source offset falls inside hidden bytes or inside a projected grapheme, its core `Affinity` chooses the side to which it snaps. The endpoint keeps source affinity separately from hit bias so representable round trips retain anchor semantics.
+
+`ProjectedSelection::from_source` maps the core selection anchor and head independently into projected anchor/focus endpoints. The inverse `to_source` mapping restores a `SelectionRange`. Because anchor and focus are never sorted, selection direction is preserved even when both endpoints collapse to the same projected byte position.
+
+The helper operates on one `SelectionRange` at a time and does not own or normalize `SelectionSet`. A host can therefore map every range in a multi-selection set without moving input/session ownership into `mdedit-live`.
+
+Pixel hit testing remains a later view-layer operation:
+
+```text
+mouse x/y
+  -> shaped layout cell
+  -> projected byte position
+  -> mdedit-live hit helper
+  -> canonical source offset
+```
+
 ## Semantic styling
 
 The projection currently publishes project-owned style spans for:
@@ -228,6 +259,5 @@ If the syntax snapshot is already a raw fallback, if a delimiter cannot be assoc
 
 ## Remaining Phase 5 work
 
-- projected selection/hit-test helpers needed by the view layer
 - reflow/caret scroll compensation contract
 - native acceptance integration in the editor view

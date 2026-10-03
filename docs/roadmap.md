@@ -147,7 +147,7 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Status: **in progress — projection, source mapping, styles, conceal spans, and reveal groups implemented**
+Status: **in progress — projection, source mapping, reveal, caret stops, and projected interaction helpers implemented**
 
 Implemented in the first slice:
 
@@ -171,6 +171,11 @@ Implemented in the first slice:
 - specificity-aware reveal resolution for nested constructs
 - half-open selection/composition overlap so boundary-only adjacency does not reveal neighbors
 - compact combined delimiter refinement (`***x***` reveals only the syntax layer being edited)
+- projected-byte `HitBias` / `ProjectedHit` snapping through valid grapheme caret stops
+- explicit canonical source-edge choice at collapsed hit boundaries
+- `ProjectedSelectionEndpoint` / `ProjectedSelection` source-to-projected and projected-to-source mapping
+- anchor/focus direction preservation, including selections whose endpoints collapse to the same projected position
+- range-local selection mapping compatible with future `SelectionSet` multi-selection integration without ownership coupling
 
 Initial exact-byte concealment covers resolved markers for:
 
@@ -185,7 +190,6 @@ Initial exact-byte concealment covers resolved markers for:
 
 Remaining:
 
-- projected hit-test/selection helpers for the view layer
 - reflow/caret scroll compensation
 - native view integration and acceptance
 
