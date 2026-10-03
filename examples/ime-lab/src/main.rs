@@ -19,8 +19,7 @@ use glyphon::{
 };
 use live_preview::LivePreviewState;
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange,
-    TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
 use trace_capture::TraceCapture;
