@@ -138,19 +138,6 @@ impl RevealContext {
         &self.compositions
     }
 
-    fn reveals(&self, range: TextRange) -> bool {
-        self.carets
-            .iter()
-            .any(|caret| range.start() <= *caret && *caret <= range.end())
-            || self
-                .selections
-                .iter()
-                .any(|selection| ranges_touch(range, *selection))
-            || self
-                .compositions
-                .iter()
-                .any(|composition| ranges_touch(range, *composition))
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -784,7 +771,7 @@ fn build_reveal_groups(
             .push(*delimiter);
     }
 
-    grouped
+    let mut groups = grouped
         .into_values()
         .enumerate()
         .map(|(index, (owner, source_range, mut delimiters))| {
@@ -798,16 +785,107 @@ fn build_reveal_groups(
                 u32::try_from(index + 1)
                     .map_err(|_| ProjectionFallbackReason::OverlappingConcealment)?,
             );
-            let revealed = policy == RevealPolicy::SourceVisible || context.reveals(source_range);
             Ok(RevealGroup {
                 id,
                 owner,
                 source_range,
                 delimiters,
-                revealed,
+                revealed: policy == RevealPolicy::SourceVisible,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, ProjectionFallbackReason>>()?;
+
+    if policy == RevealPolicy::ConcealInactive {
+        apply_reveal_context(&mut groups, context);
+    }
+
+    Ok(groups)
+}
+
+fn apply_reveal_context(groups: &mut [RevealGroup], context: &RevealContext) {
+    for caret in context.carets() {
+        reveal_point(groups, *caret);
+    }
+    for selection in context.selections() {
+        reveal_interaction_range(groups, *selection);
+    }
+    for composition in context.compositions() {
+        reveal_interaction_range(groups, *composition);
+    }
+}
+
+fn reveal_point(groups: &mut [RevealGroup], point: TextSize) {
+    let candidates = groups
+        .iter()
+        .enumerate()
+        .filter_map(|(index, group)| range_contains_point(group.source_range, point).then_some(index))
+        .collect::<Vec<_>>();
+
+    let reveal = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            !candidates.iter().copied().any(|other| {
+                other != *candidate
+                    && strictly_contains(
+                        groups[*candidate].source_range,
+                        groups[other].source_range,
+                    )
+                    && range_contains_point(groups[other].source_range, point)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for index in reveal {
+        groups[index].revealed = true;
+    }
+}
+
+fn reveal_interaction_range(groups: &mut [RevealGroup], interaction: TextRange) {
+    if interaction.is_empty() {
+        reveal_point(groups, interaction.start());
+        return;
+    }
+
+    let candidates = groups
+        .iter()
+        .enumerate()
+        .filter_map(|(index, group)| {
+            ranges_overlap_nonempty(group.source_range, interaction).then_some(index)
+        })
+        .collect::<Vec<_>>();
+
+    let reveal = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            !candidates.iter().copied().any(|other| {
+                other != *candidate
+                    && strictly_contains(
+                        groups[*candidate].source_range,
+                        groups[other].source_range,
+                    )
+                    && range_contains(groups[other].source_range, interaction)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for index in reveal {
+        groups[index].revealed = true;
+    }
+}
+
+const fn range_contains_point(range: TextRange, point: TextSize) -> bool {
+    range.start().get() <= point.get() && point.get() <= range.end().get()
+}
+
+const fn strictly_contains(outer: TextRange, inner: TextRange) -> bool {
+    range_contains(outer, inner)
+        && (outer.start().get() < inner.start().get() || inner.end().get() < outer.end().get())
+}
+
+const fn ranges_overlap_nonempty(left: TextRange, right: TextRange) -> bool {
+    left.start().get() < right.end().get() && right.start().get() < left.end().get()
 }
 
 fn smallest_owner_range(
@@ -1221,10 +1299,6 @@ const fn range_contains(outer: TextRange, inner: TextRange) -> bool {
     outer.start().get() <= inner.start().get() && inner.end().get() <= outer.end().get()
 }
 
-const fn ranges_touch(left: TextRange, right: TextRange) -> bool {
-    left.start().get() <= right.end().get() && right.start().get() <= left.end().get()
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectionBuildError {
     RevisionMismatch {
@@ -1427,6 +1501,124 @@ mod tests {
             &RevealContext::new().with_composition(composition),
         );
         assert_eq!(composing.text(), "a *word* z");
+    }
+
+    #[test]
+    fn nested_caret_reveals_only_the_most_specific_construct() {
+        let context = RevealContext::new().with_caret(TextSize::new(11));
+        let projection = build(
+            "**outer *inner* tail**",
+            RevealPolicy::ConcealInactive,
+            &context,
+        );
+
+        assert_eq!(projection.text(), "outer *inner* tail");
+        assert!(
+            projection
+                .reveal_groups()
+                .iter()
+                .any(|group| group.owner() == SyntaxKind::Emphasis && group.revealed())
+        );
+        assert!(
+            projection
+                .reveal_groups()
+                .iter()
+                .any(|group| group.owner() == SyntaxKind::Strong && !group.revealed())
+        );
+    }
+
+    #[test]
+    fn outer_only_caret_does_not_reveal_nested_child() {
+        let context = RevealContext::new().with_caret(TextSize::new(4));
+        let projection = build(
+            "**outer *inner* tail**",
+            RevealPolicy::ConcealInactive,
+            &context,
+        );
+
+        assert_eq!(projection.text(), "**outer inner tail**");
+        assert!(
+            projection
+                .reveal_groups()
+                .iter()
+                .any(|group| group.owner() == SyntaxKind::Strong && group.revealed())
+        );
+        assert!(
+            projection
+                .reveal_groups()
+                .iter()
+                .any(|group| group.owner() == SyntaxKind::Emphasis && !group.revealed())
+        );
+    }
+
+    #[test]
+    fn equal_range_nested_constructs_reveal_together() {
+        let context = RevealContext::new().with_caret(TextSize::new(3));
+        let projection = build("***x***", RevealPolicy::ConcealInactive, &context);
+
+        assert_eq!(projection.text(), "***x***");
+        assert!(
+            projection
+                .reveal_groups()
+                .iter()
+                .filter(|group| group.revealed())
+                .count()
+                >= 2
+        );
+    }
+
+    #[test]
+    fn selection_ending_at_adjacent_construct_does_not_reveal_it() {
+        let selection = TextRange::new(TextSize::new(1), TextSize::new(6)).unwrap();
+        let projection = build(
+            "*one* **two**",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_selection(selection),
+        );
+
+        assert_eq!(projection.text(), "*one* two");
+        let strong = projection
+            .reveal_groups()
+            .iter()
+            .find(|group| group.owner() == SyntaxKind::Strong)
+            .unwrap();
+        assert!(!strong.revealed());
+    }
+
+    #[test]
+    fn selection_fully_inside_nested_child_shadows_parent_reveal() {
+        let selection = TextRange::new(TextSize::new(10), TextSize::new(13)).unwrap();
+        let projection = build(
+            "**outer *inner* tail**",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_selection(selection),
+        );
+
+        assert_eq!(projection.text(), "outer *inner* tail");
+    }
+
+    #[test]
+    fn selection_crossing_child_boundary_reveals_parent_and_child() {
+        let selection = TextRange::new(TextSize::new(6), TextSize::new(18)).unwrap();
+        let projection = build(
+            "**outer *inner* tail**",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_selection(selection),
+        );
+
+        assert_eq!(projection.text(), "**outer *inner* tail**");
+    }
+
+    #[test]
+    fn zero_length_composition_uses_point_specificity() {
+        let composition = TextRange::new(TextSize::new(11), TextSize::new(11)).unwrap();
+        let projection = build(
+            "**outer *inner* tail**",
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_composition(composition),
+        );
+
+        assert_eq!(projection.text(), "outer *inner* tail");
     }
 
     #[test]
