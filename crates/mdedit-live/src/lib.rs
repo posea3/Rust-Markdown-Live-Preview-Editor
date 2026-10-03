@@ -6,9 +6,11 @@
 //! projection plus explicit source/projection mappings; it never rewrites source.
 
 mod caret;
+mod hit;
 mod projection;
 
 pub use caret::{CaretDirection, ProjectedCaretStop, ProjectedCaretStops};
+pub use hit::{HitBias, ProjectedHit, ProjectedSelection, ProjectedSelectionEndpoint};
 pub use projection::{
     ConcealSpan, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, Projection,
     ProjectionBias, ProjectionBuildError, ProjectionFallbackReason, ProjectionMap,
