@@ -1553,19 +1553,43 @@ mod tests {
     }
 
     #[test]
-    fn equal_range_nested_constructs_reveal_together() {
+    fn compact_combined_delimiters_reveal_only_the_innermost_construct() {
         let context = RevealContext::new().with_caret(TextSize::new(3));
         let projection = build("***x***", RevealPolicy::ConcealInactive, &context);
 
-        assert_eq!(projection.text(), "***x***");
-        assert!(
-            projection
-                .reveal_groups()
-                .iter()
-                .filter(|group| group.revealed())
-                .count()
-                >= 2
-        );
+        assert_eq!(projection.text(), "**x**");
+        let strong = projection
+            .reveal_groups()
+            .iter()
+            .find(|group| group.owner() == SyntaxKind::Strong)
+            .unwrap();
+        let emphasis = projection
+            .reveal_groups()
+            .iter()
+            .find(|group| group.owner() == SyntaxKind::Emphasis)
+            .unwrap();
+        assert!(strong.revealed());
+        assert!(!emphasis.revealed());
+    }
+
+    #[test]
+    fn caret_on_outer_compact_delimiter_reveals_only_the_outer_construct() {
+        let context = RevealContext::new().with_caret(TextSize::ZERO);
+        let projection = build("***x***", RevealPolicy::ConcealInactive, &context);
+
+        assert_eq!(projection.text(), "*x*");
+        let strong = projection
+            .reveal_groups()
+            .iter()
+            .find(|group| group.owner() == SyntaxKind::Strong)
+            .unwrap();
+        let emphasis = projection
+            .reveal_groups()
+            .iter()
+            .find(|group| group.owner() == SyntaxKind::Emphasis)
+            .unwrap();
+        assert!(!strong.revealed());
+        assert!(emphasis.revealed());
     }
 
     #[test]
