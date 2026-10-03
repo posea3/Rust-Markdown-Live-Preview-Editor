@@ -13,11 +13,11 @@ use accesskit_winit::{
 use arboard::Clipboard;
 use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
 use geometry::{RectRenderer, ScreenRect};
-use live_preview::LivePreviewState;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
+use live_preview::LivePreviewState;
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, Revision, SelectionRange, SelectionSet, TextRange,
     TextSize,
@@ -922,8 +922,8 @@ impl WindowState {
                     .unwrap_or_else(|_| self.session.document().text())
             });
         let next_preedit_range = self.live_preview.preedit_range();
-        let display_changed = self.display_text != next_display_text
-            || self.preedit_range != next_preedit_range;
+        let display_changed =
+            self.display_text != next_display_text || self.preedit_range != next_preedit_range;
 
         if display_changed {
             let old_scroll = self.text_buffer.scroll();
@@ -1066,10 +1066,9 @@ impl WindowState {
                     &self.session,
                     Anchor::new(start, Affinity::Before),
                 )?;
-                let end = self.live_preview.source_anchor_to_display(
-                    &self.session,
-                    Anchor::new(end, Affinity::After),
-                )?;
+                let end = self
+                    .live_preview
+                    .source_anchor_to_display(&self.session, Anchor::new(end, Affinity::After))?;
                 Some((
                     display_offset_to_cursor(&self.display_text, start),
                     display_offset_to_cursor(&self.display_text, end),
