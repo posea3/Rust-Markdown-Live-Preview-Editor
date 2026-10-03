@@ -781,9 +781,7 @@ fn smallest_owner_range_into(
         return;
     }
 
-    if node.kind() == owner
-        && best.is_none_or(|current| node.range().len() < current.len())
-    {
+    if node.kind() == owner && best.is_none_or(|current| node.range().len() < current.len()) {
         *best = Some(node.range());
     }
 
@@ -1013,7 +1011,10 @@ impl fmt::Display for ProjectionBuildError {
                 document.get()
             ),
             Self::SourceRangeOutsideMap(range) => {
-                write!(formatter, "source range {range:?} is outside the projection map")
+                write!(
+                    formatter,
+                    "source range {range:?} is outside the projection map"
+                )
             }
             Self::ReversedProjectedRange { start, end } => write!(
                 formatter,
@@ -1025,7 +1026,9 @@ impl fmt::Display for ProjectionBuildError {
             Self::ConcealmentExceedsSource => {
                 write!(formatter, "concealment exceeds the canonical source length")
             }
-            Self::DocumentTooLarge => write!(formatter, "document exceeds the supported source size"),
+            Self::DocumentTooLarge => {
+                write!(formatter, "document exceeds the supported source size")
+            }
         }
     }
 }
@@ -1041,11 +1044,7 @@ mod tests {
 
     use super::*;
 
-    fn build(
-        source: &str,
-        policy: RevealPolicy,
-        context: &RevealContext,
-    ) -> Projection {
+    fn build(source: &str, policy: RevealPolicy, context: &RevealContext) -> Projection {
         let document = Document::new(source).unwrap();
         let snapshot = document.snapshot();
         let syntax = PulldownCmarkParser.parse(&snapshot, &MarkdownDialect::gfm());
@@ -1053,15 +1052,7 @@ mod tests {
         let blocks = block_cache.reconcile(&snapshot, &syntax).unwrap();
         let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
 
-        Projection::build(
-            &snapshot,
-            &syntax,
-            &blocks,
-            &delimiters,
-            policy,
-            context,
-        )
-        .unwrap()
+        Projection::build(&snapshot, &syntax, &blocks, &delimiters, policy, context).unwrap()
     }
 
     #[test]
@@ -1073,9 +1064,7 @@ mod tests {
         assert_eq!(projection.status(), ProjectionStatus::Projected);
         assert!(projection.concealed_spans().is_empty());
         assert_eq!(
-            projection
-                .map()
-                .source_to_projected(TextSize::new(4)),
+            projection.map().source_to_projected(TextSize::new(4)),
             Some(ProjectedSize::new(4))
         );
         assert!(projection.styles().iter().any(|style| {
@@ -1136,8 +1125,7 @@ mod tests {
             Some(TextSize::new(8))
         );
         assert!(projection.styles().iter().any(|style| {
-            style.kind() == StyleKind::Strong
-                && style.projected_range().as_usize_range() == 0..4
+            style.kind() == StyleKind::Strong && style.projected_range().as_usize_range() == 0..4
         }));
     }
 
@@ -1221,7 +1209,10 @@ mod tests {
 
         assert_eq!(projection.blocks().len(), 2);
         assert_ne!(projection.blocks()[0].id(), projection.blocks()[1].id());
-        assert_eq!(projection.blocks()[0].projected_range().start(), ProjectedSize::ZERO);
+        assert_eq!(
+            projection.blocks()[0].projected_range().start(),
+            ProjectedSize::ZERO
+        );
         assert!(projection.blocks()[1].projected_range().start() > ProjectedSize::ZERO);
     }
 }
