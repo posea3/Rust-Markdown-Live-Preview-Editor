@@ -117,7 +117,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             WindowEvent::CloseRequested => {
                 eprintln!("[mdedit-ime-lab] close requested");
                 event_loop.exit();
-            },
+            }
             WindowEvent::Resized(size) => state.resize(size),
             WindowEvent::Focused(focused) => state.set_focused(focused),
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -1716,17 +1716,11 @@ mod tests {
     #[test]
     fn shortcut_uses_physical_latin_key_under_non_latin_input_source() {
         assert_eq!(
-            shortcut_character(
-                Key::Character("ㅋ"),
-                &PhysicalKey::Code(KeyCode::KeyZ),
-            ),
+            shortcut_character(Key::Character("ㅋ"), &PhysicalKey::Code(KeyCode::KeyZ),),
             Some('z'),
         );
         assert_eq!(
-            shortcut_character(
-                Key::Character("ㅁ"),
-                &PhysicalKey::Code(KeyCode::KeyA),
-            ),
+            shortcut_character(Key::Character("ㅁ"), &PhysicalKey::Code(KeyCode::KeyA),),
             Some('a'),
         );
     }
