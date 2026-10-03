@@ -164,6 +164,8 @@ Implemented in the first slice:
 - IME composition force reveal through source-range context
 - source-visible safe default
 - raw projection fallback on inconsistent syntax/concealment ownership
+- separate `StructuralPaddingSpan` modeling for ATX/Setext heading padding, block-quote separators, and list-marker padding
+- conservative list padding rule that preserves four-space code indentation after markers
 
 Initial exact-byte concealment covers resolved markers for:
 
@@ -178,7 +180,6 @@ Initial exact-byte concealment covers resolved markers for:
 
 Remaining:
 
-- structural separator/padding collapse policy
 - caret-stop model
 - reveal-policy refinement for nested/adjacent constructs
 - projected hit-test/selection helpers for the view layer

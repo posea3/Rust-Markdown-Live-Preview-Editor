@@ -32,6 +32,7 @@ The first Phase 5 slice adds the framework-independent `mdedit-live` crate with:
 - `RevealContext`
 - `RevealPolicy`
 - raw projection fallback
+- separate structural padding spans for headings, Setext marker lines, block quotes, and list separators
 
 No winit, cosmic-text, glyphon, wgpu, egui, or other view/runtime type is exposed by this crate.
 
@@ -104,19 +105,42 @@ Mapping back from that boundary is inherently ambiguous, so `projected_to_source
 
 The map also publishes visible source/projected span pairs for later layout and hit-testing adapters.
 
-## Structural whitespace
+## Structural padding
 
-This slice hides only exact delimiter bytes.
+Structural layout padding is now modeled separately from syntax delimiters through `StructuralPaddingSpan`.
+
+That distinction keeps Phase 4 delimiter ownership exact while allowing an inactive Live Preview projection to remove source-only spacing that would otherwise remain visible after a marker is concealed.
+
+The current conservative rules are:
+
+- ATX heading indentation before the marker is collapsed when it is only allowed heading indentation
+- horizontal whitespace after an ATX heading prefix is collapsed
+- horizontal whitespace before a proven closing ATX hash sequence is collapsed
+- Setext underline indentation and the underline line remainder/newline are collapsed so the hidden underline does not leave a blank projected line
+- one optional space/tab after each block-quote marker is collapsed
+- list-marker padding of one to four spaces is collapsed
+- when more than four spaces follow a list marker, only the first separator space is collapsed so four-space code indentation remains represented
+- a list-marker tab separator is collapsed as one separator
+
+Every structural padding span belongs to the same reveal group as the delimiter that caused it. Revealing that construct therefore restores both the Markdown marker and its source spacing.
 
 For example:
 
 ```markdown
 # Heading
+> Quote
+-   Item
 ```
 
-currently projects to a leading space plus `Heading` when the heading marker is concealed. The separator whitespace is not part of the Phase 4 delimiter span and is deliberately not guessed away here.
+projects while inactive as:
 
-A later Phase 5 slice will define layout-aware structural padding policy for headings, block quotes, and lists. That policy must remain separate from syntax ownership so source mapping stays exact.
+```text
+Heading
+Quote
+Item
+```
+
+The `ConcealSpan` values still describe only actual Markdown delimiters. Structural padding remains separately observable for later caret, hit-test, and layout logic.
 
 ## Semantic styling
 
@@ -141,7 +165,6 @@ If the syntax snapshot is already a raw fallback, if a delimiter cannot be assoc
 
 ## Remaining Phase 5 work
 
-- structural separator/padding collapse policy
 - caret-stop model over projected coordinates
 - reveal-policy refinement for nested/adjacent constructs
 - projected selection/hit-test helpers needed by the view layer
