@@ -278,14 +278,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            anchor.before_projected().projected(),
-            ProjectedSize::new(1)
-        );
-        assert_eq!(
-            anchor.after_projected().projected(),
-            ProjectedSize::new(2)
-        );
+        assert_eq!(anchor.before_projected().projected(), ProjectedSize::new(1));
+        assert_eq!(anchor.after_projected().projected(), ProjectedSize::new(2));
         assert_eq!(anchor.before_source(), before_source);
         assert_eq!(anchor.after_source(), after_source);
     }
