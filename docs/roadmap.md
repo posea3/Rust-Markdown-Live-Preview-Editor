@@ -166,6 +166,8 @@ Implemented in the first slice:
 - raw projection fallback on inconsistent syntax/concealment ownership
 - separate `StructuralPaddingSpan` modeling for ATX/Setext heading padding, block-quote separators, and list-marker padding
 - conservative list padding rule that preserves four-space code indentation after markers
+- Unicode-grapheme `ProjectedCaretStops` with direction-aware source-edge selection at collapsed boundaries
+- hidden delimiter/padding offsets do not become invisible horizontal movement steps
 
 Initial exact-byte concealment covers resolved markers for:
 
@@ -180,7 +182,6 @@ Initial exact-byte concealment covers resolved markers for:
 
 Remaining:
 
-- caret-stop model
 - reveal-policy refinement for nested/adjacent constructs
 - projected hit-test/selection helpers for the view layer
 - reflow/caret scroll compensation

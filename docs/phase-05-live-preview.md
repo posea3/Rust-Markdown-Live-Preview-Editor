@@ -33,6 +33,7 @@ The first Phase 5 slice adds the framework-independent `mdedit-live` crate with:
 - `RevealPolicy`
 - raw projection fallback
 - separate structural padding spans for headings, Setext marker lines, block quotes, and list separators
+- Unicode-grapheme `ProjectedCaretStops` for one visible horizontal step per movement
 
 No winit, cosmic-text, glyphon, wgpu, egui, or other view/runtime type is exposed by this crate.
 
@@ -142,6 +143,45 @@ Item
 
 The `ConcealSpan` values still describe only actual Markdown delimiters. Structural padding remains separately observable for later caret, hit-test, and layout logic.
 
+## Projected caret stops
+
+`ProjectedCaretStops` derives the logical horizontal caret boundaries of the projected text from Unicode extended grapheme clusters.
+
+This layer exists because multiple canonical source offsets can collapse to one projected position. Hidden delimiter bytes and structural padding therefore must not become invisible intermediate caret steps.
+
+For an inactive construct:
+
+```markdown
+**bold**
+```
+
+the projected text is:
+
+```text
+bold
+```
+
+and the logical projected stops are only:
+
+```text
+|b|o|l|d|
+```
+
+There are no extra stops for the hidden `**` bytes.
+
+Each projected stop stores both source edges of a collapsed boundary:
+
+- `source_before`
+- `source_after`
+
+Entering a collapsed boundary from the right/backward direction selects the source edge adjacent to visible content after an opening marker. Entering from the left/forward direction selects the source edge adjacent to visible content before a closing marker. This avoids landing inside hidden marker bytes while preserving canonical source coordinates.
+
+The model is grapheme-based, so Korean syllables, emoji ZWJ sequences, and combining sequences move as one visible unit.
+
+If an externally supplied source offset maps inside a projected grapheme rather than exactly onto a caret stop, movement snaps once in the requested direction instead of consuming a second key press.
+
+This is intentionally a logical projection model, not a shaped BiDi visual-order engine. A future view adapter combines these stops with cosmic-text (or another shaper) visual cell order. The Phase 3 rule remains: affinity-only state changes at the same visible location must not consume an additional Left/Right press.
+
 ## Semantic styling
 
 The projection currently publishes project-owned style spans for:
@@ -165,7 +205,6 @@ If the syntax snapshot is already a raw fallback, if a delimiter cannot be assoc
 
 ## Remaining Phase 5 work
 
-- caret-stop model over projected coordinates
 - reveal-policy refinement for nested/adjacent constructs
 - projected selection/hit-test helpers needed by the view layer
 - reflow/caret scroll compensation contract
