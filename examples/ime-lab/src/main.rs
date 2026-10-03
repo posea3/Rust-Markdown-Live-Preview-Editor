@@ -1244,7 +1244,13 @@ impl WindowState {
                 self.insert_text(&text);
             }
             EditorAccessibilityAction::SetValue(text) => {
-                self.replace_document_text(&text);
+                if self.display_text == self.session.document().text() {
+                    self.replace_document_text(&text);
+                } else {
+                    eprintln!(
+                        "accessibility SetValue ignored while live preview conceals canonical Markdown"
+                    );
+                }
             }
         }
     }
