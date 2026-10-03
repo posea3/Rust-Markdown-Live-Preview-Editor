@@ -1668,6 +1668,19 @@ fn same_logical_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
     left.line == right.line && left.index == right.index
 }
 
+#[cfg(test)]
+fn display_anchor_to_cursor(text: &str, anchor: Anchor) -> CosmicCursor {
+    let cursor = display_offset_to_cursor(text, anchor.offset.to_usize());
+    CosmicCursor::new_with_affinity(
+        cursor.line,
+        cursor.index,
+        match anchor.affinity {
+            Affinity::Before => glyphon::Affinity::Before,
+            Affinity::After => glyphon::Affinity::After,
+        },
+    )
+}
+
 fn cosmic_to_core_affinity(affinity: glyphon::Affinity) -> Affinity {
     match affinity {
         glyphon::Affinity::Before => Affinity::Before,
