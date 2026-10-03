@@ -124,13 +124,27 @@ impl ApplicationHandler<AccessKitEvent> for Application {
                 state.modifiers = modifiers.state();
             }
             WindowEvent::Ime(ime) => state.handle_ime(ime),
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if !event.repeat {
-                    state.begin_latency_probe(event.logical_key.as_ref());
+            WindowEvent::KeyboardInput { event, .. } => {
+                if state.ime_trace_enabled {
+                    eprintln!(
+                        "[mdedit-ime] key state={:?} repeat={} logical={:?} physical={:?} text={:?} composition={}",
+                        event.state,
+                        event.repeat,
+                        event.logical_key,
+                        event.physical_key,
+                        event.text,
+                        state.session.composition().is_some(),
+                    );
                 }
-                state.handle_key(&event);
-                if !event.repeat {
-                    state.mark_latency_input_handled();
+
+                if event.state == ElementState::Pressed {
+                    if !event.repeat {
+                        state.begin_latency_probe(event.logical_key.as_ref());
+                    }
+                    state.handle_key(&event);
+                    if !event.repeat {
+                        state.mark_latency_input_handled();
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -433,16 +447,6 @@ impl WindowState {
             if self.session.composition().is_some() {
                 self.session.cancel_composition();
             }
-        }
-
-        if self.ime_trace_enabled {
-            eprintln!(
-                "[mdedit-ime] key pressed logical={:?} physical={:?} text={:?} composition={}",
-                event.logical_key,
-                event.physical_key,
-                event.text,
-                self.session.composition().is_some(),
-            );
         }
 
         let handled = if shortcut {
