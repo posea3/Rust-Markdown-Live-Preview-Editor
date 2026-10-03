@@ -327,8 +327,20 @@ Integrated paths include:
 
 Accessibility full-value replacement is intentionally rejected while the display projection conceals Markdown source markers. Replacing the entire projected value cannot be losslessly mapped back to canonical Markdown without deleting hidden syntax. Selection-based edit actions remain available through the projection mapping.
 
+## Native acceptance mode
+
+The IME lab includes an opt-in Markdown-focused fixture for Phase 5 validation:
+
+```text
+examples/ime-lab/fixtures/live-preview-acceptance.md
+```
+
+Enable it with `MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1`. The detailed Windows/macOS, Narrator, and VoiceOver checklist is maintained in `docs/phase-05-native-acceptance.md`.
+
+The normal Phase 3 IME lab document remains the default so the Markdown acceptance fixture does not replace the existing regression surface.
+
 ## Remaining Phase 5 work
 
-- native Live Preview manual acceptance on Windows and macOS
-- Narrator / VoiceOver manual acceptance against projected Markdown semantics
+- run native Live Preview manual acceptance on Windows and macOS
+- run Narrator / VoiceOver manual acceptance against projected Markdown semantics
 - fix any platform-specific regressions found by those acceptance passes
