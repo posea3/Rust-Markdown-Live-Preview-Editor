@@ -810,10 +810,6 @@ fn merge_concealed(mut ranges: Vec<TextRange>) -> Result<Vec<TextRange>, Project
         if range.is_empty() {
             continue;
         }
-        if range.end() > TextSize::new(u32::MAX) {
-            return Err(ProjectionBuildError::ConcealmentExceedsSource);
-        }
-
         match merged.last_mut() {
             Some(last) if range.start() <= last.end() => {
                 if range.end() > last.end() {
