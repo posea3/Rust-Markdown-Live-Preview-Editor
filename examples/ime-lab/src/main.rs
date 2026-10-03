@@ -1200,7 +1200,8 @@ impl WindowState {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let Some(selection) = self.accessibility_display_selection() else {
+        let Some(selection) = accessibility_display_selection(&self.live_preview, &self.session)
+        else {
             return;
         };
         let display_text = self.display_text.clone();
@@ -1221,42 +1222,6 @@ impl WindowState {
         });
     }
 
-    fn accessibility_display_selection(&self) -> Option<SelectionRange> {
-        let primary = self.session.selections().primary();
-        let anchor = self
-            .live_preview
-            .source_anchor_to_display(&self.session, primary.anchor)?;
-        let head = self
-            .live_preview
-            .source_anchor_to_display(&self.session, primary.head)?;
-
-        Some(SelectionRange {
-            anchor: Anchor::new(
-                TextSize::try_from_usize(anchor).ok()?,
-                primary.anchor.affinity,
-            ),
-            head: Anchor::new(TextSize::try_from_usize(head).ok()?, primary.head.affinity),
-        })
-    }
-
-    fn accessibility_selection_to_source(
-        &self,
-        selection: SelectionRange,
-    ) -> Option<SelectionRange> {
-        let anchor = self.live_preview.display_to_source_anchor(
-            &self.session,
-            selection.anchor.offset.to_usize(),
-            selection.anchor.affinity,
-        )?;
-        let head = self.live_preview.display_to_source_anchor(
-            &self.session,
-            selection.head.offset.to_usize(),
-            selection.head.affinity,
-        )?;
-
-        Some(SelectionRange { anchor, head })
-    }
-
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
         let Some(action) = translate_action(request, &self.display_text) else {
             return;
@@ -1268,7 +1233,9 @@ impl WindowState {
                 self.window.set_ime_allowed(true);
             }
             EditorAccessibilityAction::SetSelection(selection) => {
-                let Some(selection) = self.accessibility_selection_to_source(selection) else {
+                let Some(selection) =
+                    accessibility_selection_to_source(&self.live_preview, &self.session, selection)
+                else {
                     eprintln!("accessibility selection could not be mapped through live preview");
                     return;
                 };
@@ -1561,6 +1528,42 @@ struct LatencyProbe {
 
 fn duration_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
+}
+
+fn accessibility_display_selection(
+    live_preview: &LivePreviewState,
+    session: &EditorSession,
+) -> Option<SelectionRange> {
+    let primary = session.selections().primary();
+    let anchor = live_preview.source_anchor_to_display(session, primary.anchor)?;
+    let head = live_preview.source_anchor_to_display(session, primary.head)?;
+
+    Some(SelectionRange {
+        anchor: Anchor::new(
+            TextSize::try_from_usize(anchor).ok()?,
+            primary.anchor.affinity,
+        ),
+        head: Anchor::new(TextSize::try_from_usize(head).ok()?, primary.head.affinity),
+    })
+}
+
+fn accessibility_selection_to_source(
+    live_preview: &LivePreviewState,
+    session: &EditorSession,
+    selection: SelectionRange,
+) -> Option<SelectionRange> {
+    let anchor = live_preview.display_to_source_anchor(
+        session,
+        selection.anchor.offset.to_usize(),
+        selection.anchor.affinity,
+    )?;
+    let head = live_preview.display_to_source_anchor(
+        session,
+        selection.head.offset.to_usize(),
+        selection.head.affinity,
+    )?;
+
+    Some(SelectionRange { anchor, head })
 }
 
 fn env_flag(name: &str) -> bool {
@@ -1895,6 +1898,39 @@ mod tests {
         assert!(fixture.contains("한글"));
         assert!(fixture.contains("日本語"));
         assert!(fixture.contains("中文"));
+    }
+
+    #[test]
+    fn accessibility_selection_maps_across_concealed_markdown_boundaries() {
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(13), Affinity::After));
+
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        assert_eq!(live_preview.display_text(), Some("bold tail"));
+
+        let projected = SelectionRange {
+            anchor: Anchor::new(TextSize::new(0), Affinity::After),
+            head: Anchor::new(TextSize::new(4), Affinity::Before),
+        };
+        let source =
+            accessibility_selection_to_source(&live_preview, &session, projected).unwrap();
+
+        assert_eq!(source.anchor, Anchor::new(TextSize::new(2), Affinity::After));
+        assert_eq!(source.head, Anchor::new(TextSize::new(6), Affinity::Before));
+    }
+
+    #[test]
+    fn accessibility_caret_uses_projected_display_offset() {
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(13), Affinity::After));
+
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+
+        let projected = accessibility_display_selection(&live_preview, &session).unwrap();
+        assert!(projected.is_caret());
+        assert_eq!(projected.head.offset, TextSize::new("bold tail".len() as u32));
     }
 
     #[test]
