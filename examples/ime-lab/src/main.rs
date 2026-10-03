@@ -385,10 +385,21 @@ impl WindowState {
     }
 
     fn set_focused(&mut self, focused: bool) {
-        self.window.set_ime_allowed(focused);
+        if focused {
+            self.window.set_ime_allowed(true);
+        }
+
         if let Err(error) = self.apply_input(EditorInput::Focused(focused)) {
             eprintln!("focus input error: {error}");
         }
+
+        if !focused {
+            // Finalize the editor-side preedit before AppKit clears its marked
+            // text state. This matches native text-input semantics more closely
+            // and avoids silently discarding visible composition on focus loss.
+            self.window.set_ime_allowed(false);
+        }
+
         self.preferred_x = None;
         self.ensure_caret_visible = focused;
         self.request_redraw();
