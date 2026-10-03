@@ -928,11 +928,11 @@ impl WindowState {
             .composition()
             .map(|composition| composition.preedit());
 
-        let reflow = match self.live_preview.refresh(&self.session) {
-            Ok(refresh) => refresh.reflow(),
+        let (projection_changed, reflow) = match self.live_preview.refresh(&self.session) {
+            Ok(refresh) => (refresh.changed(), refresh.reflow()),
             Err(error) => {
                 eprintln!("[mdedit-ime-lab] live preview projection error: {error}");
-                None
+                (false, None)
             }
         };
         let reflow_before = reflow.and_then(|reflow| {
@@ -970,7 +970,7 @@ impl WindowState {
                 reflow.map(|value| (value.before_display_offset(), value.after_display_offset()));
 
             eprintln!(
-                "[mdedit-live-preview] source_len={} display_len={} source_selection={}..{} projected_selection={projected_anchor:?}..{projected_head:?} preedit={next_preedit_range:?} reflow={reflow_offsets:?}",
+                "[mdedit-live-preview] projection_changed={projection_changed} source_len={} display_len={} source_selection={}..{} projected_selection={projected_anchor:?}..{projected_head:?} preedit={next_preedit_range:?} reflow={reflow_offsets:?}",
                 self.session.document().text().len(),
                 next_display_text.len(),
                 primary.anchor.offset.to_usize(),
@@ -1023,25 +1023,25 @@ impl WindowState {
             self.text_render_dirty = true;
         }
 
-        if let Some((reflow, before)) = reflow_before {
-            if let Some(after) = measure_layout_position(
+        if let Some((reflow, before)) = reflow_before
+            && let Some(after) = measure_layout_position(
                 &mut self.text_buffer,
                 &mut self.font_system,
                 &self.display_text,
                 reflow.after_display_offset(),
-            ) {
-                let measurement = ReflowMeasurement::new(reflow.anchor(), before, after);
-                if let Some(adjustment) = measurement.scroll_adjustment() {
-                    if adjustment.block().abs() > f32::EPSILON {
-                        let mut scroll = self.text_buffer.scroll();
-                        scroll.vertical += adjustment.block();
-                        self.text_buffer.set_scroll(scroll);
-                        self.text_buffer
-                            .shape_until_scroll(&mut self.font_system, false);
-                        self.layout_dirty = false;
-                        self.text_render_dirty = true;
-                    }
-                }
+            )
+        {
+            let measurement = ReflowMeasurement::new(reflow.anchor(), before, after);
+            if let Some(adjustment) = measurement.scroll_adjustment()
+                && adjustment.block().abs() > f32::EPSILON
+            {
+                let mut scroll = self.text_buffer.scroll();
+                scroll.vertical += adjustment.block();
+                self.text_buffer.set_scroll(scroll);
+                self.text_buffer
+                    .shape_until_scroll(&mut self.font_system, false);
+                self.layout_dirty = false;
+                self.text_render_dirty = true;
             }
         }
 
