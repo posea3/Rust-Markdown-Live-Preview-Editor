@@ -10,7 +10,7 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::Motion as CosmicMotion;
+use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
@@ -32,9 +32,9 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, ModifiersState, NamedKey},
+    keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::{Window, WindowId},
 };
 
@@ -114,20 +114,38 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             .process_event(&state.window, &event);
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                eprintln!("[mdedit-ime-lab] close requested");
+                state.prepare_for_window_teardown();
+                event_loop.exit();
+            }
             WindowEvent::Resized(size) => state.resize(size),
             WindowEvent::Focused(focused) => state.set_focused(focused),
             WindowEvent::ModifiersChanged(modifiers) => {
                 state.modifiers = modifiers.state();
             }
             WindowEvent::Ime(ime) => state.handle_ime(ime),
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if !event.repeat {
-                    state.begin_latency_probe(event.logical_key.as_ref());
+            WindowEvent::KeyboardInput { event, .. } => {
+                if state.ime_trace_enabled {
+                    eprintln!(
+                        "[mdedit-ime] key state={:?} repeat={} logical={:?} physical={:?} text={:?} composition={}",
+                        event.state,
+                        event.repeat,
+                        event.logical_key,
+                        event.physical_key,
+                        event.text,
+                        state.session.composition().is_some(),
+                    );
                 }
-                state.handle_key(event.logical_key.as_ref(), event.text.as_deref());
-                if !event.repeat {
-                    state.mark_latency_input_handled();
+
+                if event.state == ElementState::Pressed {
+                    if !event.repeat {
+                        state.begin_latency_probe(event.logical_key.as_ref());
+                    }
+                    state.handle_key(&event);
+                    if !event.repeat {
+                        state.mark_latency_input_handled();
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -217,6 +235,7 @@ struct WindowState {
     window_title: String,
     latency_trace_enabled: bool,
     latency_probe: Option<LatencyProbe>,
+    ime_trace_enabled: bool,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -347,6 +366,7 @@ impl WindowState {
             window_title: String::new(),
             latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
             latency_probe: None,
+            ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             window,
         };
 
@@ -355,11 +375,31 @@ impl WindowState {
         state
     }
 
+    fn prepare_for_window_teardown(&mut self) {
+        // winit 0.30.x can receive a late NSTextInputClient::insertText callback
+        // while a macOS window is being dropped with marked text active. Disable
+        // IME while the native window is still alive so AppKit clears marked text
+        // before teardown (rust-windowing/winit#4626).
+        self.window.set_ime_allowed(false);
+        self.session.cancel_composition();
+    }
+
     fn set_focused(&mut self, focused: bool) {
-        self.window.set_ime_allowed(focused);
+        if focused {
+            self.window.set_ime_allowed(true);
+        }
+
         if let Err(error) = self.apply_input(EditorInput::Focused(focused)) {
             eprintln!("focus input error: {error}");
         }
+
+        if !focused {
+            // Finalize the editor-side preedit before AppKit clears its marked
+            // text state. This matches native text-input semantics more closely
+            // and avoids silently discarding visible composition on focus loss.
+            self.window.set_ime_allowed(false);
+        }
+
         self.preferred_x = None;
         self.ensure_caret_visible = focused;
         self.request_redraw();
@@ -385,6 +425,10 @@ impl WindowState {
     }
 
     fn handle_ime(&mut self, ime: Ime) {
+        if self.ime_trace_enabled {
+            eprintln!("[mdedit-ime] event={ime:?}");
+        }
+
         let input = match ime {
             Ime::Enabled => EditorInput::ImeEnabled,
             Ime::Preedit(text, selection) => EditorInput::ImePreedit {
@@ -403,12 +447,31 @@ impl WindowState {
         self.request_redraw();
     }
 
-    fn handle_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    fn handle_key(&mut self, event: &KeyEvent) {
+        let key = event.logical_key.as_ref();
+        let text = event.text.as_deref();
         let shortcut = self.modifiers.control_key() || self.modifiers.super_key();
         let extend = self.modifiers.shift_key();
 
+        // Native IMEs own ordinary editing/candidate-navigation keys while
+        // visible preedit is active. A trailing empty Preedit is only a clearing
+        // boundary; if a raw key follows it, end that empty composition and let
+        // the editor handle the key normally.
+        if !shortcut {
+            if self
+                .session
+                .composition()
+                .is_some_and(|composition| !composition.preedit().is_empty())
+            {
+                return;
+            }
+            if self.session.composition().is_some() {
+                self.session.cancel_composition();
+            }
+        }
+
         let handled = if shortcut {
-            self.handle_shortcut(key)
+            self.handle_shortcut(key, &event.physical_key)
         } else {
             match key {
                 Key::Named(NamedKey::ArrowLeft) => {
@@ -465,12 +528,12 @@ impl WindowState {
         }
     }
 
-    fn handle_shortcut(&mut self, key: Key<&str>) -> bool {
-        let Key::Character(character) = key else {
+    fn handle_shortcut(&mut self, key: Key<&str>, physical_key: &PhysicalKey) -> bool {
+        let Some(character) = shortcut_character(key, physical_key) else {
             return false;
         };
 
-        if character.eq_ignore_ascii_case("z") {
+        if character == 'z' {
             let result = if self.modifiers.shift_key() {
                 self.apply_input(EditorInput::Redo)
             } else {
@@ -483,7 +546,7 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("y") {
+        if character == 'y' {
             if let Err(error) = self.apply_input(EditorInput::Redo) {
                 eprintln!("redo error: {error}");
             }
@@ -491,7 +554,7 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("a") {
+        if character == 'a' {
             let end = self.session.document().len().expect("document length");
             let selection = SelectionSet::new(
                 vec![SelectionRange {
@@ -508,17 +571,17 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("c") {
+        if character == 'c' {
             self.copy_selection(false);
             return true;
         }
 
-        if character.eq_ignore_ascii_case("x") {
+        if character == 'x' {
             self.copy_selection(true);
             return true;
         }
 
-        if character.eq_ignore_ascii_case("v") {
+        if character == 'v' {
             if let Some(clipboard) = self.clipboard.as_mut() {
                 match clipboard.get_text() {
                     Ok(text) => self.insert_text(&text),
@@ -889,6 +952,11 @@ impl WindowState {
                     .set_text(&self.display_text, &normal, Shaping::Advanced, None);
             }
 
+            ensure_buffer_lines_match_display_text(
+                &mut self.text_buffer,
+                &self.display_text,
+                &normal,
+            );
             self.text_buffer.set_scroll(old_scroll);
             self.layout_dirty = true;
             self.text_render_dirty = true;
@@ -905,8 +973,19 @@ impl WindowState {
             let caret_is_visible =
                 !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
             if !caret_is_visible {
-                self.text_buffer
-                    .shape_until_cursor(&mut self.font_system, cursor, false);
+                if cursor.line < self.text_buffer.lines.len() {
+                    self.text_buffer
+                        .shape_until_cursor(&mut self.font_system, cursor, false);
+                } else {
+                    eprintln!(
+                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; shaping visible scroll instead",
+                        cursor.line,
+                        self.text_buffer.lines.len(),
+                        self.display_text.len(),
+                    );
+                    self.text_buffer
+                        .shape_until_scroll(&mut self.font_system, false);
+                }
                 self.layout_dirty = false;
             }
             self.ensure_caret_visible = false;
@@ -973,8 +1052,14 @@ impl WindowState {
                 let (start, end) = selection.ordered_offsets();
                 (start != end).then(|| {
                     (
-                        display_offset_to_cursor(&self.display_text, start.to_usize()),
-                        display_offset_to_cursor(&self.display_text, end.to_usize()),
+                        display_anchor_to_cursor(
+                            &self.display_text,
+                            Anchor::new(start, Affinity::Before),
+                        ),
+                        display_anchor_to_cursor(
+                            &self.display_text,
+                            Anchor::new(end, Affinity::After),
+                        ),
                     )
                 })
             })
@@ -983,6 +1068,10 @@ impl WindowState {
         let mut rects = Vec::new();
         for run in self.text_buffer.layout_runs() {
             for (start, end) in &selections {
+                if !selection_intersects_source_line(run.line_i, *start, *end) {
+                    continue;
+                }
+
                 for (x, width) in run.highlight(*start, *end) {
                     rects.push(ScreenRect::new(
                         TEXT_LEFT + x,
@@ -1322,6 +1411,12 @@ impl WindowState {
     }
 }
 
+impl Drop for WindowState {
+    fn drop(&mut self) {
+        self.prepare_for_window_teardown();
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct LatencyProbe {
     label: &'static str,
@@ -1341,6 +1436,53 @@ fn env_flag(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         )
     })
+}
+
+fn ensure_buffer_lines_match_display_text(
+    buffer: &mut Buffer,
+    display_text: &str,
+    attrs: &Attrs<'_>,
+) {
+    // cosmic-text 0.19 BidiParagraphs intentionally omits a final empty
+    // paragraph when text ends with a newline. Editor caret semantics still
+    // require that trailing empty source line to exist as a BufferLine.
+    let expected_lines = display_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    while buffer.lines.len() < expected_lines {
+        buffer.lines.push(BufferLine::new(
+            String::new(),
+            LineEnding::None,
+            AttrsList::new(attrs),
+            Shaping::Advanced,
+        ));
+    }
+}
+
+fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: CosmicCursor) -> bool {
+    let first = start.line.min(end.line);
+    let last = start.line.max(end.line);
+    (first..=last).contains(&line_i)
+}
+
+fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
+    if let Key::Character(character) = key {
+        let mut chars = character.chars();
+        if let Some(character) = chars.next().map(|character| character.to_ascii_lowercase())
+            && chars.next().is_none()
+            && matches!(character, 'a' | 'c' | 'v' | 'x' | 'y' | 'z')
+        {
+            return Some(character);
+        }
+    }
+
+    match physical_key {
+        PhysicalKey::Code(KeyCode::KeyA) => Some('a'),
+        PhysicalKey::Code(KeyCode::KeyC) => Some('c'),
+        PhysicalKey::Code(KeyCode::KeyV) => Some('v'),
+        PhysicalKey::Code(KeyCode::KeyX) => Some('x'),
+        PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
+        PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
+        _ => None,
+    }
 }
 
 fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
@@ -1584,6 +1726,42 @@ mod tests {
     }
 
     #[test]
+    fn trailing_newline_gets_explicit_empty_buffer_line() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+
+        buffer.set_rich_text([("abc\n", attrs.clone())], &attrs, Shaping::Advanced, None);
+        assert_eq!(buffer.lines.len(), 1);
+
+        ensure_buffer_lines_match_display_text(&mut buffer, "abc\n", &attrs);
+
+        assert_eq!(buffer.lines.len(), 2);
+        assert_eq!(buffer.lines[1].text(), "");
+        let cursor = display_offset_to_cursor("abc\n", 4);
+        assert_eq!(cursor.line, 1);
+        assert_eq!(cursor.index, 0);
+
+        buffer.shape_until_cursor(&mut font_system, cursor, false);
+    }
+
+    #[test]
+    fn empty_japanese_preedit_on_trailing_line_has_valid_buffer_cursor() {
+        let source = "line\n";
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+
+        buffer.set_rich_text([(source, attrs.clone())], &attrs, Shaping::Advanced, None);
+        assert_eq!(buffer.lines.len(), 1);
+        ensure_buffer_lines_match_display_text(&mut buffer, source, &attrs);
+
+        let cursor = display_offset_to_cursor(source, source.len());
+        assert!(cursor.line < buffer.lines.len());
+        buffer.shape_until_cursor(&mut font_system, cursor, false);
+    }
+
+    #[test]
     fn visual_neighbor_moves_between_adjacent_ltr_cells_without_pixel_scanning() {
         let c0 = cursor(0, glyphon::Affinity::After);
         let c1 = cursor(1, glyphon::Affinity::Before);
@@ -1670,6 +1848,59 @@ mod tests {
             visual_neighbor(&cells, 10.0, right_start, -1),
             Some(left_end)
         );
+    }
+
+    #[test]
+    fn selection_highlight_skips_unrelated_source_lines() {
+        let start = CosmicCursor::new(2, 3);
+        let end = CosmicCursor::new(2, 6);
+
+        assert!(!selection_intersects_source_line(0, start, end));
+        assert!(!selection_intersects_source_line(1, start, end));
+        assert!(selection_intersects_source_line(2, start, end));
+        assert!(!selection_intersects_source_line(3, start, end));
+    }
+
+    #[test]
+    fn selection_highlight_includes_only_lines_between_multiline_endpoints() {
+        let start = CosmicCursor::new(2, 3);
+        let end = CosmicCursor::new(4, 6);
+
+        assert!(!selection_intersects_source_line(1, start, end));
+        assert!(selection_intersects_source_line(2, start, end));
+        assert!(selection_intersects_source_line(3, start, end));
+        assert!(selection_intersects_source_line(4, start, end));
+        assert!(!selection_intersects_source_line(5, start, end));
+    }
+
+    #[test]
+    fn shortcut_uses_physical_latin_key_under_non_latin_input_source() {
+        assert_eq!(
+            shortcut_character(Key::Character("ㅋ"), &PhysicalKey::Code(KeyCode::KeyZ),),
+            Some('z'),
+        );
+        assert_eq!(
+            shortcut_character(Key::Character("ㅁ"), &PhysicalKey::Code(KeyCode::KeyA),),
+            Some('a'),
+        );
+        assert_eq!(
+            shortcut_character(Key::Character("z"), &PhysicalKey::Code(KeyCode::KeyW),),
+            Some('z'),
+            "Latin logical layouts must take precedence over the physical fallback",
+        );
+    }
+
+    #[test]
+    fn selection_highlight_endpoints_keep_ordered_affinity() {
+        let text = "가나다";
+        let start = Anchor::new(TextSize::new(3), Affinity::Before);
+        let end = Anchor::new(TextSize::new(6), Affinity::After);
+
+        let start_cursor = display_anchor_to_cursor(text, start);
+        let end_cursor = display_anchor_to_cursor(text, end);
+
+        assert_eq!(start_cursor.affinity, glyphon::Affinity::Before);
+        assert_eq!(end_cursor.affinity, glyphon::Affinity::After);
     }
 
     #[cfg(target_os = "windows")]

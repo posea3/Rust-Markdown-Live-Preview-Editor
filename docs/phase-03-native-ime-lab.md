@@ -189,24 +189,63 @@ cargo run --release -p mdedit-ime-lab
 
 `mailbox` is used only when reported by the surface; unsupported explicit modes fall back safely. `auto-no-vsync` lets wgpu choose Immediate, then Mailbox, then Fifo.
 
-## Phase 3 manual acceptance status
+## macOS upstream IME constraints
 
-Windows acceptance on the tested Intel UHD Graphics 630 machine:
+Current macOS acceptance is affected by open winit 0.30.x AppKit issues in addition to application-level bugs:
 
-- Korean IME composition/commit/editing/selection replacement: **PASS**
-- Japanese IME: **PENDING / BLOCKED** because the Windows Japanese language/IME pack could not be installed on the test machine
-- Chinese IME: **PENDING / BLOCKED** for the same environment reason
-- Narrator: **PENDING**
-- macOS Korean/Japanese/Chinese IME: **PENDING**
-- VoiceOver: **PENDING**
-- focus-loss and IME disable/re-enable edge cases: **PENDING**
+- `rust-windowing/winit#3095`: immediately after switching to Korean, the first Jamo can escape as ordinary keyboard input before AppKit starts marked-text composition, splitting the first syllable. The observed `IMKCFRunLoopWakeUpReliable` console message is part of the same cold-start failure. An upstream mitigation exists as PR #4693, currently based on winit 0.31 beta and not directly interchangeable with this project's winit 0.30.x / accesskit_winit dependency set.
+- `rust-windowing/winit#4526`: macOS can leak the final key-release event after an IME-owned Backspace clears all preedit.
+- `rust-windowing/winit#4626`: dropping a 0.30.13 window with marked text active can abort in a late `insertText` callback. The IME lab disables IME and clears local composition before teardown as the documented application workaround.
 
-Two Windows issues were found during acceptance and are now incorporated into the Phase 3 branch:
+The editor layer now ignores stray empty `Ime::Preedit("", None)` events when no composition exists, preserves an empty preedit only when it belongs to an existing composition awaiting commit, and resumes normal raw-key handling after an empty composition boundary.
 
-1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. For Windows, the IME lab now defaults to DX12 before applying wgpu environment overrides. `WGPU_BACKEND` can still explicitly override that default because the final `InstanceDescriptor` uses `with_env()`.
-2. Visual Left/Right caret movement initially appeared slow. The original implementation advanced one physical pixel at a time and repeatedly called `Buffer::hit()`. Follow-up profiling removed redundant shaping, full glyphon text preparation on caret-only redraws, eager accessibility-tree construction while accessibility was inactive, repeated window-title updates, O(n) trace-file rewrites when tracing was enabled, and full Rope-to-String display projection copies on caret-only moves. Instrumented FIFO/Mailbox comparisons then showed that presentation mode was not the root cause of the remaining two-key symptom. The actual correctness bug was an affinity-only cosmic-text caret stop at the same line/index: the first arrow press could change affinity without moving visibly, and the second press performed the visible move. Commit `f32e81e` skips those redundant ordinary horizontal stops while preserving distinct logical BiDi boundary transitions. Final Windows manual acceptance confirms one Left/Right press equals one visible step and sustained movement is normal.
+## macOS focus-loss policy
 
-The Japanese/Chinese and accessibility items remain intentionally marked pending rather than treated as passed.
+Manual acceptance showed that Korean, Japanese, and Chinese preedit disappeared when the IME lab lost focus, while no ghost preedit remained and input resumed normally after refocus. That behavior matched the previous implementation because `EditorInput::Focused(false)` unconditionally cancelled composition.
+
+For a text editor, visible marked text should not be silently discarded on focus loss. The macOS path now finalizes a non-empty preedit into the document before disabling IME; an empty preedit is cancelled without mutating source text. If AppKit has already committed the composition before the focus event, there is no remaining local composition and no duplicate commit occurs.
+
+## Phase 3 completion status
+
+**Implementation: COMPLETE**
+
+Phase 3 is closed as an implementation milestone. Core Windows/macOS IME behavior required to continue editor development has been validated, with explicitly documented deferred/platform-owned items below. Windows Japanese and Chinese IME have now also passed manual acceptance.
+
+Manual acceptance:
+
+- Windows Korean IME composition/commit/editing/selection replacement: **PASS**
+- Windows Left/Right one press = one visible caret step and sustained movement: **PASS**
+- Windows Intel UHD Graphics 630 DX12 startup: **PASS**
+- Windows Japanese IME: **PASS**
+- Windows Chinese IME: **PASS**
+- macOS Korean normal composition/editing/selection/undo-redo: **PASS**
+- macOS Japanese IME composition/candidate/editing/full-preedit deletion: **PASS**
+- macOS Chinese IME composition/candidate/editing: **PASS**
+- macOS focus loss/refocus: **PASS**; visible non-empty preedit is finalized before IME disable, no ghost preedit remains, and input resumes after refocus
+- macOS Korean first syllable immediately after switching input source: **UPSTREAM BLOCKER** (`rust-windowing/winit#3095`); no local workaround is carried in mdedit
+- Narrator manual acceptance: **DEFERRED**
+- VoiceOver manual acceptance: **DEFERRED**
+
+Accessibility implementation remains present through AccessKit, but Narrator/VoiceOver manual acceptance is intentionally deferred to a later validation pass when Markdown/Live Preview semantics are available. These deferred checks are not treated as passed.
+
+The macOS Korean cold-start issue is intentionally left to the windowing layer. As of Phase 3 closure, winit issue #3095 and PR #4693 remain open. The editor will re-evaluate the dependency when an upstream fix is merged/released or when a stable compatible backport becomes justified by real-world severity. Phase 3 does not duplicate AppKit retry/queue logic in the editor layer.
+
+Two Windows issues found during acceptance were resolved in Phase 3:
+
+1. Automatic multi-backend wgpu startup terminated with `STATUS_ACCESS_VIOLATION (0xc0000005)` on the tested Intel UHD Graphics 630 machine. Windows now defaults to DX12 before applying wgpu environment overrides; `WGPU_BACKEND` can still explicitly override the default.
+2. Visual Left/Right initially required two presses for one visible step because the first press could consume an affinity-only cosmic-text caret stop at the same line/index. The horizontal path now skips those redundant ordinary stops while preserving distinct logical BiDi boundary transitions. Manual acceptance confirms one press = one visible step.
+
+macOS acceptance also closed application-level regressions found during testing:
+
+- non-Latin input sources no longer break Cmd/Ctrl shortcuts
+- selection highlights are restricted to selected source lines
+- ordinary IME-owned editing keys are not consumed by the editor during visible composition
+- stray empty preedit events do not create phantom composition
+- Japanese full-preedit deletion no longer panics on the rich-text trailing-empty-line path
+- IME is disabled before native window teardown to avoid late marked-text callbacks
+- focus loss finalizes visible preedit instead of silently discarding it
+
+Phase 4 and later editor work may proceed on this Phase 3 base. Windows/macOS Korean/Japanese/Chinese core IME acceptance is complete. The deferred accessibility checks and upstream Korean cold-start issue remain tracked validation/dependency items rather than implementation blockers.
 
 ## Capturing a platform regression trace
 

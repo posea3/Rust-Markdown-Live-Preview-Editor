@@ -507,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_trace_discards_preedit_without_mutating_source() {
+    fn focus_loss_trace_finalizes_visible_preedit() {
         let mut session = EditorSession::new("abc").unwrap();
         session.set_caret(Anchor::new(TextSize::new(1), Affinity::After));
         let mut trace = EditorTrace::from_session(&session);
@@ -523,7 +523,7 @@ mod tests {
             .replay()
             .unwrap();
 
-        assert_eq!(session.document().text(), "abc");
+        assert_eq!(session.document().text(), "a한bc");
         assert!(session.composition().is_none());
         assert!(!session.focused());
     }

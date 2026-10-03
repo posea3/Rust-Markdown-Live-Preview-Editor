@@ -15,10 +15,10 @@ A source-first, native Rust Markdown editing engine with Live Preview.
 - Phase 0: repository foundation — complete
 - Phase 1: document/transaction/history core — complete
 - Phase 2: selection, Unicode navigation, and grapheme-safe deletion — complete
-- Phase 3: native input/IME lab — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending
-- Phase 4: Markdown syntax engine — parser/metadata/delimiters/block identity/extensions/compatibility fixtures implemented; snapshot reconciliation remains
+- Phase 3: native input/IME lab — implementation complete; Windows/macOS Korean/Japanese/Chinese core IME acceptance passed
+- Phase 4: Markdown syntax engine — core implementation complete on a stacked branch
 
-The current Phase 3 slice includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, semantic trace/replay, Windows DX12 startup diagnostics, and the affinity-only horizontal caret-stop fix. Windows Korean IME, one-key-per-visible-step Left/Right navigation, sustained movement, and Intel UHD Graphics 630 DX12 startup have passed manual acceptance. Windows Japanese/Chinese IME, macOS Korean/Japanese/Chinese IME, Narrator, and VoiceOver remain pending. Phase 4 now adds a source-mapped Markdown syntax layer, project-owned semantic metadata, stable block identity, exact delimiter resolution, file-backed CommonMark/GFM/Obsidian compatibility fixtures, and a generic extension scanner/merge layer. An opt-in Obsidian compatibility scanner is included so Obsidian-flavored files can be recognized without making Obsidian behavior part of the core contract. Live Preview projection remains intentionally disabled.
+Phase 3 includes a native winit + cosmic-text + glyphon/wgpu acceptance app, a framework-independent `mdedit-input` crate, shaped visual navigation, drag-selection auto-scroll, AccessKit text-editor semantics, semantic trace/replay, Windows DX12 startup diagnostics, macOS IME hardening, and the affinity-only horizontal caret-stop fix. Windows Korean/Japanese/Chinese and macOS Korean/Japanese/Chinese core IME acceptance passed, including macOS focus loss/refocus. The known first Korean syllable split immediately after switching the macOS input source remains an upstream `winit #3095` blocker; no editor-layer retry/queue workaround is carried. Narrator and VoiceOver manual acceptance are deferred to the later Markdown/Live Preview accessibility validation pass. Phase 4 adds a source-mapped Markdown syntax layer, project-owned semantic metadata, stable block identity, exact delimiter resolution, file-backed CommonMark/GFM/Obsidian compatibility fixtures, a generic extension scanner/merge layer, and parse snapshot reconciliation. An opt-in Obsidian compatibility scanner is included without making Obsidian behavior part of the core contract. Live Preview projection remains intentionally disabled until Phase 5.
 
 ## Run the native IME lab
 
@@ -30,6 +30,6 @@ cargo run -p mdedit-ime-lab
 
 On Windows, the IME lab defaults wgpu to DX12 because automatic multi-backend startup produced a native access violation on the tested Intel UHD Graphics 630 system. Manual acceptance confirmed DX12 startup on that adapter. Advanced testing can still override this with `WGPU_BACKEND`; FIFO versus Mailbox was also tested and was not the cause of the former two-key horizontal caret symptom.
 
-The lab is intended for Windows/macOS IME acceptance. Test Korean composition, selection replacement, mouse caret placement/drag selection, wheel/trackpad scrolling, soft-wrapped Up/Down movement, BiDi left/right movement, clipboard actions, grapheme deletion, undo/redo, and Narrator/VoiceOver text and selection reporting before Markdown Live Preview work begins.
+The lab remains available for Windows/macOS IME regression acceptance. Core Korean/Japanese/Chinese IME cases are accepted; Narrator/VoiceOver text, selection, and edit-action acceptance is deferred until the Markdown/Live Preview accessibility pass.
 
 Development plans and architecture are maintained under `docs/`.

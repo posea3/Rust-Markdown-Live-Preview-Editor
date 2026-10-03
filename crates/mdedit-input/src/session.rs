@@ -97,13 +97,30 @@ impl EditorSession {
             EditorInput::Undo => self.undo(),
             EditorInput::Redo => self.redo(),
             EditorInput::Focused(focused) => {
-                self.focused = focused;
                 if !focused {
-                    self.cancel_composition();
+                    self.finish_composition_on_focus_loss()?;
                 }
+                self.focused = focused;
                 Ok(true)
             }
         }
+    }
+
+    fn finish_composition_on_focus_loss(&mut self) -> Result<(), SessionError> {
+        let Some(preedit) = self
+            .composition
+            .as_ref()
+            .map(|composition| composition.preedit().to_owned())
+        else {
+            return Ok(());
+        };
+
+        if preedit.is_empty() {
+            self.cancel_composition();
+        } else {
+            self.ime_commit(&preedit)?;
+        }
+        Ok(())
     }
 
     pub fn insert_text(&mut self, text: &str) -> Result<bool, SessionError> {
@@ -129,6 +146,13 @@ impl EditorSession {
         text: String,
         selection: Option<std::ops::Range<usize>>,
     ) -> Result<bool, SessionError> {
+        // winit/AppKit may emit an empty Preedit after a commit or while tearing
+        // down an IME session. An empty preedit without an existing composition
+        // is only a clearing signal; it must not create a phantom composition.
+        if text.is_empty() && self.composition.is_none() {
+            return Ok(false);
+        }
+
         if self.composition.is_none() {
             let primary = self.selections.primary();
             let (start, end) = primary.ordered_offsets();
@@ -344,6 +368,34 @@ mod tests {
     }
 
     #[test]
+    fn stray_empty_preedit_does_not_create_phantom_composition() {
+        let mut session = EditorSession::new("abc").unwrap();
+
+        let changed = session.ime_preedit(String::new(), None).unwrap();
+
+        assert!(!changed);
+        assert!(session.composition().is_none());
+        assert_eq!(session.display_text().unwrap(), "abc");
+    }
+
+    #[test]
+    fn empty_preedit_after_commit_does_not_reopen_composition() {
+        let mut session = EditorSession::new("").unwrap();
+        session.ime_preedit("ㅎ".to_owned(), Some(3..3)).unwrap();
+        session.ime_preedit(String::new(), None).unwrap();
+        session.ime_commit("한").unwrap();
+
+        assert!(session.composition().is_none());
+        assert_eq!(session.document().text(), "한");
+
+        let changed = session.ime_preedit(String::new(), None).unwrap();
+
+        assert!(!changed);
+        assert!(session.composition().is_none());
+        assert_eq!(session.document().text(), "한");
+    }
+
+    #[test]
     fn empty_preedit_before_commit_preserves_replace_range() {
         let mut session = EditorSession::new("abc").unwrap();
         let selection = SelectionSet::new(
@@ -397,17 +449,17 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_discards_preedit_without_mutating_source() {
+    fn focus_loss_finalizes_visible_preedit() {
         let mut session = EditorSession::new("abc").unwrap();
         session.set_caret(Anchor::new(TextSize::new(1), Affinity::After));
         session.ime_preedit("한".to_owned(), Some(3..3)).unwrap();
 
         session.handle(EditorInput::Focused(false)).unwrap();
 
-        assert_eq!(session.document().text(), "abc");
+        assert_eq!(session.document().text(), "a한bc");
         assert!(session.composition().is_none());
         assert!(!session.focused());
-        assert_eq!(session.display_text().unwrap(), "abc");
+        assert_eq!(session.display_text().unwrap(), "a한bc");
     }
 
     #[test]
