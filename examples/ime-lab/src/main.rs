@@ -1913,10 +1913,12 @@ mod tests {
             anchor: Anchor::new(TextSize::new(0), Affinity::After),
             head: Anchor::new(TextSize::new(4), Affinity::Before),
         };
-        let source =
-            accessibility_selection_to_source(&live_preview, &session, projected).unwrap();
+        let source = accessibility_selection_to_source(&live_preview, &session, projected).unwrap();
 
-        assert_eq!(source.anchor, Anchor::new(TextSize::new(2), Affinity::After));
+        assert_eq!(
+            source.anchor,
+            Anchor::new(TextSize::new(2), Affinity::After)
+        );
         assert_eq!(source.head, Anchor::new(TextSize::new(6), Affinity::Before));
     }
 
@@ -1930,7 +1932,10 @@ mod tests {
 
         let projected = accessibility_display_selection(&live_preview, &session).unwrap();
         assert!(projected.is_caret());
-        assert_eq!(projected.head.offset, TextSize::new("bold tail".len() as u32));
+        assert_eq!(
+            projected.head.offset,
+            TextSize::new("bold tail".len() as u32)
+        );
     }
 
     #[test]
