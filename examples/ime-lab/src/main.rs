@@ -32,9 +32,9 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, ModifiersState, NamedKey},
+    keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::{Window, WindowId},
 };
 
@@ -114,7 +114,10 @@ impl ApplicationHandler<AccessKitEvent> for Application {
             .process_event(&state.window, &event);
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                eprintln!("[mdedit-ime-lab] close requested");
+                event_loop.exit();
+            },
             WindowEvent::Resized(size) => state.resize(size),
             WindowEvent::Focused(focused) => state.set_focused(focused),
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -125,7 +128,7 @@ impl ApplicationHandler<AccessKitEvent> for Application {
                 if !event.repeat {
                     state.begin_latency_probe(event.logical_key.as_ref());
                 }
-                state.handle_key(event.logical_key.as_ref(), event.text.as_deref());
+                state.handle_key(&event);
                 if !event.repeat {
                     state.mark_latency_input_handled();
                 }
@@ -403,12 +406,21 @@ impl WindowState {
         self.request_redraw();
     }
 
-    fn handle_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    fn handle_key(&mut self, event: &KeyEvent) {
+        let key = event.logical_key.as_ref();
+        let text = event.text.as_deref();
         let shortcut = self.modifiers.control_key() || self.modifiers.super_key();
         let extend = self.modifiers.shift_key();
 
+        // Native IMEs own ordinary editing/candidate-navigation keys while a
+        // composition is active. macOS may still deliver raw key events for
+        // Backspace/Space/Enter/arrows in addition to Ime::Preedit updates.
+        if self.session.composition().is_some() && !shortcut {
+            return;
+        }
+
         let handled = if shortcut {
-            self.handle_shortcut(key)
+            self.handle_shortcut(key, &event.physical_key)
         } else {
             match key {
                 Key::Named(NamedKey::ArrowLeft) => {
@@ -465,12 +477,12 @@ impl WindowState {
         }
     }
 
-    fn handle_shortcut(&mut self, key: Key<&str>) -> bool {
-        let Key::Character(character) = key else {
+    fn handle_shortcut(&mut self, key: Key<&str>, physical_key: &PhysicalKey) -> bool {
+        let Some(character) = shortcut_character(key, physical_key) else {
             return false;
         };
 
-        if character.eq_ignore_ascii_case("z") {
+        if character == 'z' {
             let result = if self.modifiers.shift_key() {
                 self.apply_input(EditorInput::Redo)
             } else {
@@ -483,7 +495,7 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("y") {
+        if character == 'y' {
             if let Err(error) = self.apply_input(EditorInput::Redo) {
                 eprintln!("redo error: {error}");
             }
@@ -491,7 +503,7 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("a") {
+        if character == 'a' {
             let end = self.session.document().len().expect("document length");
             let selection = SelectionSet::new(
                 vec![SelectionRange {
@@ -508,17 +520,17 @@ impl WindowState {
             return true;
         }
 
-        if character.eq_ignore_ascii_case("c") {
+        if character == 'c' {
             self.copy_selection(false);
             return true;
         }
 
-        if character.eq_ignore_ascii_case("x") {
+        if character == 'x' {
             self.copy_selection(true);
             return true;
         }
 
-        if character.eq_ignore_ascii_case("v") {
+        if character == 'v' {
             if let Some(clipboard) = self.clipboard.as_mut() {
                 match clipboard.get_text() {
                     Ok(text) => self.insert_text(&text),
@@ -973,8 +985,14 @@ impl WindowState {
                 let (start, end) = selection.ordered_offsets();
                 (start != end).then(|| {
                     (
-                        display_offset_to_cursor(&self.display_text, start.to_usize()),
-                        display_offset_to_cursor(&self.display_text, end.to_usize()),
+                        display_anchor_to_cursor(
+                            &self.display_text,
+                            Anchor::new(start, Affinity::Before),
+                        ),
+                        display_anchor_to_cursor(
+                            &self.display_text,
+                            Anchor::new(end, Affinity::After),
+                        ),
                     )
                 })
             })
@@ -1343,6 +1361,29 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
+fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
+    let physical = match physical_key {
+        PhysicalKey::Code(KeyCode::KeyA) => Some('a'),
+        PhysicalKey::Code(KeyCode::KeyC) => Some('c'),
+        PhysicalKey::Code(KeyCode::KeyV) => Some('v'),
+        PhysicalKey::Code(KeyCode::KeyX) => Some('x'),
+        PhysicalKey::Code(KeyCode::KeyY) => Some('y'),
+        PhysicalKey::Code(KeyCode::KeyZ) => Some('z'),
+        _ => None,
+    };
+    if physical.is_some() {
+        return physical;
+    }
+
+    let Key::Character(character) = key else {
+        return None;
+    };
+    let mut chars = character.chars();
+    let character = chars.next()?.to_ascii_lowercase();
+    (chars.next().is_none() && matches!(character, 'a' | 'c' | 'v' | 'x' | 'y' | 'z'))
+        .then_some(character)
+}
+
 fn choose_present_mode(supported: &[PresentMode]) -> PresentMode {
     let requested = env::var("MDEDIT_PRESENT_MODE").ok();
     let Some(requested) = requested.as_deref() else {
@@ -1670,6 +1711,37 @@ mod tests {
             visual_neighbor(&cells, 10.0, right_start, -1),
             Some(left_end)
         );
+    }
+
+    #[test]
+    fn shortcut_uses_physical_latin_key_under_non_latin_input_source() {
+        assert_eq!(
+            shortcut_character(
+                Key::Character("ㅋ"),
+                &PhysicalKey::Code(KeyCode::KeyZ),
+            ),
+            Some('z'),
+        );
+        assert_eq!(
+            shortcut_character(
+                Key::Character("ㅁ"),
+                &PhysicalKey::Code(KeyCode::KeyA),
+            ),
+            Some('a'),
+        );
+    }
+
+    #[test]
+    fn selection_highlight_endpoints_keep_ordered_affinity() {
+        let text = "가나다";
+        let start = Anchor::new(TextSize::new(3), Affinity::Before);
+        let end = Anchor::new(TextSize::new(6), Affinity::After);
+
+        let start_cursor = display_anchor_to_cursor(text, start);
+        let end_cursor = display_anchor_to_cursor(text, end);
+
+        assert_eq!(start_cursor.affinity, glyphon::Affinity::Before);
+        assert_eq!(end_cursor.affinity, glyphon::Affinity::After);
     }
 
     #[cfg(target_os = "windows")]
