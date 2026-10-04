@@ -20,3 +20,8 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = "warn"
+
+[patch.crates-io]
+# Keep the project on the 0.30.13 API while backporting the upstream
+# macOS NSTextInputClient commit-flow fix (rust-windowing/winit#3925).
+winit = { path = "vendor/winit" }
