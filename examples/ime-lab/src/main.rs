@@ -462,11 +462,8 @@ impl WindowState {
 
         let preserve_viewport = matches!(&ime, Ime::Preedit(_, _) | Ime::Commit(_));
         if preserve_viewport {
-            let viewport_height =
-                (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
-            if self.caret_xy.1 + self.caret_height >= 0.0
-                && self.caret_xy.1 <= viewport_height
-            {
+            let viewport_height = (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
+            if self.caret_xy.1 + self.caret_height >= 0.0 && self.caret_xy.1 <= viewport_height {
                 self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
                     scroll: self.text_buffer.scroll(),
                     caret_top: self.caret_xy.1,
