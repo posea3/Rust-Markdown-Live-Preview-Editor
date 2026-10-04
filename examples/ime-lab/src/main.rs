@@ -487,11 +487,15 @@ impl WindowState {
                     .observe_preedit(previous_preedit.as_deref(), &text);
             }
             ImeTransition::Commit(text) => {
-                if let Some(deferred) = self.deferred_composition_text.take_after_commit(&text)
-                    && let Err(error) =
-                        self.apply_input(EditorInput::InsertText(deferred.to_owned()))
-                {
-                    eprintln!("deferred post-composition input error: {error}");
+                if let Some(deferred) = self.deferred_composition_text.take_after_commit(&text) {
+                    if self.ime_trace_enabled {
+                        eprintln!(
+                            "[mdedit-ime] replaying deferred printable key after composition commit: {deferred:?}"
+                        );
+                    }
+                    if let Err(error) = self.apply_input(EditorInput::InsertText(deferred)) {
+                        eprintln!("deferred post-composition input error: {error}");
+                    }
                 }
             }
             ImeTransition::Disabled => self.deferred_composition_text.clear(),
@@ -520,8 +524,11 @@ impl WindowState {
                 .is_some_and(|composition| !composition.preedit().is_empty())
             {
                 #[cfg(target_os = "macos")]
-                if !self.modifiers.alt_key() {
-                    self.deferred_composition_text.capture(text);
+                if !self.modifiers.alt_key()
+                    && self.deferred_composition_text.capture(text)
+                    && self.ime_trace_enabled
+                {
+                    eprintln!("[mdedit-ime] deferred printable key until composition commit: {text:?}");
                 }
                 return;
             }
