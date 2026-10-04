@@ -460,15 +460,19 @@ impl WindowState {
             eprintln!("[mdedit-ime] event={ime:?}");
         }
 
-        let preserve_viewport = matches!(&ime, Ime::Preedit(_, _) | Ime::Commit(_));
+        // IME preedit is an overlay on the canonical document. Rebuilding the
+        // projected cosmic-text buffer must therefore never choose a different
+        // viewport just because the temporary preedit changed shaping. Keep the
+        // exact scroll through the whole IME transition, including Disabled;
+        // ordinary post-composition editing can resume caret-follow afterwards.
+        let preserve_viewport = matches!(
+            &ime,
+            Ime::Preedit(_, _) | Ime::Commit(_) | Ime::Disabled
+        );
         if preserve_viewport {
-            let viewport_height = (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
-            if self.caret_xy.1 + self.caret_height >= 0.0 && self.caret_xy.1 <= viewport_height {
-                self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
-                    scroll: self.text_buffer.scroll(),
-                    caret_top: self.caret_xy.1,
-                });
-            }
+            self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
+                scroll: self.text_buffer.scroll(),
+            });
         }
 
         #[cfg(target_os = "macos")]
@@ -1119,21 +1123,16 @@ impl WindowState {
         }
 
         if let Some(anchor) = ime_viewport_anchor {
-            if let Some((_, caret_top)) = self.text_buffer.cursor_position(&cursor) {
-                let delta = caret_top - anchor.caret_top;
-                if delta.abs() > f32::EPSILON {
-                    let mut scroll = self.text_buffer.scroll();
-                    scroll.vertical += delta;
-                    self.text_buffer.set_scroll(scroll);
-                    self.text_buffer
-                        .shape_until_scroll(&mut self.font_system, false);
-                    self.text_render_dirty = true;
-                }
-            } else if self.ime_trace_enabled {
-                eprintln!(
-                    "[mdedit-ime] projected caret left the preserved viewport; scroll remains {:?}",
-                    self.text_buffer.scroll()
-                );
+            // Do not compensate from the caret's newly measured Y position here.
+            // That value belongs to the just-rebuilt projection and can differ
+            // transiently while Windows emits empty-preedit/commit boundaries.
+            // Restoring the exact pre-IME scroll makes preedit purely visual and
+            // prevents a temporary layout from becoming a persistent jump.
+            if self.text_buffer.scroll() != anchor.scroll {
+                self.text_buffer.set_scroll(anchor.scroll);
+                self.text_buffer
+                    .shape_until_scroll(&mut self.font_system, false);
+                self.text_render_dirty = true;
             }
             self.ensure_caret_visible = false;
         }
@@ -1600,7 +1599,6 @@ impl Drop for WindowState {
 #[derive(Clone, Copy, Debug)]
 struct ImeViewportAnchor {
     scroll: Scroll,
-    caret_top: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2109,19 +2107,15 @@ mod tests {
     }
 
     #[test]
-    fn ime_viewport_anchor_compensates_local_relayout_without_follow_scroll() {
+    fn ime_viewport_anchor_keeps_exact_scroll_across_temporary_relayout() {
         let anchor = ImeViewportAnchor {
             scroll: Scroll::new(12, 4.0, 0.0),
-            caret_top: 62.0,
         };
-        let after_top = 93.0;
-        let delta = after_top - anchor.caret_top;
+        let transient_scroll = Scroll::new(2, 93.0, 0.0);
 
-        let mut scroll = anchor.scroll;
-        scroll.vertical += delta;
-
-        assert_eq!(scroll.line, 12);
-        assert_eq!(scroll.vertical, 35.0);
+        assert_ne!(transient_scroll, anchor.scroll);
+        assert_eq!(anchor.scroll.line, 12);
+        assert_eq!(anchor.scroll.vertical, 4.0);
     }
 
     #[test]
