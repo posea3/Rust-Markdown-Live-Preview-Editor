@@ -39,6 +39,17 @@ impl LivePreviewState {
             return Ok(LivePreviewRefresh::unchanged());
         }
 
+        if session.composition().is_some()
+            && let Some(frame) = self.frame.as_mut()
+            && frame.can_reuse_projection_for_composition(session)
+        {
+            frame.update_composition_overlay(session)?;
+            return Ok(LivePreviewRefresh {
+                changed: true,
+                reflow: None,
+            });
+        }
+
         let next = match LivePreviewFrame::build(session, &mut self.block_cache) {
             Ok(frame) => frame,
             Err(error) => {
@@ -189,10 +200,9 @@ impl LivePreviewFrame {
                 context = context.with_selection(range);
             }
         }
-        if let Some(composition) = session.composition() {
-            context = context.with_composition(composition.replace_range());
-        }
-
+        // Composition is a temporary display overlay. It must not change the
+        // reveal/conceal projection itself; rebuilding the projection on every
+        // preedit update can remap the caret and reflow the viewport on Windows.
         let projection = Projection::build(
             &document,
             &syntax,
@@ -204,61 +214,82 @@ impl LivePreviewFrame {
         .map_err(|error| format!("live projection failed: {error}"))?;
         let stops = ProjectedCaretStops::from_projection(&projection);
 
-        let mut display_text = projection.text().to_owned();
-        let mut overlay = None;
-        let mut preedit_range = None;
-        let mut composition_cursor = None;
-
-        if let Some(composition) = session.composition() {
-            let replace = composition.replace_range();
-            let projected_start = projection
-                .map()
-                .source_to_projected(replace.start())
-                .ok_or_else(|| "composition start is outside live projection".to_owned())?
-                .to_usize();
-            let projected_end = projection
-                .map()
-                .source_to_projected(replace.end())
-                .ok_or_else(|| "composition end is outside live projection".to_owned())?
-                .to_usize();
-
-            if projected_start > projected_end
-                || projected_end > display_text.len()
-                || !display_text.is_char_boundary(projected_start)
-                || !display_text.is_char_boundary(projected_end)
-            {
-                return Err("composition range is not representable in live projection".to_owned());
-            }
-
-            let projected_range = projected_start..projected_end;
-            display_text.replace_range(projected_range.clone(), composition.preedit());
-
-            let display_end = projected_start
-                .checked_add(composition.preedit().len())
-                .ok_or_else(|| "composition display range overflow".to_owned())?;
-            let display_range = projected_start..display_end;
-            let cursor_relative = composition
-                .selection()
-                .map_or(composition.preedit().len(), |selection| selection.end);
-            composition_cursor = display_range.start.checked_add(cursor_relative);
-            preedit_range = Some(display_range.clone());
-            overlay = Some(CompositionOverlay {
-                projected: projected_range,
-                display: display_range,
-            });
-        }
-
-        Ok(Self {
+        let display_text = projection.text().to_owned();
+        let mut frame = Self {
             revision: session.document().revision(),
             selections: session.selections().clone(),
-            composition: session.composition().map(CompositionKey::from_state),
+            composition: None,
             projection,
             stops,
             display_text,
-            overlay,
-            preedit_range,
-            composition_cursor,
-        })
+            overlay: None,
+            preedit_range: None,
+            composition_cursor: None,
+        };
+        frame.update_composition_overlay(session)?;
+        Ok(frame)
+    }
+
+    fn can_reuse_projection_for_composition(&self, session: &EditorSession) -> bool {
+        self.revision == session.document().revision()
+            && &self.selections == session.selections()
+            && session.composition().is_some()
+    }
+
+    fn update_composition_overlay(&mut self, session: &EditorSession) -> Result<(), String> {
+        self.display_text = self.projection.text().to_owned();
+        self.overlay = None;
+        self.preedit_range = None;
+        self.composition_cursor = None;
+
+        let Some(composition) = session.composition() else {
+            self.composition = None;
+            return Ok(());
+        };
+
+        let replace = composition.replace_range();
+        let projected_start = self
+            .projection
+            .map()
+            .source_to_projected(replace.start())
+            .ok_or_else(|| "composition start is outside live projection".to_owned())?
+            .to_usize();
+        let projected_end = self
+            .projection
+            .map()
+            .source_to_projected(replace.end())
+            .ok_or_else(|| "composition end is outside live projection".to_owned())?
+            .to_usize();
+
+        if projected_start > projected_end
+            || projected_end > self.display_text.len()
+            || !self.display_text.is_char_boundary(projected_start)
+            || !self.display_text.is_char_boundary(projected_end)
+        {
+            return Err("composition range is not representable in live projection".to_owned());
+        }
+
+        let projected_range = projected_start..projected_end;
+        self.display_text
+            .replace_range(projected_range.clone(), composition.preedit());
+
+        let display_end = projected_start
+            .checked_add(composition.preedit().len())
+            .ok_or_else(|| "composition display range overflow".to_owned())?;
+        let display_range = projected_start..display_end;
+        let cursor_relative = composition
+            .selection()
+            .map_or(composition.preedit().len(), |selection| selection.end);
+
+        self.composition = Some(CompositionKey::from_state(composition));
+        self.composition_cursor = display_range.start.checked_add(cursor_relative);
+        self.preedit_range = Some(display_range.clone());
+        self.overlay = Some(CompositionOverlay {
+            projected: projected_range,
+            display: display_range,
+        });
+
+        Ok(())
     }
 
     fn reflow_to(&self, next: &Self, source: Anchor) -> Option<LivePreviewReflow> {
@@ -487,6 +518,32 @@ mod tests {
         assert_eq!(frame.display_text(), "**bo한ld** tail");
         assert_eq!(frame.preedit_range(), Some(4..7));
         assert_eq!(frame.display_caret_offset(&session), Some(7));
+    }
+
+    #[test]
+    fn ime_preedit_keeps_the_precomposition_projection_stable() {
+        let mut session = EditorSession::new("**bold**\nplain").unwrap();
+        session.set_caret(anchor(14, Affinity::After));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let projection_before = state.frame().unwrap().projection().text().to_owned();
+        assert_eq!(projection_before, "bold\nplain");
+
+        session.handle(EditorInput::ImeEnabled).unwrap();
+        session
+            .handle(EditorInput::ImePreedit {
+                text: "한".to_owned(),
+                selection: Some("한".len().."한".len()),
+            })
+            .unwrap();
+
+        state.refresh(&session).unwrap();
+        let frame = state.frame().unwrap();
+
+        assert_eq!(frame.projection().text(), projection_before);
+        assert_eq!(frame.display_text(), "bold\nplain한");
+        assert_eq!(session.document().text(), "**bold**\nplain");
     }
 
     #[test]
