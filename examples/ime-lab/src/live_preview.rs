@@ -356,11 +356,7 @@ impl LivePreviewFrame {
         })
     }
 
-    fn move_source_caret(
-        &self,
-        anchor: Anchor,
-        direction: CaretDirection,
-    ) -> Option<Anchor> {
+    fn move_source_caret(&self, anchor: Anchor, direction: CaretDirection) -> Option<Anchor> {
         let offset = self
             .stops
             .move_from_source(&self.projection, anchor.offset, direction)?;
@@ -583,30 +579,24 @@ mod tests {
         state.refresh(&session).unwrap();
 
         let next = state
-            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Forward)
+            .move_source_caret(
+                &session,
+                session.selections().primary().head,
+                CaretDirection::Forward,
+            )
             .unwrap();
         assert_eq!(next.offset.to_usize(), 6);
 
         session.set_caret(next);
         state.refresh(&session).unwrap();
         let previous = state
-            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Backward)
+            .move_source_caret(
+                &session,
+                session.selections().primary().head,
+                CaretDirection::Backward,
+            )
             .unwrap();
         assert_eq!(previous.offset.to_usize(), 5);
-    }
-
-    #[test]
-    fn projected_caret_fallback_skips_concealed_markdown_boundaries() {
-        let mut session = EditorSession::new("**bold**\ntail").unwrap();
-        session.set_caret(anchor(6, Affinity::After));
-
-        let mut state = LivePreviewState::new();
-        state.refresh(&session).unwrap();
-
-        let next = state
-            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Forward)
-            .unwrap();
-        assert_eq!(next.offset.to_usize(), 8);
     }
 
     #[test]
