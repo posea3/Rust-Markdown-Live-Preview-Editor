@@ -2149,7 +2149,7 @@ mod tests {
 
         let mut with_preedit = source.clone();
         let insert = with_preedit.find("line 22").unwrap() + "line 22".len();
-        with_preedit.insert_str(insert, "가");
+        with_preedit.insert(insert, '가');
         let range = insert..insert + "가".len();
 
         assert!(update_buffer_lines_in_place(
