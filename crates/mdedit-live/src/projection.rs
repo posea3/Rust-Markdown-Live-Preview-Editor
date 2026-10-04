@@ -1292,8 +1292,8 @@ fn collect_widget_candidates(
     if node.kind() == SyntaxKind::Rule {
         let source_range = node.range();
         let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
-        let active = policy == RevealPolicy::SourceVisible
-            || context_touches_range(context, source_range);
+        let active =
+            policy == RevealPolicy::SourceVisible || context_touches_range(context, source_range);
         output.push(WidgetCandidate {
             kind: WidgetKind::HorizontalRule,
             source_range,
@@ -1337,8 +1337,7 @@ fn horizontal_rule_conceal_range(
 
     let start = TextSize::try_from_usize(range.start)
         .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
-    let end =
-        TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let end = TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
     TextRange::new(start, end).map_err(|_| ProjectionBuildError::InvalidWidgetBounds {
         start: range.start,
         end: range.end,
@@ -1612,9 +1611,7 @@ mod tests {
         let projection = build(
             source,
             RevealPolicy::ConcealInactive,
-            &RevealContext::new().with_caret(
-                TextSize::try_from_usize(marker + 1).unwrap(),
-            ),
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
         );
 
         assert!(projection.text().contains("---"));
