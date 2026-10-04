@@ -11,7 +11,7 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
+use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
@@ -250,6 +250,7 @@ struct WindowState {
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
     live_preview_trace_enabled: bool,
+    pending_ime_viewport_anchor: Option<ImeViewportAnchor>,
     #[cfg(target_os = "macos")]
     deferred_composition_text: DeferredCompositionText,
 
@@ -394,6 +395,7 @@ impl WindowState {
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
+            pending_ime_viewport_anchor: None,
             #[cfg(target_os = "macos")]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
@@ -458,6 +460,20 @@ impl WindowState {
             eprintln!("[mdedit-ime] event={ime:?}");
         }
 
+        let preserve_viewport = matches!(&ime, Ime::Preedit(_, _) | Ime::Commit(_));
+        if preserve_viewport {
+            let viewport_height =
+                (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
+            if self.caret_xy.1 + self.caret_height >= 0.0
+                && self.caret_xy.1 <= viewport_height
+            {
+                self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
+                    scroll: self.text_buffer.scroll(),
+                    caret_top: self.caret_xy.1,
+                });
+            }
+        }
+
         #[cfg(target_os = "macos")]
         let previous_preedit = self
             .session
@@ -503,7 +519,7 @@ impl WindowState {
         }
 
         self.preferred_x = None;
-        self.ensure_caret_visible = true;
+        self.ensure_caret_visible = self.pending_ime_viewport_anchor.is_none();
         self.request_redraw();
     }
 
@@ -967,6 +983,7 @@ impl WindowState {
 
     fn refresh_layout(&mut self) {
         let scroll_before = self.text_buffer.scroll();
+        let ime_viewport_anchor = self.pending_ime_viewport_anchor.take();
         let next_preedit_text = self
             .session
             .composition()
@@ -1023,7 +1040,9 @@ impl WindowState {
         }
 
         if display_changed {
-            let old_scroll = self.text_buffer.scroll();
+            let old_scroll = ime_viewport_anchor
+                .map(|anchor| anchor.scroll)
+                .unwrap_or_else(|| self.text_buffer.scroll());
 
             self.display_text = next_display_text;
             self.preedit_text = next_preedit_text.map(str::to_owned);
@@ -1067,7 +1086,8 @@ impl WindowState {
             self.text_render_dirty = true;
         }
 
-        if let Some((reflow, before)) = reflow_before
+        if ime_viewport_anchor.is_none()
+            && let Some((reflow, before)) = reflow_before
             && let Some(after) = measure_layout_position(
                 &mut self.text_buffer,
                 &mut self.font_system,
@@ -1096,13 +1116,29 @@ impl WindowState {
         let cursor = display_offset_to_cursor(&self.display_text, display_caret);
 
         if self.layout_dirty {
-            // Re-shape the existing viewport before deciding whether the caret
-            // needs follow-scroll. cosmic-text's shape_until_cursor() also
-            // scrolls; calling it merely because a preedit changed the display
-            // made Windows IME composition jump to an unrelated viewport.
             self.text_buffer
                 .shape_until_scroll(&mut self.font_system, false);
             self.layout_dirty = false;
+        }
+
+        if let Some(anchor) = ime_viewport_anchor {
+            if let Some((_, caret_top)) = self.text_buffer.cursor_position(&cursor) {
+                let delta = caret_top - anchor.caret_top;
+                if delta.abs() > f32::EPSILON {
+                    let mut scroll = self.text_buffer.scroll();
+                    scroll.vertical += delta;
+                    self.text_buffer.set_scroll(scroll);
+                    self.text_buffer
+                        .shape_until_scroll(&mut self.font_system, false);
+                    self.text_render_dirty = true;
+                }
+            } else if self.ime_trace_enabled {
+                eprintln!(
+                    "[mdedit-ime] projected caret left the preserved viewport; scroll remains {:?}",
+                    self.text_buffer.scroll()
+                );
+            }
+            self.ensure_caret_visible = false;
         }
 
         if self.ensure_caret_visible {
@@ -1565,6 +1601,12 @@ impl Drop for WindowState {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct ImeViewportAnchor {
+    scroll: Scroll,
+    caret_top: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct LatencyProbe {
     label: &'static str,
     input_received: Instant,
@@ -1941,7 +1983,7 @@ fn measure_layout_position(
         return None;
     }
 
-    buffer.shape_until_cursor(font_system, cursor, false);
+    buffer.shape_until_scroll(font_system, false);
     buffer.layout_runs().find_map(|run| {
         run.cursor_position(&cursor)
             .and_then(|inline| LayoutPosition::new(inline, run.line_top))
@@ -2044,6 +2086,45 @@ mod tests {
             projected.head.offset,
             TextSize::new("bold tail".len() as u32)
         );
+    }
+
+    #[test]
+    fn layout_measurement_does_not_scroll_to_offscreen_anchor() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+
+        let offset = source.find("line 02").unwrap();
+        assert!(measure_layout_position(&mut buffer, &mut font_system, &source, offset).is_none());
+        assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
+    fn ime_viewport_anchor_compensates_local_relayout_without_follow_scroll() {
+        let anchor = ImeViewportAnchor {
+            scroll: Scroll::new(12, 4.0, 0.0),
+            caret_top: 62.0,
+        };
+        let after_top = 93.0;
+        let delta = after_top - anchor.caret_top;
+
+        let mut scroll = anchor.scroll;
+        scroll.vertical += delta;
+
+        assert_eq!(scroll.line, 12);
+        assert_eq!(scroll.vertical, 35.0);
     }
 
     #[test]
