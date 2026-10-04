@@ -121,7 +121,7 @@ Regression cases found during native acceptance on 2026-10-04:
 - Windows Korean/Japanese/Chinese: starting IME preedit could jump the viewport and leave the composing text off-screen. The candidate fix re-shapes the existing viewport first and only invokes caret-follow scrolling when the projected caret is genuinely outside the visible layout.
 - macOS Korean: after a visible Hangul preedit such as `가`, the first printable Markdown delimiter (observed with `*`) could be lost because the raw key arrived while composition was still active. The candidate fix preserves macOS printable keyboard events that pass through during active preedit and replays them immediately after the IME commit, unless the commit already contains that text.
 
-These two cases must be re-run before Phase 5 native acceptance is marked PASS. For the macOS case, enable `MDEDIT_IME_TRACE=1`; if the first delimiter still disappears, the trace should distinguish an application-side drop from a key that AppKit/winit never delivered.
+Both cases were re-run and passed. Windows preedit now updates existing cosmic-text buffer lines in place so the main buffer scroll is not reset. macOS carries a Winit 0.30.13-compatible backport of the upstream NSTextInputClient commit-flow fix so ordinary printable keys are not swallowed by IME commit handling.
 
 
 Expected:
@@ -177,15 +177,25 @@ Before marking Phase 5 acceptance complete, also run the normal Phase 3 document
 
 ## Result recording
 
-Record each platform independently:
+Native Phase 5 acceptance result (2026-10-05):
 
 ```text
-Windows native Live Preview: PASS / FAIL / BLOCKED
-Windows Narrator: PASS / FAIL / DEFERRED
+Windows native Live Preview: PASS
+Windows Narrator: DEFERRED
 
-macOS native Live Preview: PASS / FAIL / BLOCKED
-macOS VoiceOver: PASS / FAIL / DEFERRED
+macOS native Live Preview: PASS
+macOS VoiceOver: DEFERRED
 ```
+
+Additional regressions closed during this pass:
+
+- Windows Korean/Japanese/Chinese IME preedit no longer resets or jumps the viewport.
+- macOS Korean composition no longer consumes the first printable Markdown delimiter after commit.
+- Up/Down navigation crosses the visible viewport boundary and follows the caret.
+- Left/Right navigation crosses logical line boundaries instead of becoming trapped on one line.
+- The Phase 5 branch passes Windows/macOS/Linux fmt/check/clippy/test CI.
+
+Narrator/VoiceOver remain intentionally deferred and do not block Phase 6.
 
 For failures, include:
 

@@ -147,7 +147,7 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Status: **in progress — projection contracts and native integration implemented; Windows/macOS and screen-reader acceptance remain**
+Status: **native Windows/macOS acceptance complete — Narrator/VoiceOver manual acceptance deferred**
 
 Implemented in the first slice:
 
@@ -203,11 +203,20 @@ Native integration now includes:
 - AccessKit projected text/selection exposure with selection actions mapped back to canonical source
 - opt-in Markdown acceptance fixture and platform checklist
 
-Remaining:
+Native acceptance completed:
 
-- Windows/macOS native Live Preview manual acceptance
-- Narrator/VoiceOver manual acceptance
-- platform-specific fixes found by those acceptance passes
+- Windows native Live Preview: PASS
+- macOS native Live Preview: PASS
+- Windows Korean/Japanese/Chinese IME preedit viewport stability: PASS
+- macOS Korean printable-delimiter-after-preedit regression: PASS
+- Up/Down navigation across viewport boundaries: PASS
+- Left/Right navigation across logical line boundaries: PASS
+- Windows/macOS/Linux CI: PASS
+
+Deferred:
+
+- Windows Narrator manual acceptance
+- macOS VoiceOver manual acceptance
 
 ## Phase 6 - Widgets
 
