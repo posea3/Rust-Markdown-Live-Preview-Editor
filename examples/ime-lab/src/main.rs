@@ -1179,6 +1179,15 @@ impl WindowState {
             PhysicalSize::new(CARET_WIDTH.ceil() as u32, self.caret_height.ceil() as u32),
         );
 
+        if self.live_preview_trace_enabled && display_changed {
+            eprintln!(
+                "[mdedit-live-preview] layout scroll_before={scroll_before:?} scroll_after={:?} ime_anchor={:?} display_caret={display_caret} caret_xy={:?}",
+                self.text_buffer.scroll(),
+                ime_viewport_anchor.map(|anchor| anchor.scroll),
+                self.caret_xy,
+            );
+        }
+
         let scroll = self.text_buffer.scroll();
         if scroll != scroll_before {
             self.text_render_dirty = true;
