@@ -1896,8 +1896,7 @@ fn vertical_target_cursor(
     current_height: f32,
     direction: i32,
 ) -> Option<CosmicCursor> {
-    let target_y =
-        current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
+    let target_y = current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
 
     if let Some(target) = buffer.hit(preferred_x, target_y)
         && !same_logical_cursor(target, cursor)
@@ -2299,8 +2298,7 @@ mod tests {
         buffer.shape_until_scroll(&mut font_system, false);
 
         let cursor = CosmicCursor::new(0, 3);
-        let target =
-            visual_horizontal_target(&mut buffer, &mut font_system, cursor, 1).unwrap();
+        let target = visual_horizontal_target(&mut buffer, &mut font_system, cursor, 1).unwrap();
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
