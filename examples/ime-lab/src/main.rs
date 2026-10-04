@@ -250,7 +250,7 @@ struct WindowState {
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
     live_preview_trace_enabled: bool,
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(target_os = "macos")]
     deferred_composition_text: DeferredCompositionText,
 
     // The window is intentionally last so the surface is dropped first.
@@ -394,7 +394,7 @@ impl WindowState {
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
-            #[cfg(any(target_os = "macos", test))]
+            #[cfg(target_os = "macos")]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
         };
