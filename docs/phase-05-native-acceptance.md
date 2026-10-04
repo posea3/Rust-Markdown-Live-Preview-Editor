@@ -116,6 +116,14 @@ Expected:
 
 Use the fixture's Korean, Japanese, and Chinese scratch lines.
 
+Regression cases found during native acceptance on 2026-10-04:
+
+- Windows Korean/Japanese/Chinese: starting IME preedit could jump the viewport and leave the composing text off-screen. The candidate fix re-shapes the existing viewport first and only invokes caret-follow scrolling when the projected caret is genuinely outside the visible layout.
+- macOS Korean: after a visible Hangul preedit such as `가`, the first printable Markdown delimiter (observed with `*`) could be lost because the raw key arrived while composition was still active. The candidate fix preserves macOS printable keyboard events that pass through during active preedit and replays them immediately after the IME commit, unless the commit already contains that text.
+
+These two cases must be re-run before Phase 5 native acceptance is marked PASS. For the macOS case, enable `MDEDIT_IME_TRACE=1`; if the first delimiter still disappears, the trace should distinguish an application-side drop from a key that AppKit/winit never delivered.
+
+
 Expected:
 
 - preedit appears in the projected display
