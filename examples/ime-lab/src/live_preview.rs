@@ -4,7 +4,7 @@ use mdedit_core::{Affinity, Anchor, Revision, SelectionSet, TextRange};
 use mdedit_input::EditorSession;
 use mdedit_live::{
     CaretDirection, HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize,
-    Projection, ReflowAnchor, RevealContext, RevealPolicy,
+    ProjectedWidget, Projection, ReflowAnchor, RevealContext, RevealPolicy,
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
@@ -124,6 +124,14 @@ impl LivePreviewState {
             .as_ref()
             .filter(|frame| frame.matches(session))
             .and_then(|frame| frame.move_source_caret(anchor, direction))
+    }
+
+    #[must_use]
+    pub fn widgets<'a>(&'a self, session: &EditorSession) -> &'a [ProjectedWidget] {
+        self.frame
+            .as_ref()
+            .filter(|frame| frame.matches(session))
+            .map_or(&[], |frame| frame.projection.widgets())
     }
 
     #[cfg(test)]
