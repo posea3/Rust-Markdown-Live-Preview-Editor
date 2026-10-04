@@ -22,7 +22,7 @@ use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
-use mdedit_live::{LayoutPosition, ReflowMeasurement};
+use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -728,25 +728,34 @@ impl WindowState {
         };
         let cursor = display_offset_to_cursor(&self.display_text, display_offset);
 
-        let target = visual_horizontal_target(
+        let projected_head = visual_horizontal_target(
             &mut self.text_buffer,
             &mut self.font_system,
             cursor,
             direction,
-        );
+        )
+        .and_then(|target_cursor| {
+            let target_offset = cursor_to_display_offset(&self.display_text, target_cursor)?;
+            self.live_preview.display_to_source_anchor(
+                &self.session,
+                target_offset,
+                cosmic_to_core_affinity(target_cursor.affinity),
+            )
+        });
 
-        let Some(target_cursor) = target else {
-            return;
+        let fallback_direction = if direction < 0 {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
         };
-        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
-        else {
-            return;
-        };
-        let Some(head) = self.live_preview.display_to_source_anchor(
-            &self.session,
-            target_offset,
-            cosmic_to_core_affinity(target_cursor.affinity),
-        ) else {
+        let head = projected_head
+            .filter(|head| head.offset != primary.head.offset)
+            .or_else(|| {
+                self.live_preview
+                    .move_source_caret(&self.session, primary.head, fallback_direction)
+            });
+
+        let Some(head) = head else {
             return;
         };
         let selection = if extend {
@@ -804,20 +813,38 @@ impl WindowState {
         let preferred_x = self.preferred_x.unwrap_or(current_x);
         self.preferred_x = Some(preferred_x);
 
-        let target_y =
-            current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
-        let Some(target_cursor) = self.text_buffer.hit(preferred_x, target_y) else {
-            return;
+        let target_cursor = vertical_target_cursor(
+            &mut self.text_buffer,
+            &mut self.font_system,
+            cursor,
+            preferred_x,
+            current_top,
+            current_height,
+            direction,
+        );
+
+        let projected_head = target_cursor.and_then(|target_cursor| {
+            let target_offset = cursor_to_display_offset(&self.display_text, target_cursor)?;
+            self.live_preview.display_to_source_anchor(
+                &self.session,
+                target_offset,
+                cosmic_to_core_affinity(target_cursor.affinity),
+            )
+        });
+
+        let fallback_direction = if direction < 0 {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
         };
-        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
-        else {
-            return;
-        };
-        let Some(head) = self.live_preview.display_to_source_anchor(
-            &self.session,
-            target_offset,
-            cosmic_to_core_affinity(target_cursor.affinity),
-        ) else {
+        let head = projected_head
+            .filter(|head| head.offset != primary.head.offset)
+            .or_else(|| {
+                self.live_preview
+                    .move_source_caret(&self.session, primary.head, fallback_direction)
+            });
+
+        let Some(head) = head else {
             return;
         };
         let selection = if extend {
@@ -1860,6 +1887,39 @@ struct VisualCaretCell {
     right_cursor: CosmicCursor,
 }
 
+fn vertical_target_cursor(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    cursor: CosmicCursor,
+    preferred_x: f32,
+    current_top: f32,
+    current_height: f32,
+    direction: i32,
+) -> Option<CosmicCursor> {
+    let target_y =
+        current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
+
+    if let Some(target) = buffer.hit(preferred_x, target_y)
+        && !same_logical_cursor(target, cursor)
+    {
+        return Some(target);
+    }
+
+    // hit() only sees the currently laid-out viewport. At the first/last
+    // visible line it can return the current cursor again even though the
+    // document has more lines. Fall back to cosmic-text's layout-aware
+    // Up/Down motion so navigation can cross the viewport boundary.
+    let motion = if direction < 0 {
+        CosmicMotion::Up
+    } else {
+        CosmicMotion::Down
+    };
+    buffer
+        .cursor_motion(font_system, cursor, None, motion)
+        .map(|(target, _)| target)
+        .filter(|target| !same_logical_cursor(*target, cursor))
+}
+
 fn visual_horizontal_target(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
@@ -2195,6 +2255,55 @@ mod tests {
         let offset = source.find("line 02").unwrap();
         assert!(measure_layout_position(&mut buffer, &mut font_system, &source, offset).is_none());
         assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
+    fn vertical_navigation_crosses_the_visible_viewport_boundary() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..30)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+
+        let mut scroll = buffer.scroll();
+        scroll.line = 10;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let cursor = CosmicCursor::new(10, 0);
+        let (x, top, height) = buffer
+            .layout_runs()
+            .find_map(|run| {
+                run.cursor_position(&cursor)
+                    .map(|x| (x, run.line_top, run.line_height))
+            })
+            .expect("line 10 should be visible");
+        assert_eq!(top, 0.0);
+
+        let target =
+            vertical_target_cursor(&mut buffer, &mut font_system, cursor, x, top, height, -1)
+                .expect("up should reach the preceding offscreen line");
+        assert_eq!(target.line, 9);
+    }
+
+    #[test]
+    fn horizontal_visual_navigation_crosses_newline() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        buffer.set_text("abc\ndef", &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let cursor = CosmicCursor::new(0, 3);
+        let target =
+            visual_horizontal_target(&mut buffer, &mut font_system, cursor, 1).unwrap();
+
+        assert_eq!(target.line, 1);
+        assert_eq!(target.index, 0);
     }
 
     #[test]
