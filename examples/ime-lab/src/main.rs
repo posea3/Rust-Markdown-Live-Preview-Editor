@@ -250,6 +250,7 @@ struct WindowState {
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
     live_preview_trace_enabled: bool,
+    #[cfg(any(target_os = "macos", test))]
     deferred_composition_text: DeferredCompositionText,
 
     // The window is intentionally last so the surface is dropped first.
@@ -393,6 +394,7 @@ impl WindowState {
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
+            #[cfg(any(target_os = "macos", test))]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
         };
@@ -456,10 +458,12 @@ impl WindowState {
             eprintln!("[mdedit-ime] event={ime:?}");
         }
 
+        #[cfg(target_os = "macos")]
         let previous_preedit = self
             .session
             .composition()
             .map(|composition| composition.preedit().to_owned());
+        #[cfg(target_os = "macos")]
         let transition = ImeTransition::from_event(&ime);
 
         let input = match ime {
@@ -1559,6 +1563,7 @@ struct LatencyProbe {
     redraw_received: Option<Instant>,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Debug)]
 enum ImeTransition {
     Enabled,
@@ -1567,6 +1572,7 @@ enum ImeTransition {
     Disabled,
 }
 
+#[cfg(target_os = "macos")]
 impl ImeTransition {
     fn from_event(event: &Ime) -> Self {
         match event {
@@ -1578,11 +1584,13 @@ impl ImeTransition {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 struct DeferredCompositionText {
     text: String,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl DeferredCompositionText {
     fn capture(&mut self, text: Option<&str>) -> bool {
         let Some(text) = text.filter(|value| !value.chars().all(char::is_control)) else {
