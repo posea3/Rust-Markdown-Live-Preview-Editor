@@ -455,6 +455,19 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_rule_keeps_an_exact_source_mapped_leaf() {
+        let source = "above\n\n---\n\nbelow\n";
+        let snapshot = parse(source, MarkdownDialect::commonmark());
+
+        let rule = find_first(snapshot.root(), &|kind| kind == SyntaxKind::Rule)
+            .expect("horizontal rule");
+        let raw = &source[rule.range().as_usize_range()];
+
+        assert_eq!(raw.trim_end_matches(&['\r', '\n'][..]), "---");
+        assert_ranges_are_valid(snapshot.root(), source);
+    }
+
+    #[test]
     fn malformed_markdown_remains_safe_and_source_mapped() {
         let source = "**unterminated [link](\n한글 👨‍👩‍👧‍👦";
         let snapshot = parse(source, MarkdownDialect::extended());
