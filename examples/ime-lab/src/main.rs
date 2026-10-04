@@ -1050,36 +1050,47 @@ impl WindowState {
                 .family(Family::SansSerif)
                 .color(Color::rgb(210, 214, 220));
 
-            if let Some(range) = self.preedit_range.clone() {
-                let preedit = normal.clone().color(Color::rgb(255, 214, 102));
-                let mut spans = Vec::new();
-
-                if range.start > 0 {
-                    spans.push((&self.display_text[..range.start], normal.clone()));
-                }
-                if range.start < range.end {
-                    spans.push((&self.display_text[range.clone()], preedit));
-                }
-                if range.end < self.display_text.len() {
-                    spans.push((&self.display_text[range.end..], normal.clone()));
-                }
-                if spans.is_empty() {
-                    spans.push(("", normal.clone()));
-                }
-
-                self.text_buffer
-                    .set_rich_text(spans, &normal, Shaping::Advanced, None);
-            } else {
-                self.text_buffer
-                    .set_text(&self.display_text, &normal, Shaping::Advanced, None);
-            }
-
-            ensure_buffer_lines_match_display_text(
+            let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+            let updated_in_place = update_buffer_lines_in_place(
                 &mut self.text_buffer,
                 &self.display_text,
+                self.preedit_range.as_ref(),
                 &normal,
+                &preedit,
             );
-            self.text_buffer.set_scroll(old_scroll);
+
+            if !updated_in_place {
+                if let Some(range) = self.preedit_range.clone() {
+                    let mut spans = Vec::new();
+
+                    if range.start > 0 {
+                        spans.push((&self.display_text[..range.start], normal.clone()));
+                    }
+                    if range.start < range.end {
+                        spans.push((&self.display_text[range.clone()], preedit));
+                    }
+                    if range.end < self.display_text.len() {
+                        spans.push((&self.display_text[range.end..], normal.clone()));
+                    }
+                    if spans.is_empty() {
+                        spans.push(("", normal.clone()));
+                    }
+
+                    self.text_buffer
+                        .set_rich_text(spans, &normal, Shaping::Advanced, None);
+                } else {
+                    self.text_buffer
+                        .set_text(&self.display_text, &normal, Shaping::Advanced, None);
+                }
+
+                ensure_buffer_lines_match_display_text(
+                    &mut self.text_buffer,
+                    &self.display_text,
+                    &normal,
+                );
+                self.text_buffer.set_scroll(old_scroll);
+            }
+
             self.layout_dirty = true;
             self.text_render_dirty = true;
         }
@@ -1716,6 +1727,43 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
+fn update_buffer_lines_in_place(
+    buffer: &mut Buffer,
+    display_text: &str,
+    preedit_range: Option<&Range<usize>>,
+    normal: &Attrs<'_>,
+    preedit: &Attrs<'_>,
+) -> bool {
+    let lines = display_text.split('\n').collect::<Vec<_>>();
+    if lines.len() != buffer.lines.len() {
+        return false;
+    }
+
+    let mut line_start = 0usize;
+    for (line_i, text) in lines.into_iter().enumerate() {
+        let line_end = line_start + text.len();
+        let ending = if line_i + 1 < buffer.lines.len() {
+            LineEnding::Lf
+        } else {
+            LineEnding::None
+        };
+
+        let mut attrs_list = AttrsList::new(normal);
+        if let Some(range) = preedit_range {
+            let start = range.start.max(line_start);
+            let end = range.end.min(line_end);
+            if start < end {
+                attrs_list.add_span((start - line_start)..(end - line_start), preedit);
+            }
+        }
+
+        buffer.lines[line_i].set_text(text, ending, attrs_list);
+        line_start = line_end.saturating_add(1);
+    }
+
+    true
+}
+
 fn ensure_buffer_lines_match_display_text(
     buffer: &mut Buffer,
     display_text: &str,
@@ -2078,6 +2126,43 @@ mod tests {
             projected.head.offset,
             TextSize::new("bold tail".len() as u32)
         );
+    }
+
+    #[test]
+    fn ime_line_update_does_not_reset_buffer_scroll() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let normal = Attrs::new().family(Family::SansSerif);
+        let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &normal, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+
+        let mut with_preedit = source.clone();
+        let insert = with_preedit.find("line 22").unwrap() + "line 22".len();
+        with_preedit.insert_str(insert, "가");
+        let range = insert..insert + "가".len();
+
+        assert!(update_buffer_lines_in_place(
+            &mut buffer,
+            &with_preedit,
+            Some(&range),
+            &normal,
+            &preedit,
+        ));
+        assert_eq!(buffer.scroll(), stable);
+
+        buffer.shape_until_scroll(&mut font_system, false);
+        assert_eq!(buffer.scroll(), stable);
     }
 
     #[test]
