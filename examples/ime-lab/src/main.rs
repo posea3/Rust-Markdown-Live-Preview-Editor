@@ -2354,6 +2354,25 @@ mod tests {
     }
 
     #[test]
+    fn empty_widget_row_has_layout_run_for_native_geometry() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let display = "above\n\n\n\nbelow\n";
+
+        buffer.set_text(display, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let rule_row = display_offset_to_cursor(display, "above\n\n".len()).line;
+        let run = buffer
+            .layout_runs()
+            .find(|run| run.line_i == rule_row)
+            .expect("empty widget row should retain layout geometry");
+
+        assert!(run.line_height > 0.0);
+    }
+
+    #[test]
     fn ime_viewport_anchor_keeps_exact_scroll_across_temporary_relayout() {
         let anchor = ImeViewportAnchor {
             scroll: Scroll::new(12, 4.0, 0.0),
