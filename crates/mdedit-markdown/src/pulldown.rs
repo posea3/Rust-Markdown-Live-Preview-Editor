@@ -459,8 +459,8 @@ mod tests {
         let source = "above\n\n---\n\nbelow\n";
         let snapshot = parse(source, MarkdownDialect::commonmark());
 
-        let rule = find_first(snapshot.root(), &|kind| kind == SyntaxKind::Rule)
-            .expect("horizontal rule");
+        let rule =
+            find_first(snapshot.root(), &|kind| kind == SyntaxKind::Rule).expect("horizontal rule");
         let raw = &source[rule.range().as_usize_range()];
 
         assert_eq!(raw.trim_end_matches(&['\r', '\n'][..]), "---");
