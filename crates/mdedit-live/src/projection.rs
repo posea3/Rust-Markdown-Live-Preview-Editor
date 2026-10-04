@@ -323,6 +323,43 @@ impl StyleSpan {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WidgetKind {
+    HorizontalRule,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProjectedWidget {
+    kind: WidgetKind,
+    source_range: TextRange,
+    projected_range: ProjectedRange,
+}
+
+impl ProjectedWidget {
+    #[must_use]
+    pub const fn kind(self) -> WidgetKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn source_range(self) -> TextRange {
+        self.source_range
+    }
+
+    #[must_use]
+    pub const fn projected_range(self) -> ProjectedRange {
+        self.projected_range
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WidgetCandidate {
+    kind: WidgetKind,
+    source_range: TextRange,
+    conceal_range: TextRange,
+    active: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionFallbackReason {
     SyntaxRawFallback,
@@ -515,6 +552,7 @@ pub struct Projection {
     map: ProjectionMap,
     blocks: Vec<ProjectedBlock>,
     styles: Vec<StyleSpan>,
+    widgets: Vec<ProjectedWidget>,
     reveal_groups: Vec<RevealGroup>,
     concealed: Vec<ConcealSpan>,
     structural_padding: Vec<StructuralPaddingSpan>,
@@ -580,8 +618,9 @@ impl Projection {
             .collect::<Vec<_>>();
 
         let structural_padding = build_structural_padding(&source, &reveal_groups)?;
+        let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
 
-        if has_overlapping_projection_ranges(&concealed, &structural_padding) {
+        if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
                 document.revision(),
                 syntax.source_len(),
@@ -596,11 +635,18 @@ impl Projection {
             .iter()
             .map(|span| span.source_range)
             .chain(structural_padding.iter().map(|span| span.source_range))
+            .chain(
+                widget_candidates
+                    .iter()
+                    .filter(|widget| !widget.active)
+                    .map(|widget| widget.conceal_range),
+            )
             .collect();
         let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
         let text = materialize_projection(&source, map.concealed_ranges());
         let projected_blocks = project_blocks(blocks, &map)?;
         let styles = project_styles(syntax.root(), &map)?;
+        let widgets = project_widgets(&widget_candidates, &map)?;
 
         Ok(Self {
             revision: syntax.revision(),
@@ -610,6 +656,7 @@ impl Projection {
             map,
             blocks: projected_blocks,
             styles,
+            widgets,
             reveal_groups,
             concealed,
             structural_padding,
@@ -636,6 +683,7 @@ impl Projection {
             map,
             blocks: projected_blocks,
             styles,
+            widgets: Vec::new(),
             reveal_groups: Vec::new(),
             concealed: Vec::new(),
             structural_padding: Vec::new(),
@@ -675,6 +723,11 @@ impl Projection {
     #[must_use]
     pub fn styles(&self) -> &[StyleSpan] {
         &self.styles
+    }
+
+    #[must_use]
+    pub fn widgets(&self) -> &[ProjectedWidget] {
+        &self.widgets
     }
 
     #[must_use]
@@ -1132,11 +1185,18 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
 fn has_overlapping_projection_ranges(
     concealed: &[ConcealSpan],
     structural_padding: &[StructuralPaddingSpan],
+    widgets: &[WidgetCandidate],
 ) -> bool {
     let mut ranges = concealed
         .iter()
         .map(|span| span.source_range)
         .chain(structural_padding.iter().map(|span| span.source_range))
+        .chain(
+            widgets
+                .iter()
+                .filter(|widget| !widget.active)
+                .map(|widget| widget.conceal_range),
+        )
         .collect::<Vec<_>>();
     ranges.sort_by_key(|range| (range.start().get(), range.end().get()));
 
@@ -1200,6 +1260,124 @@ fn project_blocks(
                 id: block.id(),
                 source_range: block.range(),
                 projected_range: map.source_range_to_projected(block.range())?,
+            })
+        })
+        .collect()
+}
+
+fn build_widget_candidates(
+    source: &str,
+    root: &SyntaxNode,
+    policy: RevealPolicy,
+    context: &RevealContext,
+) -> Result<Vec<WidgetCandidate>, ProjectionBuildError> {
+    let mut widgets = Vec::new();
+    collect_widget_candidates(source, root, policy, context, &mut widgets)?;
+    widgets.sort_by_key(|widget| {
+        (
+            widget.source_range.start().get(),
+            widget.source_range.end().get(),
+        )
+    });
+    Ok(widgets)
+}
+
+fn collect_widget_candidates(
+    source: &str,
+    node: &SyntaxNode,
+    policy: RevealPolicy,
+    context: &RevealContext,
+    output: &mut Vec<WidgetCandidate>,
+) -> Result<(), ProjectionBuildError> {
+    if node.kind() == SyntaxKind::Rule {
+        let source_range = node.range();
+        let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
+        let active = policy == RevealPolicy::SourceVisible
+            || context_touches_range(context, source_range);
+        output.push(WidgetCandidate {
+            kind: WidgetKind::HorizontalRule,
+            source_range,
+            conceal_range,
+            active,
+        });
+    }
+
+    for child in node.children() {
+        collect_widget_candidates(source, child, policy, context, output)?;
+    }
+    Ok(())
+}
+
+fn horizontal_rule_conceal_range(
+    source: &str,
+    source_range: TextRange,
+) -> Result<TextRange, ProjectionBuildError> {
+    let range = source_range.as_usize_range();
+    if range.end > source.len()
+        || !source.is_char_boundary(range.start)
+        || !source.is_char_boundary(range.end)
+    {
+        return Err(ProjectionBuildError::InvalidWidgetBounds {
+            start: range.start,
+            end: range.end,
+        });
+    }
+
+    let bytes = source.as_bytes();
+    let mut end = range.end;
+    while end > range.start && matches!(bytes[end - 1], b'\r' | b'\n') {
+        end -= 1;
+    }
+    if end == range.start {
+        return Err(ProjectionBuildError::InvalidWidgetBounds {
+            start: range.start,
+            end: range.end,
+        });
+    }
+
+    let start = TextSize::try_from_usize(range.start)
+        .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let end =
+        TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    TextRange::new(start, end).map_err(|_| ProjectionBuildError::InvalidWidgetBounds {
+        start: range.start,
+        end: range.end,
+    })
+}
+
+fn context_touches_range(context: &RevealContext, range: TextRange) -> bool {
+    context
+        .carets()
+        .iter()
+        .any(|caret| range_contains_point(range, *caret))
+        || context.selections().iter().any(|selection| {
+            if selection.is_empty() {
+                range_contains_point(range, selection.start())
+            } else {
+                ranges_overlap_nonempty(range, *selection)
+            }
+        })
+        || context.compositions().iter().any(|composition| {
+            if composition.is_empty() {
+                range_contains_point(range, composition.start())
+            } else {
+                ranges_overlap_nonempty(range, *composition)
+            }
+        })
+}
+
+fn project_widgets(
+    candidates: &[WidgetCandidate],
+    map: &ProjectionMap,
+) -> Result<Vec<ProjectedWidget>, ProjectionBuildError> {
+    candidates
+        .iter()
+        .filter(|widget| !widget.active)
+        .map(|widget| {
+            Ok(ProjectedWidget {
+                kind: widget.kind,
+                source_range: widget.source_range,
+                projected_range: map.source_range_to_projected(widget.conceal_range)?,
             })
         })
         .collect()
@@ -1323,6 +1501,10 @@ pub enum ProjectionBuildError {
         start: usize,
         end: usize,
     },
+    InvalidWidgetBounds {
+        start: usize,
+        end: usize,
+    },
     DocumentTooLarge,
 }
 
@@ -1371,6 +1553,9 @@ impl fmt::Display for ProjectionBuildError {
                     "structural padding bounds {start}..{end} are invalid"
                 )
             }
+            Self::InvalidWidgetBounds { start, end } => {
+                write!(formatter, "widget bounds {start}..{end} are invalid")
+            }
             Self::DocumentTooLarge => {
                 write!(formatter, "document exceeds the supported source size")
             }
@@ -1398,6 +1583,42 @@ mod tests {
         let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
 
         Projection::build(&snapshot, &syntax, &blocks, &delimiters, policy, context).unwrap()
+    }
+
+    #[test]
+    fn inactive_horizontal_rule_becomes_projected_widget_without_removing_line_break() {
+        let source = "above\n\n---\n\nbelow\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        assert!(!projection.text().contains("---"));
+        assert_eq!(
+            projection.text().matches('\n').count(),
+            source.matches('\n').count()
+        );
+        assert_eq!(projection.widgets().len(), 1);
+        let widget = projection.widgets()[0];
+        assert_eq!(widget.kind(), WidgetKind::HorizontalRule);
+        assert!(widget.projected_range().is_empty());
+    }
+
+    #[test]
+    fn horizontal_rule_reveals_source_when_caret_enters_widget_range() {
+        let source = "above\n\n---\n\nbelow\n";
+        let marker = source.find("---").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(
+                TextSize::try_from_usize(marker + 1).unwrap(),
+            ),
+        );
+
+        assert!(projection.text().contains("---"));
+        assert!(projection.widgets().is_empty());
     }
 
     #[test]
