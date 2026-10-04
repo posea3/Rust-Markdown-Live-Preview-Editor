@@ -22,7 +22,7 @@ use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
-use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement};
+use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement, WidgetKind};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -48,6 +48,9 @@ const CARET_WIDTH: f32 = 2.0;
 const DRAG_SCROLL_MARGIN: f32 = 42.0;
 const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
+const HORIZONTAL_RULE_COLOR: [f32; 4] = [0.48, 0.50, 0.56, 0.92];
+const HORIZONTAL_RULE_THICKNESS: f32 = 1.5;
+const HORIZONTAL_RULE_INSET: f32 = 8.0;
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -1293,6 +1296,42 @@ impl WindowState {
         rects
     }
 
+    fn widget_rectangles(&self) -> Vec<ScreenRect> {
+        let available_width =
+            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
+        let line_width = (available_width - HORIZONTAL_RULE_INSET * 2.0).max(1.0);
+        let mut rects = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            match widget.kind() {
+                WidgetKind::HorizontalRule => {
+                    let cursor = display_offset_to_cursor(
+                        &self.display_text,
+                        widget.projected_range().start().to_usize(),
+                    );
+                    if let Some(run) = self
+                        .text_buffer
+                        .layout_runs()
+                        .find(|run| run.line_i == cursor.line)
+                    {
+                        let y = TEXT_TOP
+                            + run.line_top
+                            + (run.line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
+                        rects.push(ScreenRect::new(
+                            TEXT_LEFT + HORIZONTAL_RULE_INSET,
+                            y,
+                            line_width,
+                            HORIZONTAL_RULE_THICKNESS,
+                            HORIZONTAL_RULE_COLOR,
+                        ));
+                    }
+                }
+            }
+        }
+
+        rects
+    }
+
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
         let show_caret = self.session.focused()
             && (self.session.composition().is_some()
@@ -1456,11 +1495,19 @@ impl WindowState {
         }
 
         let selection_rects = self.selection_rectangles();
+        let widget_rects = self.widget_rectangles();
         let caret_rects = self.caret_rectangles();
         let clip = self.text_clip_rect();
         let selection_batch = self.rect_renderer.prepare(
             &self.device,
             &selection_rects,
+            self.surface_config.width,
+            self.surface_config.height,
+            clip,
+        );
+        let widget_batch = self.rect_renderer.prepare(
+            &self.device,
+            &widget_rects,
             self.surface_config.width,
             self.surface_config.height,
             clip,
@@ -1524,6 +1571,9 @@ impl WindowState {
             });
 
             if let Some(batch) = selection_batch.as_ref() {
+                self.rect_renderer.render(&mut pass, batch);
+            }
+            if let Some(batch) = widget_batch.as_ref() {
                 self.rect_renderer.render(&mut pass, batch);
             }
         }
