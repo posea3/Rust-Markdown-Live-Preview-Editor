@@ -1,5 +1,6 @@
 mod accessibility;
 mod geometry;
+mod live_preview;
 mod trace_capture;
 
 use std::{env, error::Error, ops::Range, sync::Arc, time::Instant};
@@ -10,17 +11,18 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion};
+use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
+use live_preview::LivePreviewState;
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, Revision, SelectionRange, SelectionSet, TextRange,
-    TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
+use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -46,6 +48,17 @@ const CARET_WIDTH: f32 = 2.0;
 const DRAG_SCROLL_MARGIN: f32 = 42.0;
 const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
+const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
+const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
+    include_str!("../fixtures/live-preview-acceptance.md");
+
+fn initial_document(live_preview_acceptance: bool) -> &'static str {
+    if live_preview_acceptance {
+        LIVE_PREVIEW_ACCEPTANCE_DOCUMENT
+    } else {
+        DEFAULT_IME_DOCUMENT
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<AccessKitEvent>::with_user_event().build()?;
@@ -214,6 +227,7 @@ struct WindowState {
     accessibility_adapter: AccessKitAdapter,
 
     session: EditorSession,
+    live_preview: LivePreviewState,
     trace_capture: Option<TraceCapture>,
     clipboard: Option<Clipboard>,
     modifiers: ModifiersState,
@@ -222,7 +236,6 @@ struct WindowState {
     dragging: bool,
 
     display_text: String,
-    display_revision: Option<Revision>,
     preedit_text: Option<String>,
     preedit_range: Option<Range<usize>>,
     caret_xy: (f32, f32),
@@ -236,6 +249,10 @@ struct WindowState {
     latency_trace_enabled: bool,
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
+    live_preview_trace_enabled: bool,
+    pending_ime_viewport_anchor: Option<ImeViewportAnchor>,
+    #[cfg(target_os = "macos")]
+    deferred_composition_text: DeferredCompositionText,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -323,12 +340,22 @@ impl WindowState {
             Some(surface_config.height as f32 - TEXT_TOP * 2.0),
         );
 
-        let mut session = EditorSession::new(
-            "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24",
-        )
-        .expect("create editor session");
-        let end = session.document().len().expect("document length");
-        session.set_caret(Anchor::new(end, Affinity::After));
+        let live_preview_acceptance = env_flag("MDEDIT_LIVE_PREVIEW_ACCEPTANCE");
+        let initial_document = initial_document(live_preview_acceptance);
+        if live_preview_acceptance {
+            eprintln!("[mdedit-ime-lab] live preview acceptance fixture enabled");
+        }
+
+        let mut session = EditorSession::new(initial_document).expect("create editor session");
+        let initial_caret = if live_preview_acceptance {
+            initial_document
+                .find("Use this document")
+                .and_then(|offset| TextSize::try_from_usize(offset).ok())
+                .unwrap_or(TextSize::new(0))
+        } else {
+            session.document().len().expect("document length")
+        };
+        session.set_caret(Anchor::new(initial_caret, Affinity::After));
         let trace_capture = TraceCapture::from_env(&session);
 
         let mut state = Self {
@@ -346,6 +373,7 @@ impl WindowState {
             text_buffer,
             accessibility_adapter,
             session,
+            live_preview: LivePreviewState::new(),
             trace_capture,
             clipboard: Clipboard::new().ok(),
             modifiers: ModifiersState::empty(),
@@ -353,7 +381,6 @@ impl WindowState {
             drag_anchor: None,
             dragging: false,
             display_text: String::new(),
-            display_revision: None,
             preedit_text: None,
             preedit_range: None,
             caret_xy: (0.0, 0.0),
@@ -367,6 +394,10 @@ impl WindowState {
             latency_trace_enabled: env_flag("MDEDIT_LATENCY_TRACE"),
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
+            live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
+            pending_ime_viewport_anchor: None,
+            #[cfg(target_os = "macos")]
+            deferred_composition_text: DeferredCompositionText::default(),
             window,
         };
 
@@ -429,6 +460,26 @@ impl WindowState {
             eprintln!("[mdedit-ime] event={ime:?}");
         }
 
+        // IME preedit is an overlay on the canonical document. Rebuilding the
+        // projected cosmic-text buffer must therefore never choose a different
+        // viewport just because the temporary preedit changed shaping. Keep the
+        // exact scroll through the whole IME transition, including Disabled;
+        // ordinary post-composition editing can resume caret-follow afterwards.
+        let preserve_viewport = matches!(&ime, Ime::Preedit(_, _) | Ime::Commit(_) | Ime::Disabled);
+        if preserve_viewport {
+            self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
+                scroll: self.text_buffer.scroll(),
+            });
+        }
+
+        #[cfg(target_os = "macos")]
+        let previous_preedit = self
+            .session
+            .composition()
+            .map(|composition| composition.preedit().to_owned());
+        #[cfg(target_os = "macos")]
+        let transition = ImeTransition::from_event(&ime);
+
         let input = match ime {
             Ime::Enabled => EditorInput::ImeEnabled,
             Ime::Preedit(text, selection) => EditorInput::ImePreedit {
@@ -442,8 +493,31 @@ impl WindowState {
         if let Err(error) = self.apply_input(input) {
             eprintln!("IME input error: {error}");
         }
+
+        #[cfg(target_os = "macos")]
+        match transition {
+            ImeTransition::Preedit(text) => {
+                self.deferred_composition_text
+                    .observe_preedit(previous_preedit.as_deref(), &text);
+            }
+            ImeTransition::Commit(text) => {
+                if let Some(deferred) = self.deferred_composition_text.take_after_commit(&text) {
+                    if self.ime_trace_enabled {
+                        eprintln!(
+                            "[mdedit-ime] replaying deferred printable key after composition commit: {deferred:?}"
+                        );
+                    }
+                    if let Err(error) = self.apply_input(EditorInput::InsertText(deferred)) {
+                        eprintln!("deferred post-composition input error: {error}");
+                    }
+                }
+            }
+            ImeTransition::Disabled => self.deferred_composition_text.clear(),
+            ImeTransition::Enabled => {}
+        }
+
         self.preferred_x = None;
-        self.ensure_caret_visible = true;
+        self.ensure_caret_visible = self.pending_ime_viewport_anchor.is_none();
         self.request_redraw();
     }
 
@@ -463,6 +537,15 @@ impl WindowState {
                 .composition()
                 .is_some_and(|composition| !composition.preedit().is_empty())
             {
+                #[cfg(target_os = "macos")]
+                if !self.modifiers.alt_key()
+                    && self.deferred_composition_text.capture(text)
+                    && self.ime_trace_enabled
+                {
+                    eprintln!(
+                        "[mdedit-ime] deferred printable key until composition commit: {text:?}"
+                    );
+                }
                 return;
             }
             if self.session.composition().is_some() {
@@ -634,32 +717,47 @@ impl WindowState {
 
     fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
+        self.refresh_layout();
 
         let primary = self.session.selections().primary();
-        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
+        let Some(display_offset) = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.head)
+        else {
+            return;
+        };
+        let cursor = display_offset_to_cursor(&self.display_text, display_offset);
 
-        let target = visual_horizontal_target(
+        let projected_head = visual_horizontal_target(
             &mut self.text_buffer,
             &mut self.font_system,
             cursor,
             direction,
-        );
+        )
+        .and_then(|target_cursor| {
+            let target_offset = cursor_to_display_offset(&self.display_text, target_cursor)?;
+            self.live_preview.display_to_source_anchor(
+                &self.session,
+                target_offset,
+                cosmic_to_core_affinity(target_cursor.affinity),
+            )
+        });
 
-        let Some(target_cursor) = target else {
-            return;
+        let fallback_direction = if direction < 0 {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
         };
-        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
-        else {
-            return;
-        };
-        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
-            return;
-        };
+        let head = projected_head
+            .filter(|head| head.offset != primary.head.offset)
+            .or_else(|| {
+                self.live_preview
+                    .move_source_caret(&self.session, primary.head, fallback_direction)
+            });
 
-        let head = Anchor::new(
-            target_offset,
-            cosmic_to_core_affinity(target_cursor.affinity),
-        );
+        let Some(head) = head else {
+            return;
+        };
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -693,7 +791,13 @@ impl WindowState {
         self.refresh_layout();
 
         let primary = self.session.selections().primary();
-        let cursor = display_anchor_to_cursor(&self.display_text, primary.head);
+        let Some(display_offset) = self
+            .live_preview
+            .source_anchor_to_display(&self.session, primary.head)
+        else {
+            return;
+        };
+        let cursor = display_offset_to_cursor(&self.display_text, display_offset);
         self.text_buffer
             .shape_until_cursor(&mut self.font_system, cursor, false);
 
@@ -709,23 +813,40 @@ impl WindowState {
         let preferred_x = self.preferred_x.unwrap_or(current_x);
         self.preferred_x = Some(preferred_x);
 
-        let target_y =
-            current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
-        let Some(target_cursor) = self.text_buffer.hit(preferred_x, target_y) else {
-            return;
-        };
-        let Some(target_offset) = cursor_to_display_offset(&self.display_text, target_cursor)
-        else {
-            return;
-        };
-        let Ok(target_offset) = TextSize::try_from_usize(target_offset) else {
-            return;
-        };
-
-        let head = Anchor::new(
-            target_offset,
-            cosmic_to_core_affinity(target_cursor.affinity),
+        let target_cursor = vertical_target_cursor(
+            &mut self.text_buffer,
+            &mut self.font_system,
+            cursor,
+            preferred_x,
+            current_top,
+            current_height,
+            direction,
         );
+
+        let projected_head = target_cursor.and_then(|target_cursor| {
+            let target_offset = cursor_to_display_offset(&self.display_text, target_cursor)?;
+            self.live_preview.display_to_source_anchor(
+                &self.session,
+                target_offset,
+                cosmic_to_core_affinity(target_cursor.affinity),
+            )
+        });
+
+        let fallback_direction = if direction < 0 {
+            CaretDirection::Backward
+        } else {
+            CaretDirection::Forward
+        };
+        let head = projected_head
+            .filter(|head| head.offset != primary.head.offset)
+            .or_else(|| {
+                self.live_preview
+                    .move_source_caret(&self.session, primary.head, fallback_direction)
+            });
+
+        let Some(head) = head else {
+            return;
+        };
         let selection = if extend {
             SelectionRange {
                 anchor: primary.anchor,
@@ -881,46 +1002,74 @@ impl WindowState {
             .shape_until_scroll(&mut self.font_system, false);
         let cursor = self.text_buffer.hit(x, y)?;
         let display_offset = cursor_to_display_offset(&self.display_text, cursor)?;
-        let display_size = TextSize::try_from_usize(display_offset).ok()?;
-
-        let source_offset =
-            self.session
-                .composition()
-                .map_or(Some(display_size), |composition| {
-                    composition
-                        .display_to_source(display_size, Affinity::After)
-                        .ok()
-                })?;
-
-        Some(Anchor::new(source_offset, Affinity::After))
+        self.live_preview
+            .display_to_source_anchor(&self.session, display_offset, Affinity::After)
     }
 
     fn refresh_layout(&mut self) {
         let scroll_before = self.text_buffer.scroll();
-        let revision = self.session.document().revision();
+        let ime_viewport_anchor = self.pending_ime_viewport_anchor.take();
         let next_preedit_text = self
             .session
             .composition()
             .map(|composition| composition.preedit());
-        let display_changed = self.display_revision != Some(revision)
-            || self.preedit_text.as_deref() != next_preedit_text;
+
+        let (projection_changed, reflow) = match self.live_preview.refresh(&self.session) {
+            Ok(refresh) => (refresh.changed(), refresh.reflow()),
+            Err(error) => {
+                eprintln!("[mdedit-ime-lab] live preview projection error: {error}");
+                (false, None)
+            }
+        };
+        let reflow_before = reflow.and_then(|reflow| {
+            measure_layout_position(
+                &mut self.text_buffer,
+                &mut self.font_system,
+                &self.display_text,
+                reflow.before_display_offset(),
+            )
+            .map(|position| (reflow, position))
+        });
+
+        let next_display_text = self
+            .live_preview
+            .display_text()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                self.session
+                    .display_text()
+                    .unwrap_or_else(|_| self.session.document().text())
+            });
+        let next_preedit_range = self.live_preview.preedit_range();
+        let display_changed =
+            self.display_text != next_display_text || self.preedit_range != next_preedit_range;
+
+        if self.live_preview_trace_enabled && display_changed {
+            let primary = self.session.selections().primary();
+            let projected_anchor = self
+                .live_preview
+                .source_anchor_to_display(&self.session, primary.anchor);
+            let projected_head = self
+                .live_preview
+                .source_anchor_to_display(&self.session, primary.head);
+            let reflow_offsets =
+                reflow.map(|value| (value.before_display_offset(), value.after_display_offset()));
+
+            eprintln!(
+                "[mdedit-live-preview] projection_changed={projection_changed} source_len={} display_len={} source_selection={}..{} projected_selection={projected_anchor:?}..{projected_head:?} preedit={next_preedit_range:?} reflow={reflow_offsets:?}",
+                self.session.document().text().len(),
+                next_display_text.len(),
+                primary.anchor.offset.to_usize(),
+                primary.head.offset.to_usize(),
+            );
+        }
 
         if display_changed {
-            let next_display_text = match self.session.display_text() {
-                Ok(text) => text,
-                Err(error) => {
-                    eprintln!("display projection error: {error}");
-                    self.session.document().text()
-                }
-            };
-            let next_preedit_range = self
-                .session
-                .composition()
-                .map(|composition| composition.display_preedit_range());
-            let old_scroll = self.text_buffer.scroll();
+            let old_scroll = ime_viewport_anchor
+                .map(|anchor| anchor.scroll)
+                .unwrap_or_else(|| self.text_buffer.scroll());
 
             self.display_text = next_display_text;
-            self.display_revision = Some(revision);
             self.preedit_text = next_preedit_text.map(str::to_owned);
             self.preedit_range = next_preedit_range;
 
@@ -928,71 +1077,117 @@ impl WindowState {
                 .family(Family::SansSerif)
                 .color(Color::rgb(210, 214, 220));
 
-            if let Some(range) = self.preedit_range.clone() {
-                let preedit = normal.clone().color(Color::rgb(255, 214, 102));
-                let mut spans = Vec::new();
-
-                if range.start > 0 {
-                    spans.push((&self.display_text[..range.start], normal.clone()));
-                }
-                if range.start < range.end {
-                    spans.push((&self.display_text[range.clone()], preedit));
-                }
-                if range.end < self.display_text.len() {
-                    spans.push((&self.display_text[range.end..], normal.clone()));
-                }
-                if spans.is_empty() {
-                    spans.push(("", normal.clone()));
-                }
-
-                self.text_buffer
-                    .set_rich_text(spans, &normal, Shaping::Advanced, None);
-            } else {
-                self.text_buffer
-                    .set_text(&self.display_text, &normal, Shaping::Advanced, None);
-            }
-
-            ensure_buffer_lines_match_display_text(
+            let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+            let updated_in_place = update_buffer_lines_in_place(
                 &mut self.text_buffer,
                 &self.display_text,
+                self.preedit_range.as_ref(),
                 &normal,
+                &preedit,
             );
-            self.text_buffer.set_scroll(old_scroll);
+
+            if !updated_in_place {
+                if let Some(range) = self.preedit_range.clone() {
+                    let mut spans = Vec::new();
+
+                    if range.start > 0 {
+                        spans.push((&self.display_text[..range.start], normal.clone()));
+                    }
+                    if range.start < range.end {
+                        spans.push((&self.display_text[range.clone()], preedit));
+                    }
+                    if range.end < self.display_text.len() {
+                        spans.push((&self.display_text[range.end..], normal.clone()));
+                    }
+                    if spans.is_empty() {
+                        spans.push(("", normal.clone()));
+                    }
+
+                    self.text_buffer
+                        .set_rich_text(spans, &normal, Shaping::Advanced, None);
+                } else {
+                    self.text_buffer
+                        .set_text(&self.display_text, &normal, Shaping::Advanced, None);
+                }
+
+                ensure_buffer_lines_match_display_text(
+                    &mut self.text_buffer,
+                    &self.display_text,
+                    &normal,
+                );
+                self.text_buffer.set_scroll(old_scroll);
+            }
+
             self.layout_dirty = true;
             self.text_render_dirty = true;
         }
 
+        if ime_viewport_anchor.is_none()
+            && let Some((reflow, before)) = reflow_before
+            && let Some(after) = measure_layout_position(
+                &mut self.text_buffer,
+                &mut self.font_system,
+                &self.display_text,
+                reflow.after_display_offset(),
+            )
+        {
+            let measurement = ReflowMeasurement::new(reflow.anchor(), before, after);
+            if let Some(adjustment) = measurement.scroll_adjustment()
+                && adjustment.block().abs() > f32::EPSILON
+            {
+                let mut scroll = self.text_buffer.scroll();
+                scroll.vertical += adjustment.block();
+                self.text_buffer.set_scroll(scroll);
+                self.text_buffer
+                    .shape_until_scroll(&mut self.font_system, false);
+                self.layout_dirty = false;
+                self.text_render_dirty = true;
+            }
+        }
+
         let display_caret = self
-            .session
-            .composition()
-            .and_then(|composition| composition.display_cursor_offset().ok())
-            .unwrap_or_else(|| self.session.selections().primary().head.offset);
-        let cursor = display_offset_to_cursor(&self.display_text, display_caret.to_usize());
+            .live_preview
+            .display_caret_offset(&self.session)
+            .unwrap_or_else(|| self.session.selections().primary().head.offset.to_usize());
+        let cursor = display_offset_to_cursor(&self.display_text, display_caret);
+
+        if self.layout_dirty {
+            self.text_buffer
+                .shape_until_scroll(&mut self.font_system, false);
+            self.layout_dirty = false;
+        }
+
+        if let Some(anchor) = ime_viewport_anchor {
+            // Do not compensate from the caret's newly measured Y position here.
+            // That value belongs to the just-rebuilt projection and can differ
+            // transiently while Windows emits empty-preedit/commit boundaries.
+            // Restoring the exact pre-IME scroll makes preedit purely visual and
+            // prevents a temporary layout from becoming a persistent jump.
+            if self.text_buffer.scroll() != anchor.scroll {
+                self.text_buffer.set_scroll(anchor.scroll);
+                self.text_buffer
+                    .shape_until_scroll(&mut self.font_system, false);
+                self.text_render_dirty = true;
+            }
+            self.ensure_caret_visible = false;
+        }
 
         if self.ensure_caret_visible {
-            let caret_is_visible =
-                !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
+            let caret_is_visible = self.text_buffer.cursor_position(&cursor).is_some();
             if !caret_is_visible {
                 if cursor.line < self.text_buffer.lines.len() {
                     self.text_buffer
                         .shape_until_cursor(&mut self.font_system, cursor, false);
                 } else {
                     eprintln!(
-                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; shaping visible scroll instead",
+                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; preserving visible scroll",
                         cursor.line,
                         self.text_buffer.lines.len(),
                         self.display_text.len(),
                     );
-                    self.text_buffer
-                        .shape_until_scroll(&mut self.font_system, false);
                 }
-                self.layout_dirty = false;
             }
             self.ensure_caret_visible = false;
-        } else if self.layout_dirty {
-            self.text_buffer
-                .shape_until_scroll(&mut self.font_system, false);
-            self.layout_dirty = false;
         }
 
         if let Some((x, top, height)) = self.text_buffer.layout_runs().find_map(|run| {
@@ -1010,6 +1205,15 @@ impl WindowState {
             ),
             PhysicalSize::new(CARET_WIDTH.ceil() as u32, self.caret_height.ceil() as u32),
         );
+
+        if self.live_preview_trace_enabled && display_changed {
+            eprintln!(
+                "[mdedit-live-preview] layout scroll_before={scroll_before:?} scroll_after={:?} ime_anchor={:?} display_caret={display_caret} caret_xy={:?}",
+                self.text_buffer.scroll(),
+                ime_viewport_anchor.map(|anchor| anchor.scroll),
+                self.caret_xy,
+            );
+        }
 
         let scroll = self.text_buffer.scroll();
         if scroll != scroll_before {
@@ -1050,18 +1254,21 @@ impl WindowState {
             .iter()
             .filter_map(|selection| {
                 let (start, end) = selection.ordered_offsets();
-                (start != end).then(|| {
-                    (
-                        display_anchor_to_cursor(
-                            &self.display_text,
-                            Anchor::new(start, Affinity::Before),
-                        ),
-                        display_anchor_to_cursor(
-                            &self.display_text,
-                            Anchor::new(end, Affinity::After),
-                        ),
-                    )
-                })
+                if start == end {
+                    return None;
+                }
+
+                let start = self.live_preview.source_anchor_to_display(
+                    &self.session,
+                    Anchor::new(start, Affinity::Before),
+                )?;
+                let end = self
+                    .live_preview
+                    .source_anchor_to_display(&self.session, Anchor::new(end, Affinity::After))?;
+                Some((
+                    display_offset_to_cursor(&self.display_text, start),
+                    display_offset_to_cursor(&self.display_text, end),
+                ))
             })
             .collect::<Vec<_>>();
 
@@ -1115,15 +1322,19 @@ impl WindowState {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let session = &self.session;
+        let Some(selection) = accessibility_display_selection(&self.live_preview, &self.session)
+        else {
+            return;
+        };
+        let display_text = self.display_text.clone();
         let width = self.surface_config.width;
         let height = self.surface_config.height;
         let scale_factor = self.window.scale_factor();
 
         self.accessibility_adapter.update_if_active(|| {
             build_tree_update(
-                &session.document().text(),
-                session.selections().primary(),
+                &display_text,
+                selection,
                 width,
                 height,
                 scale_factor,
@@ -1134,7 +1345,7 @@ impl WindowState {
     }
 
     fn handle_accessibility_action(&mut self, request: ActionRequest) {
-        let Some(action) = translate_action(request, &self.session.document().text()) else {
+        let Some(action) = translate_action(request, &self.display_text) else {
             return;
         };
 
@@ -1144,6 +1355,12 @@ impl WindowState {
                 self.window.set_ime_allowed(true);
             }
             EditorAccessibilityAction::SetSelection(selection) => {
+                let Some(selection) =
+                    accessibility_selection_to_source(&self.live_preview, &self.session, selection)
+                else {
+                    eprintln!("accessibility selection could not be mapped through live preview");
+                    return;
+                };
                 match SelectionSet::new(vec![selection], 0) {
                     Ok(selection) => {
                         if let Err(error) = self.apply_input(EditorInput::SetSelection(selection)) {
@@ -1159,7 +1376,13 @@ impl WindowState {
                 self.insert_text(&text);
             }
             EditorAccessibilityAction::SetValue(text) => {
-                self.replace_document_text(&text);
+                if self.display_text == self.session.document().text() {
+                    self.replace_document_text(&text);
+                } else {
+                    eprintln!(
+                        "accessibility SetValue ignored while live preview conceals canonical Markdown"
+                    );
+                }
             }
         }
     }
@@ -1418,6 +1641,11 @@ impl Drop for WindowState {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct ImeViewportAnchor {
+    scroll: Scroll,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct LatencyProbe {
     label: &'static str,
     input_received: Instant,
@@ -1425,8 +1653,105 @@ struct LatencyProbe {
     redraw_received: Option<Instant>,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug)]
+enum ImeTransition {
+    Enabled,
+    Preedit(String),
+    Commit(String),
+    Disabled,
+}
+
+#[cfg(target_os = "macos")]
+impl ImeTransition {
+    fn from_event(event: &Ime) -> Self {
+        match event {
+            Ime::Enabled => Self::Enabled,
+            Ime::Preedit(text, _) => Self::Preedit(text.clone()),
+            Ime::Commit(text) => Self::Commit(text.clone()),
+            Ime::Disabled => Self::Disabled,
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Default)]
+struct DeferredCompositionText {
+    text: String,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl DeferredCompositionText {
+    fn capture(&mut self, text: Option<&str>) -> bool {
+        let Some(text) = text.filter(|value| !value.chars().all(char::is_control)) else {
+            return false;
+        };
+        self.text.push_str(text);
+        true
+    }
+
+    fn observe_preedit(&mut self, previous: Option<&str>, next: &str) {
+        if !next.is_empty() && previous != Some(next) {
+            self.clear();
+        }
+    }
+
+    fn take_after_commit(&mut self, committed: &str) -> Option<String> {
+        if self.text.is_empty() {
+            return None;
+        }
+
+        let pending = std::mem::take(&mut self.text);
+        if committed.ends_with(&pending) {
+            None
+        } else {
+            Some(pending)
+        }
+    }
+
+    fn clear(&mut self) {
+        self.text.clear();
+    }
+}
+
 fn duration_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
+}
+
+fn accessibility_display_selection(
+    live_preview: &LivePreviewState,
+    session: &EditorSession,
+) -> Option<SelectionRange> {
+    let primary = session.selections().primary();
+    let anchor = live_preview.source_anchor_to_display(session, primary.anchor)?;
+    let head = live_preview.source_anchor_to_display(session, primary.head)?;
+
+    Some(SelectionRange {
+        anchor: Anchor::new(
+            TextSize::try_from_usize(anchor).ok()?,
+            primary.anchor.affinity,
+        ),
+        head: Anchor::new(TextSize::try_from_usize(head).ok()?, primary.head.affinity),
+    })
+}
+
+fn accessibility_selection_to_source(
+    live_preview: &LivePreviewState,
+    session: &EditorSession,
+    selection: SelectionRange,
+) -> Option<SelectionRange> {
+    let anchor = live_preview.display_to_source_anchor(
+        session,
+        selection.anchor.offset.to_usize(),
+        selection.anchor.affinity,
+    )?;
+    let head = live_preview.display_to_source_anchor(
+        session,
+        selection.head.offset.to_usize(),
+        selection.head.affinity,
+    )?;
+
+    Some(SelectionRange { anchor, head })
 }
 
 fn env_flag(name: &str) -> bool {
@@ -1436,6 +1761,43 @@ fn env_flag(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         )
     })
+}
+
+fn update_buffer_lines_in_place(
+    buffer: &mut Buffer,
+    display_text: &str,
+    preedit_range: Option<&Range<usize>>,
+    normal: &Attrs<'_>,
+    preedit: &Attrs<'_>,
+) -> bool {
+    let lines = display_text.split('\n').collect::<Vec<_>>();
+    if lines.len() != buffer.lines.len() {
+        return false;
+    }
+
+    let mut line_start = 0usize;
+    for (line_i, text) in lines.into_iter().enumerate() {
+        let line_end = line_start + text.len();
+        let ending = if line_i + 1 < buffer.lines.len() {
+            LineEnding::Lf
+        } else {
+            LineEnding::None
+        };
+
+        let mut attrs_list = AttrsList::new(normal);
+        if let Some(range) = preedit_range {
+            let start = range.start.max(line_start);
+            let end = range.end.min(line_end);
+            if start < end {
+                attrs_list.add_span((start - line_start)..(end - line_start), preedit);
+            }
+        }
+
+        buffer.lines[line_i].set_text(text, ending, attrs_list);
+        line_start = line_end.saturating_add(1);
+    }
+
+    true
 }
 
 fn ensure_buffer_lines_match_display_text(
@@ -1523,6 +1885,38 @@ struct VisualCaretCell {
     right: f32,
     left_cursor: CosmicCursor,
     right_cursor: CosmicCursor,
+}
+
+fn vertical_target_cursor(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    cursor: CosmicCursor,
+    preferred_x: f32,
+    current_top: f32,
+    current_height: f32,
+    direction: i32,
+) -> Option<CosmicCursor> {
+    let target_y = current_top + current_height * 0.5 + direction as f32 * current_height.max(1.0);
+
+    if let Some(target) = buffer.hit(preferred_x, target_y)
+        && !same_logical_cursor(target, cursor)
+    {
+        return Some(target);
+    }
+
+    // hit() only sees the currently laid-out viewport. At the first/last
+    // visible line it can return the current cursor again even though the
+    // document has more lines. Fall back to cosmic-text's layout-aware
+    // Up/Down motion so navigation can cross the viewport boundary.
+    let motion = if direction < 0 {
+        CosmicMotion::Up
+    } else {
+        CosmicMotion::Down
+    };
+    buffer
+        .cursor_motion(font_system, cursor, None, motion)
+        .map(|(target, _)| target)
+        .filter(|target| !same_logical_cursor(*target, cursor))
 }
 
 fn visual_horizontal_target(
@@ -1662,6 +2056,7 @@ fn same_logical_cursor(left: CosmicCursor, right: CosmicCursor) -> bool {
     left.line == right.line && left.index == right.index
 }
 
+#[cfg(test)]
 fn display_anchor_to_cursor(text: &str, anchor: Anchor) -> CosmicCursor {
     let cursor = display_offset_to_cursor(text, anchor.offset.to_usize());
     CosmicCursor::new_with_affinity(
@@ -1679,6 +2074,28 @@ fn cosmic_to_core_affinity(affinity: glyphon::Affinity) -> Affinity {
         glyphon::Affinity::Before => Affinity::Before,
         glyphon::Affinity::After => Affinity::After,
     }
+}
+
+fn measure_layout_position(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    text: &str,
+    display_offset: usize,
+) -> Option<LayoutPosition> {
+    if display_offset > text.len() || !text.is_char_boundary(display_offset) {
+        return None;
+    }
+
+    let cursor = display_offset_to_cursor(text, display_offset);
+    if cursor.line >= buffer.lines.len() {
+        return None;
+    }
+
+    buffer.shape_until_scroll(font_system, false);
+    buffer.layout_runs().find_map(|run| {
+        run.cursor_position(&cursor)
+            .and_then(|inline| LayoutPosition::new(inline, run.line_top))
+    })
 }
 
 fn display_offset_to_cursor(text: &str, offset: usize) -> CosmicCursor {
@@ -1723,6 +2140,229 @@ mod tests {
 
     fn cursor(index: usize, affinity: glyphon::Affinity) -> CosmicCursor {
         CosmicCursor::new_with_affinity(0, index, affinity)
+    }
+
+    #[test]
+    fn live_preview_acceptance_fixture_is_opt_in_and_markdown_rich() {
+        assert_eq!(initial_document(false), DEFAULT_IME_DOCUMENT);
+
+        let fixture = initial_document(true);
+        assert_eq!(fixture, LIVE_PREVIEW_ACCEPTANCE_DOCUMENT);
+        let normalized = fixture.replace("\r\n", "\n");
+        assert!(normalized.contains("**strong text**"));
+        assert!(normalized.contains("**outer *inner* tail**"));
+        assert!(normalized.contains("Setext heading\n--------------"));
+        assert!(normalized.contains("> > Nested block quote"));
+        assert!(normalized.contains("한글"));
+        assert!(normalized.contains("日本語"));
+        assert!(normalized.contains("中文"));
+    }
+
+    #[test]
+    fn accessibility_selection_maps_across_concealed_markdown_boundaries() {
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(13), Affinity::After));
+
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        assert_eq!(live_preview.display_text(), Some("bold tail"));
+
+        let projected = SelectionRange {
+            anchor: Anchor::new(TextSize::new(0), Affinity::After),
+            head: Anchor::new(TextSize::new(4), Affinity::Before),
+        };
+        let source = accessibility_selection_to_source(&live_preview, &session, projected).unwrap();
+
+        assert_eq!(
+            source.anchor,
+            Anchor::new(TextSize::new(2), Affinity::After)
+        );
+        assert_eq!(source.head, Anchor::new(TextSize::new(6), Affinity::Before));
+    }
+
+    #[test]
+    fn accessibility_caret_uses_projected_display_offset() {
+        let mut session = EditorSession::new("**bold** tail").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(13), Affinity::After));
+
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+
+        let projected = accessibility_display_selection(&live_preview, &session).unwrap();
+        assert!(projected.is_caret());
+        assert_eq!(
+            projected.head.offset,
+            TextSize::new("bold tail".len() as u32)
+        );
+    }
+
+    #[test]
+    fn ime_line_update_does_not_reset_buffer_scroll() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let normal = Attrs::new().family(Family::SansSerif);
+        let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &normal, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+
+        let mut with_preedit = source.clone();
+        let insert = with_preedit.find("line 22").unwrap() + "line 22".len();
+        with_preedit.insert(insert, '가');
+        let range = insert..insert + "가".len();
+
+        assert!(update_buffer_lines_in_place(
+            &mut buffer,
+            &with_preedit,
+            Some(&range),
+            &normal,
+            &preedit,
+        ));
+        assert_eq!(buffer.scroll(), stable);
+
+        buffer.shape_until_scroll(&mut font_system, false);
+        assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
+    fn layout_measurement_does_not_scroll_to_offscreen_anchor() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+
+        let offset = source.find("line 02").unwrap();
+        assert!(measure_layout_position(&mut buffer, &mut font_system, &source, offset).is_none());
+        assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
+    fn vertical_navigation_crosses_the_visible_viewport_boundary() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..30)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+
+        let mut scroll = buffer.scroll();
+        scroll.line = 10;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let cursor = CosmicCursor::new(10, 0);
+        let (x, top, height) = buffer
+            .layout_runs()
+            .find_map(|run| {
+                run.cursor_position(&cursor)
+                    .map(|x| (x, run.line_top, run.line_height))
+            })
+            .expect("line 10 should be visible");
+        assert!(top.abs() < 0.01);
+
+        let target =
+            vertical_target_cursor(&mut buffer, &mut font_system, cursor, x, top, height, -1)
+                .expect("up should reach the preceding offscreen line");
+        assert_eq!(target.line, 9);
+    }
+
+    #[test]
+    fn horizontal_visual_navigation_crosses_newline() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        buffer.set_text("abc\ndef", &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let cursor = CosmicCursor::new(0, 3);
+        let target = visual_horizontal_target(&mut buffer, &mut font_system, cursor, 1).unwrap();
+
+        assert_eq!(target.line, 1);
+        assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn ime_viewport_anchor_keeps_exact_scroll_across_temporary_relayout() {
+        let anchor = ImeViewportAnchor {
+            scroll: Scroll::new(12, 4.0, 0.0),
+        };
+        let transient_scroll = Scroll::new(2, 93.0, 0.0);
+
+        assert_ne!(transient_scroll, anchor.scroll);
+        assert_eq!(anchor.scroll.line, 12);
+        assert_eq!(anchor.scroll.vertical, 4.0);
+    }
+
+    #[test]
+    fn visible_caret_is_not_force_scrolled_after_display_relayout() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        scroll.vertical = 0.0;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable_scroll = buffer.scroll();
+
+        let changed = source.replace("line 20", "line 20 한");
+        buffer.set_text(&changed, &attrs, Shaping::Advanced, None);
+        buffer.set_scroll(stable_scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let caret_offset = changed.find("line 20 한").unwrap() + "line 20 한".len();
+        let caret = display_offset_to_cursor(&changed, caret_offset);
+        assert!(buffer.cursor_position(&caret).is_some());
+        assert_eq!(buffer.scroll(), stable_scroll);
+    }
+
+    #[test]
+    fn deferred_composition_text_survives_commit_but_not_preedit_consumption() {
+        let mut deferred = DeferredCompositionText::default();
+        assert!(deferred.capture(Some("*")));
+        deferred.observe_preedit(Some("가"), "");
+        assert_eq!(deferred.take_after_commit("가"), Some("*".to_owned()));
+
+        assert!(deferred.capture(Some("*")));
+        deferred.observe_preedit(Some("가"), "가*");
+        assert_eq!(deferred.take_after_commit("가*"), None);
+    }
+
+    #[test]
+    fn commit_that_already_contains_deferred_text_does_not_duplicate_it() {
+        let mut deferred = DeferredCompositionText::default();
+        assert!(deferred.capture(Some("*")));
+        assert_eq!(deferred.take_after_commit("가*"), None);
     }
 
     #[test]
