@@ -1293,7 +1293,7 @@ fn collect_widget_candidates(
         let source_range = node.range();
         let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
         let active =
-            policy == RevealPolicy::SourceVisible || context_touches_range(context, source_range);
+            policy == RevealPolicy::SourceVisible || context_touches_range(context, conceal_range);
         output.push(WidgetCandidate {
             kind: WidgetKind::HorizontalRule,
             source_range,
