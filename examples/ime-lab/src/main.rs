@@ -1297,8 +1297,7 @@ impl WindowState {
     }
 
     fn widget_rectangles(&self) -> Vec<ScreenRect> {
-        let available_width =
-            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
         let line_width = (available_width - HORIZONTAL_RULE_INSET * 2.0).max(1.0);
         let mut rects = Vec::new();
 
