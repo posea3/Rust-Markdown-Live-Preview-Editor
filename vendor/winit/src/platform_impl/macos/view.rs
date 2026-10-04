@@ -904,8 +904,9 @@ impl WinitView {
             return;
         }
 
-        // Clear markedText
+        // Clear markedText and any commit intent from the old composition session.
         *self.ivars().marked_text.borrow_mut() = NSMutableAttributedString::new();
+        self.ivars().pending_commit.set(false);
 
         if self.ivars().ime_state.get() != ImeState::Disabled {
             self.ivars().ime_state.set(ImeState::Disabled);
