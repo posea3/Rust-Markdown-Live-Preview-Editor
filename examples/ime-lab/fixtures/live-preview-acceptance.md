@@ -57,3 +57,14 @@ Type after each label with the matching native IME. Preedit must remain visible 
 Screen readers should expose the projected Live Preview text rather than hidden Markdown marker bytes.
 
 Edit this sentence through Narrator or VoiceOver selection/replacement actions.
+
+
+## Phase 6 widget scratch
+
+The horizontal rule below should render as a native line while inactive. Moving the caret onto its line should reveal the Markdown source for editing.
+
+Above the rule.
+
+---
+
+Below the rule.
