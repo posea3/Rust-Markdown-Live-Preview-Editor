@@ -358,9 +358,10 @@ declare_class!(
         #[method_id(validAttributesForMarkedText)]
         fn valid_attributes_for_marked_text(&self) -> Retained<NSArray<NSAttributedStringKey>> {
             trace_scope!("validAttributesForMarkedText");
-            let underline_style = NSString::from_str("NSUnderlineStyle");
-            let marked_clause = NSString::from_str("NSMarkedClauseSegment");
-            NSArray::from_slice(&[&*underline_style, &*marked_clause])
+            // Keep the 0.30.13 objc2/objc2-foundation-compatible representation.
+            // The upstream non-empty attribute list was added for a separate IME
+            // compatibility issue and is not required for the pending-commit fix.
+            NSArray::new()
         }
 
         #[method_id(attributedSubstringForProposedRange:actualRange:)]
