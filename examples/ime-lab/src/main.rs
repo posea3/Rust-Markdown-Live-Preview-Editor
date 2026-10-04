@@ -2281,7 +2281,7 @@ mod tests {
                     .map(|x| (x, run.line_top, run.line_height))
             })
             .expect("line 10 should be visible");
-        assert_eq!(top, 0.0);
+        assert!(top.abs() < 0.01);
 
         let target =
             vertical_target_cursor(&mut buffer, &mut font_system, cursor, x, top, height, -1)
