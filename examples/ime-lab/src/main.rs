@@ -250,6 +250,7 @@ struct WindowState {
     latency_probe: Option<LatencyProbe>,
     ime_trace_enabled: bool,
     live_preview_trace_enabled: bool,
+    deferred_composition_text: DeferredCompositionText,
 
     // The window is intentionally last so the surface is dropped first.
     window: Arc<Window>,
@@ -392,6 +393,7 @@ impl WindowState {
             latency_probe: None,
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
+            deferred_composition_text: DeferredCompositionText::default(),
             window,
         };
 
@@ -454,6 +456,12 @@ impl WindowState {
             eprintln!("[mdedit-ime] event={ime:?}");
         }
 
+        let previous_preedit = self
+            .session
+            .composition()
+            .map(|composition| composition.preedit().to_owned());
+        let transition = ImeTransition::from_event(&ime);
+
         let input = match ime {
             Ime::Enabled => EditorInput::ImeEnabled,
             Ime::Preedit(text, selection) => EditorInput::ImePreedit {
@@ -467,6 +475,25 @@ impl WindowState {
         if let Err(error) = self.apply_input(input) {
             eprintln!("IME input error: {error}");
         }
+
+        #[cfg(target_os = "macos")]
+        match transition {
+            ImeTransition::Preedit(text) => {
+                self.deferred_composition_text
+                    .observe_preedit(previous_preedit.as_deref(), &text);
+            }
+            ImeTransition::Commit(text) => {
+                if let Some(deferred) = self.deferred_composition_text.take_after_commit(&text)
+                    && let Err(error) =
+                        self.apply_input(EditorInput::InsertText(deferred.to_owned()))
+                {
+                    eprintln!("deferred post-composition input error: {error}");
+                }
+            }
+            ImeTransition::Disabled => self.deferred_composition_text.clear(),
+            ImeTransition::Enabled => {}
+        }
+
         self.preferred_x = None;
         self.ensure_caret_visible = true;
         self.request_redraw();
@@ -488,6 +515,10 @@ impl WindowState {
                 .composition()
                 .is_some_and(|composition| !composition.preedit().is_empty())
             {
+                #[cfg(target_os = "macos")]
+                if !self.modifiers.alt_key() {
+                    self.deferred_composition_text.capture(text);
+                }
                 return;
             }
             if self.session.composition().is_some() {
@@ -1051,30 +1082,32 @@ impl WindowState {
             .unwrap_or_else(|| self.session.selections().primary().head.offset.to_usize());
         let cursor = display_offset_to_cursor(&self.display_text, display_caret);
 
+        if self.layout_dirty {
+            // Re-shape the existing viewport before deciding whether the caret
+            // needs follow-scroll. cosmic-text's shape_until_cursor() also
+            // scrolls; calling it merely because a preedit changed the display
+            // made Windows IME composition jump to an unrelated viewport.
+            self.text_buffer
+                .shape_until_scroll(&mut self.font_system, false);
+            self.layout_dirty = false;
+        }
+
         if self.ensure_caret_visible {
-            let caret_is_visible =
-                !self.layout_dirty && self.text_buffer.cursor_position(&cursor).is_some();
+            let caret_is_visible = self.text_buffer.cursor_position(&cursor).is_some();
             if !caret_is_visible {
                 if cursor.line < self.text_buffer.lines.len() {
                     self.text_buffer
                         .shape_until_cursor(&mut self.font_system, cursor, false);
                 } else {
                     eprintln!(
-                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; shaping visible scroll instead",
+                        "[mdedit-ime-lab] invalid display cursor line={} buffer_lines={} display_len={}; preserving visible scroll",
                         cursor.line,
                         self.text_buffer.lines.len(),
                         self.display_text.len(),
                     );
-                    self.text_buffer
-                        .shape_until_scroll(&mut self.font_system, false);
                 }
-                self.layout_dirty = false;
             }
             self.ensure_caret_visible = false;
-        } else if self.layout_dirty {
-            self.text_buffer
-                .shape_until_scroll(&mut self.font_system, false);
-            self.layout_dirty = false;
         }
 
         if let Some((x, top, height)) = self.text_buffer.layout_runs().find_map(|run| {
@@ -1526,6 +1559,63 @@ struct LatencyProbe {
     redraw_received: Option<Instant>,
 }
 
+#[derive(Clone, Debug)]
+enum ImeTransition {
+    Enabled,
+    Preedit(String),
+    Commit(String),
+    Disabled,
+}
+
+impl ImeTransition {
+    fn from_event(event: &Ime) -> Self {
+        match event {
+            Ime::Enabled => Self::Enabled,
+            Ime::Preedit(text, _) => Self::Preedit(text.clone()),
+            Ime::Commit(text) => Self::Commit(text.clone()),
+            Ime::Disabled => Self::Disabled,
+        }
+    }
+}
+
+#[derive(Default)]
+struct DeferredCompositionText {
+    text: String,
+}
+
+impl DeferredCompositionText {
+    fn capture(&mut self, text: Option<&str>) -> bool {
+        let Some(text) = text.filter(|value| !value.chars().all(char::is_control)) else {
+            return false;
+        };
+        self.text.push_str(text);
+        true
+    }
+
+    fn observe_preedit(&mut self, previous: Option<&str>, next: &str) {
+        if !next.is_empty() && previous != Some(next) {
+            self.clear();
+        }
+    }
+
+    fn take_after_commit(&mut self, committed: &str) -> Option<String> {
+        if self.text.is_empty() {
+            return None;
+        }
+
+        let pending = std::mem::take(&mut self.text);
+        if committed.ends_with(&pending) {
+            None
+        } else {
+            Some(pending)
+        }
+    }
+
+    fn clear(&mut self) {
+        self.text.clear();
+    }
+}
+
 fn duration_ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
 }
@@ -1937,6 +2027,55 @@ mod tests {
             projected.head.offset,
             TextSize::new("bold tail".len() as u32)
         );
+    }
+
+    #[test]
+    fn visible_caret_is_not_force_scrolled_after_display_relayout() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let source = (0..40)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        buffer.set_text(&source, &attrs, Shaping::Advanced, None);
+        let mut scroll = buffer.scroll();
+        scroll.line = 20;
+        scroll.vertical = 0.0;
+        buffer.set_scroll(scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable_scroll = buffer.scroll();
+
+        let changed = source.replace("line 20", "line 20 한");
+        buffer.set_text(&changed, &attrs, Shaping::Advanced, None);
+        buffer.set_scroll(stable_scroll);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let caret_offset = changed.find("line 20 한").unwrap() + "line 20 한".len();
+        let caret = display_offset_to_cursor(&changed, caret_offset);
+        assert!(buffer.cursor_position(&caret).is_some());
+        assert_eq!(buffer.scroll(), stable_scroll);
+    }
+
+    #[test]
+    fn deferred_composition_text_survives_commit_but_not_preedit_consumption() {
+        let mut deferred = DeferredCompositionText::default();
+        assert!(deferred.capture(Some("*")));
+        deferred.observe_preedit(Some("가"), "");
+        assert_eq!(deferred.take_after_commit("가"), Some("*".to_owned()));
+
+        assert!(deferred.capture(Some("*")));
+        deferred.observe_preedit(Some("가"), "가*");
+        assert_eq!(deferred.take_after_commit("가*"), None);
+    }
+
+    #[test]
+    fn commit_that_already_contains_deferred_text_does_not_duplicate_it() {
+        let mut deferred = DeferredCompositionText::default();
+        assert!(deferred.capture(Some("*")));
+        assert_eq!(deferred.take_after_commit("가*"), None);
     }
 
     #[test]
