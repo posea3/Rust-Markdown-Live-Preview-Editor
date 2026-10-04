@@ -528,7 +528,9 @@ impl WindowState {
                     && self.deferred_composition_text.capture(text)
                     && self.ime_trace_enabled
                 {
-                    eprintln!("[mdedit-ime] deferred printable key until composition commit: {text:?}");
+                    eprintln!(
+                        "[mdedit-ime] deferred printable key until composition commit: {text:?}"
+                    );
                 }
                 return;
             }
