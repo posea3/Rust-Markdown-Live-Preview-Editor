@@ -465,10 +465,7 @@ impl WindowState {
         // viewport just because the temporary preedit changed shaping. Keep the
         // exact scroll through the whole IME transition, including Disabled;
         // ordinary post-composition editing can resume caret-follow afterwards.
-        let preserve_viewport = matches!(
-            &ime,
-            Ime::Preedit(_, _) | Ime::Commit(_) | Ime::Disabled
-        );
+        let preserve_viewport = matches!(&ime, Ime::Preedit(_, _) | Ime::Commit(_) | Ime::Disabled);
         if preserve_viewport {
             self.pending_ime_viewport_anchor = Some(ImeViewportAnchor {
                 scroll: self.text_buffer.scroll(),
