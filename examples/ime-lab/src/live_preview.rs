@@ -3,8 +3,8 @@ use std::ops::Range;
 use mdedit_core::{Affinity, Anchor, Revision, SelectionSet, TextRange};
 use mdedit_input::EditorSession;
 use mdedit_live::{
-    HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize, Projection,
-    ReflowAnchor, RevealContext, RevealPolicy,
+    CaretDirection, HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize,
+    Projection, ReflowAnchor, RevealContext, RevealPolicy,
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
@@ -111,6 +111,19 @@ impl LivePreviewState {
             .as_ref()
             .filter(|frame| frame.matches(session))
             .and_then(|frame| frame.display_to_source_anchor(display_offset, affinity))
+    }
+
+    #[must_use]
+    pub fn move_source_caret(
+        &self,
+        session: &EditorSession,
+        anchor: Anchor,
+        direction: CaretDirection,
+    ) -> Option<Anchor> {
+        self.frame
+            .as_ref()
+            .filter(|frame| frame.matches(session))
+            .and_then(|frame| frame.move_source_caret(anchor, direction))
     }
 
     #[cfg(test)]
@@ -343,6 +356,21 @@ impl LivePreviewFrame {
         })
     }
 
+    fn move_source_caret(
+        &self,
+        anchor: Anchor,
+        direction: CaretDirection,
+    ) -> Option<Anchor> {
+        let offset = self
+            .stops
+            .move_from_source(&self.projection, anchor.offset, direction)?;
+        let affinity = match direction {
+            CaretDirection::Backward => Affinity::Before,
+            CaretDirection::Forward => Affinity::After,
+        };
+        Some(Anchor::new(offset, affinity))
+    }
+
     fn display_to_source_anchor(
         &self,
         display_offset: usize,
@@ -544,6 +572,41 @@ mod tests {
         assert_eq!(frame.projection().text(), projection_before);
         assert_eq!(frame.display_text(), "bold\nplain한");
         assert_eq!(session.document().text(), "**bold**\nplain");
+    }
+
+    #[test]
+    fn projected_caret_fallback_crosses_line_boundaries() {
+        let mut session = EditorSession::new("first\nsecond").unwrap();
+        session.set_caret(anchor(5, Affinity::After));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+
+        let next = state
+            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Forward)
+            .unwrap();
+        assert_eq!(next.offset.to_usize(), 6);
+
+        session.set_caret(next);
+        state.refresh(&session).unwrap();
+        let previous = state
+            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Backward)
+            .unwrap();
+        assert_eq!(previous.offset.to_usize(), 5);
+    }
+
+    #[test]
+    fn projected_caret_fallback_skips_concealed_markdown_boundaries() {
+        let mut session = EditorSession::new("**bold**\ntail").unwrap();
+        session.set_caret(anchor(6, Affinity::After));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+
+        let next = state
+            .move_source_caret(&session, session.selections().primary().head, CaretDirection::Forward)
+            .unwrap();
+        assert_eq!(next.offset.to_usize(), 8);
     }
 
     #[test]
