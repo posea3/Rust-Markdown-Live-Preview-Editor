@@ -74,9 +74,30 @@ The final Windows pass will cover widgets plus the Phase 5 IME, navigation, sele
 
 ## Slice 02 - task checkbox
 
-Status: **in progress**.
+Status: **implemented; CI and macOS manual acceptance pending; Windows manual acceptance deferred to the Phase 6 integration pass**.
 
-The task checkbox reuses the projected-widget contract introduced by Slice 01. Its native interaction must resolve to an editor/host action and keep the Markdown marker authoritative.
+Behavior:
+
+- GFM `TaskListMarker { checked }` becomes `WidgetKind::TaskCheckbox { checked }` while inactive.
+- Exact `[ ]` / `[x]` marker bytes are canonical and source-mapped.
+- Inactive task markers collapse to projected widget anchors.
+- Native rendering draws an unchecked box or checked indicator in the left gutter without changing source text.
+- Clicking the checkbox emits `WidgetAction::SetTaskChecked`.
+- The host resolves that action through `EditorInput::WidgetReplace` and `TransactionKind::Widget`.
+- Widget replacement preserves unrelated caret/selection positions and is one isolated undo/redo transaction.
+- Keyboard/caret interaction with the marker reveals its Markdown source for direct editing.
+- Trace/replay records widget replacements explicitly.
+
+Manual acceptance on macOS:
+
+- unchecked and checked items render differently
+- clicking unchecked changes source to `[x]`
+- clicking checked changes source to `[ ]`
+- undo restores the previous state in one step
+- redo reapplies it in one step
+- caret/selection does not jump when a checkbox is clicked
+- arrow navigation across task lines remains normal
+- IME behavior remains unchanged
 
 ## Next widget after Slice 02
 
