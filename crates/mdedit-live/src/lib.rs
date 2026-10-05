@@ -16,6 +16,6 @@ pub use projection::{
     ConcealSpan, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, ProjectedWidget,
     Projection, ProjectionBias, ProjectionBuildError, ProjectionFallbackReason, ProjectionMap,
     ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
-    StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan, WidgetKind,
+    StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan, WidgetAction, WidgetKind,
 };
 pub use reflow::{LayoutPosition, ReflowAnchor, ReflowMeasurement, ScrollAdjustment};
