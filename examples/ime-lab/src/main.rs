@@ -22,7 +22,9 @@ use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
-use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement, WidgetKind};
+use mdedit_live::{
+    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, WidgetAction, WidgetKind,
+};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -51,6 +53,11 @@ const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
 const HORIZONTAL_RULE_COLOR: [f32; 4] = [0.48, 0.50, 0.56, 0.92];
 const HORIZONTAL_RULE_THICKNESS: f32 = 1.5;
 const HORIZONTAL_RULE_INSET: f32 = 8.0;
+const TASK_CHECKBOX_SIZE: f32 = 14.0;
+const TASK_CHECKBOX_GAP: f32 = 5.0;
+const TASK_CHECKBOX_BORDER: f32 = 1.5;
+const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
+const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -911,6 +918,12 @@ impl WindowState {
     }
 
     fn begin_drag_selection(&mut self) {
+        if self.activate_widget_at_pointer() {
+            self.drag_anchor = None;
+            self.dragging = false;
+            return;
+        }
+
         let Some(anchor) = self.hit_test_source_anchor() else {
             return;
         };
@@ -1302,33 +1315,115 @@ impl WindowState {
         let mut rects = Vec::new();
 
         for widget in self.live_preview.widgets(&self.session) {
+            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(*widget) else {
+                continue;
+            };
+
             match widget.kind() {
                 WidgetKind::HorizontalRule => {
-                    let cursor = display_offset_to_cursor(
-                        &self.display_text,
-                        widget.projected_range().start().to_usize(),
+                    let y = TEXT_TOP
+                        + line_top
+                        + (line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
+                    rects.push(ScreenRect::new(
+                        TEXT_LEFT + HORIZONTAL_RULE_INSET,
+                        y,
+                        line_width,
+                        HORIZONTAL_RULE_THICKNESS,
+                        HORIZONTAL_RULE_COLOR,
+                    ));
+                }
+                WidgetKind::TaskCheckbox { checked } => {
+                    append_task_checkbox_rects(
+                        &mut rects,
+                        task_checkbox_rect(anchor_x, line_top, line_height),
+                        checked,
                     );
-                    if let Some(run) = self
-                        .text_buffer
-                        .layout_runs()
-                        .find(|run| run.line_i == cursor.line)
-                    {
-                        let y = TEXT_TOP
-                            + run.line_top
-                            + (run.line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
-                        rects.push(ScreenRect::new(
-                            TEXT_LEFT + HORIZONTAL_RULE_INSET,
-                            y,
-                            line_width,
-                            HORIZONTAL_RULE_THICKNESS,
-                            HORIZONTAL_RULE_COLOR,
-                        ));
-                    }
                 }
             }
         }
 
         rects
+    }
+
+    fn widget_anchor_geometry(&self, widget: ProjectedWidget) -> Option<(f32, f32, f32)> {
+        let cursor = display_offset_to_cursor(
+            &self.display_text,
+            widget.projected_range().start().to_usize(),
+        );
+        self.text_buffer.layout_runs().find_map(|run| {
+            (run.line_i == cursor.line).then(|| {
+                (
+                    run.cursor_position(&cursor).unwrap_or(0.0),
+                    run.line_top,
+                    run.line_height,
+                )
+            })
+        })
+    }
+
+    fn widget_hit_regions(&self) -> Vec<(ProjectedWidget, ScreenRect)> {
+        self.live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| match widget.kind() {
+                WidgetKind::HorizontalRule => None,
+                WidgetKind::TaskCheckbox { .. } => self
+                    .widget_anchor_geometry(*widget)
+                    .map(|(anchor_x, line_top, line_height)| {
+                        (
+                            *widget,
+                            task_checkbox_rect(anchor_x, line_top, line_height),
+                        )
+                    }),
+            })
+            .collect()
+    }
+
+    fn activate_widget_at_pointer(&mut self) -> bool {
+        self.refresh_layout();
+        let pointer_x = self.cursor_position.x as f32;
+        let pointer_y = self.cursor_position.y as f32;
+        let action = self
+            .widget_hit_regions()
+            .into_iter()
+            .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
+            .and_then(|(widget, _)| widget.primary_action());
+
+        let Some(action) = action else {
+            return false;
+        };
+
+        match action {
+            WidgetAction::SetTaskChecked {
+                marker_range,
+                checked,
+            } => {
+                let replacement = if checked { "[x]" } else { "[ ]" };
+                if let Err(error) = self.apply_input(EditorInput::WidgetReplace {
+                    range: marker_range,
+                    text: replacement.to_owned(),
+                }) {
+                    eprintln!("task checkbox widget action error: {error}");
+                    return false;
+                }
+            }
+        }
+
+        self.preferred_x = None;
+        self.ensure_caret_visible = false;
+        self.request_redraw();
+        true
+    }
+
+    fn widget_clip_rect(&self) -> ScreenRect {
+        let left = (TEXT_LEFT - TASK_CHECKBOX_SIZE - TASK_CHECKBOX_GAP - 4.0).max(0.0);
+        ScreenRect::new(
+            left,
+            TEXT_TOP,
+            (self.surface_config.width as f32 - left - TEXT_LEFT).max(1.0),
+            (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0),
+            [0.0; 4],
+        )
     }
 
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
@@ -1509,7 +1604,7 @@ impl WindowState {
             &widget_rects,
             self.surface_config.width,
             self.surface_config.height,
-            clip,
+            self.widget_clip_rect(),
         );
         let caret_batch = self.rect_renderer.prepare(
             &self.device,
@@ -1968,6 +2063,58 @@ fn vertical_target_cursor(
         .filter(|target| !same_logical_cursor(*target, cursor))
 }
 
+fn task_checkbox_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
+    let x = (TEXT_LEFT + anchor_x - TASK_CHECKBOX_SIZE - TASK_CHECKBOX_GAP).max(2.0);
+    let y = TEXT_TOP + line_top + (line_height - TASK_CHECKBOX_SIZE) * 0.5;
+    ScreenRect::new(
+        x,
+        y,
+        TASK_CHECKBOX_SIZE,
+        TASK_CHECKBOX_SIZE,
+        TASK_CHECKBOX_COLOR,
+    )
+}
+
+fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, checked: bool) {
+    let b = TASK_CHECKBOX_BORDER;
+    output.extend([
+        ScreenRect::new(bounds.x, bounds.y, bounds.width, b, TASK_CHECKBOX_COLOR),
+        ScreenRect::new(
+            bounds.x,
+            bounds.y + bounds.height - b,
+            bounds.width,
+            b,
+            TASK_CHECKBOX_COLOR,
+        ),
+        ScreenRect::new(bounds.x, bounds.y, b, bounds.height, TASK_CHECKBOX_COLOR),
+        ScreenRect::new(
+            bounds.x + bounds.width - b,
+            bounds.y,
+            b,
+            bounds.height,
+            TASK_CHECKBOX_COLOR,
+        ),
+    ]);
+
+    if checked {
+        let inset = 3.5;
+        output.push(ScreenRect::new(
+            bounds.x + inset,
+            bounds.y + inset,
+            (bounds.width - inset * 2.0).max(1.0),
+            (bounds.height - inset * 2.0).max(1.0),
+            TASK_CHECKBOX_CHECKED_COLOR,
+        ));
+    }
+}
+
+fn point_in_rect(x: f32, y: f32, rect: ScreenRect) -> bool {
+    x >= rect.x
+        && x <= rect.x + rect.width
+        && y >= rect.y
+        && y <= rect.y + rect.height
+}
+
 fn visual_horizontal_target(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
@@ -2351,6 +2498,28 @@ mod tests {
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn task_checkbox_geometry_stays_in_the_left_gutter_and_is_hittable() {
+        let rect = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
+
+        assert!(rect.x < TEXT_LEFT);
+        assert!(rect.y >= TEXT_TOP);
+        assert!(point_in_rect(
+            rect.x + rect.width * 0.5,
+            rect.y + rect.height * 0.5,
+            rect
+        ));
+        assert!(!point_in_rect(rect.x + rect.width + 1.0, rect.y, rect));
+
+        let mut unchecked = Vec::new();
+        append_task_checkbox_rects(&mut unchecked, rect, false);
+        assert_eq!(unchecked.len(), 4);
+
+        let mut checked = Vec::new();
+        append_task_checkbox_rects(&mut checked, rect, true);
+        assert_eq!(checked.len(), 5);
     }
 
     #[test]
