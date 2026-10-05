@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — projected widget contract and horizontal-rule native slice started**
+Status: **in progress — horizontal rule complete on macOS; task checkbox implemented with 3-OS CI PASS; Windows native manual acceptance deferred to the final integration pass**
 
 Rules:
 
