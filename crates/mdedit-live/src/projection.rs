@@ -1904,11 +1904,7 @@ mod tests {
     #[test]
     fn inline_image_remains_source_visible_until_inline_reservation_exists() {
         let source = "prefix ![alt](image.png) suffix";
-        let projection = build(
-            source,
-            RevealPolicy::ConcealInactive,
-            &RevealContext::new(),
-        );
+        let projection = build(source, RevealPolicy::ConcealInactive, &RevealContext::new());
 
         assert_eq!(projection.text(), source);
         assert!(
