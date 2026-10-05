@@ -326,6 +326,25 @@ impl StyleSpan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WidgetKind {
     HorizontalRule,
+    TaskCheckbox { checked: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WidgetAction {
+    SetTaskChecked {
+        marker_range: TextRange,
+        checked: bool,
+    },
+}
+
+impl WidgetAction {
+    #[must_use]
+    pub const fn replacement_text(self) -> &'static str {
+        match self {
+            Self::SetTaskChecked { checked: true, .. } => "[x]",
+            Self::SetTaskChecked { checked: false, .. } => "[ ]",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,6 +368,17 @@ impl ProjectedWidget {
     #[must_use]
     pub const fn projected_range(self) -> ProjectedRange {
         self.projected_range
+    }
+
+    #[must_use]
+    pub const fn primary_action(self) -> Option<WidgetAction> {
+        match self.kind {
+            WidgetKind::HorizontalRule => None,
+            WidgetKind::TaskCheckbox { checked } => Some(WidgetAction::SetTaskChecked {
+                marker_range: self.source_range,
+                checked: !checked,
+            }),
+        }
     }
 }
 
@@ -1289,17 +1319,31 @@ fn collect_widget_candidates(
     context: &RevealContext,
     output: &mut Vec<WidgetCandidate>,
 ) -> Result<(), ProjectionBuildError> {
-    if node.kind() == SyntaxKind::Rule {
-        let source_range = node.range();
-        let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
-        let active =
-            policy == RevealPolicy::SourceVisible || context_touches_range(context, conceal_range);
-        output.push(WidgetCandidate {
-            kind: WidgetKind::HorizontalRule,
-            source_range,
-            conceal_range,
-            active,
-        });
+    match node.kind() {
+        SyntaxKind::Rule => {
+            let source_range = node.range();
+            let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, conceal_range);
+            output.push(WidgetCandidate {
+                kind: WidgetKind::HorizontalRule,
+                source_range,
+                conceal_range,
+                active,
+            });
+        }
+        SyntaxKind::TaskListMarker { checked } => {
+            let source_range = node.range();
+            let active =
+                policy == RevealPolicy::SourceVisible || context_touches_range(context, source_range);
+            output.push(WidgetCandidate {
+                kind: WidgetKind::TaskCheckbox { checked },
+                source_range,
+                conceal_range: source_range,
+                active,
+            });
+        }
+        _ => {}
     }
 
     for child in node.children() {
@@ -1616,6 +1660,86 @@ mod tests {
 
         assert!(projection.text().contains("---"));
         assert!(projection.widgets().is_empty());
+    }
+
+    #[test]
+    fn inactive_task_markers_become_checkbox_widgets_with_toggle_actions() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(source.len()).unwrap()),
+        );
+
+        assert_eq!(projection.widgets().len(), 2);
+        assert_eq!(
+            projection.widgets()[0].kind(),
+            WidgetKind::TaskCheckbox { checked: false }
+        );
+        assert_eq!(
+            projection.widgets()[1].kind(),
+            WidgetKind::TaskCheckbox { checked: true }
+        );
+        assert!(projection.widgets().iter().all(|widget| {
+            widget.projected_range().is_empty()
+                && matches!(
+                    &source[widget.source_range().as_usize_range()],
+                    "[ ]" | "[x]"
+                )
+        }));
+
+        assert_eq!(
+            projection.widgets()[0].primary_action(),
+            Some(WidgetAction::SetTaskChecked {
+                marker_range: projection.widgets()[0].source_range(),
+                checked: true,
+            })
+        );
+        assert_eq!(
+            projection.widgets()[0]
+                .primary_action()
+                .unwrap()
+                .replacement_text(),
+            "[x]"
+        );
+        assert_eq!(
+            projection.widgets()[1]
+                .primary_action()
+                .unwrap()
+                .replacement_text(),
+            "[ ]"
+        );
+    }
+
+    #[test]
+    fn task_marker_source_is_revealed_when_caret_enters_it() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let marker = source.find("[ ]").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new()
+                .with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
+        );
+
+        assert!(projection.text().contains("[ ]"));
+        assert_eq!(
+            projection
+                .widgets()
+                .iter()
+                .filter(|widget| matches!(widget.kind(), WidgetKind::TaskCheckbox { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            projection
+                .widgets()
+                .iter()
+                .find(|widget| matches!(widget.kind(), WidgetKind::TaskCheckbox { .. }))
+                .unwrap()
+                .kind(),
+            WidgetKind::TaskCheckbox { checked: true }
+        );
     }
 
     #[test]
