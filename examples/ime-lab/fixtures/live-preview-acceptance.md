@@ -68,3 +68,11 @@ Above the rule.
 ---
 
 Below the rule.
+
+
+### Task checkbox scratch
+
+- [ ] unchecked task
+- [x] checked task
+
+The markers above should render as native checkboxes while inactive. Clicking a checkbox should toggle only its canonical Markdown marker and remain one undo/redo step.
