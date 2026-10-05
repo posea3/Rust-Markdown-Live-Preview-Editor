@@ -13,6 +13,7 @@ accesskit_winit = "0.34.1"
 arboard = "3.6"
 cosmic-text = "0.19"
 glyphon = "0.12"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 mdedit-core = { path = "../../crates/mdedit-core" }
 mdedit-input = { path = "../../crates/mdedit-input" }
 mdedit-live = { path = "../../crates/mdedit-live" }
