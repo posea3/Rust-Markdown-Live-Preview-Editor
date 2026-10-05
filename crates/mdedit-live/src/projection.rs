@@ -1334,8 +1334,8 @@ fn collect_widget_candidates(
         }
         SyntaxKind::TaskListMarker { checked } => {
             let source_range = node.range();
-            let active =
-                policy == RevealPolicy::SourceVisible || context_touches_range(context, source_range);
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
             output.push(WidgetCandidate {
                 kind: WidgetKind::TaskCheckbox { checked },
                 source_range,
@@ -1718,8 +1718,7 @@ mod tests {
         let projection = build(
             source,
             RevealPolicy::ConcealInactive,
-            &RevealContext::new()
-                .with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
         );
 
         assert!(projection.text().contains("[ ]"));
