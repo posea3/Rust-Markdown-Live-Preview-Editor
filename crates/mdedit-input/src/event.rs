@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use mdedit_core::{DeleteDirection, Movement, SelectionSet};
+use mdedit_core::{DeleteDirection, Movement, SelectionSet, TextRange};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
@@ -23,6 +23,10 @@ pub struct Rect {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditorInput {
     InsertText(String),
+    WidgetReplace {
+        range: TextRange,
+        text: String,
+    },
     ImeEnabled,
     ImePreedit {
         text: String,
