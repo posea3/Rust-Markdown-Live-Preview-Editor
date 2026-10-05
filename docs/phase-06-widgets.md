@@ -17,7 +17,7 @@ This keeps widget logic reusable across host applications and avoids coupling co
 
 ## Slice 01 - horizontal rule
 
-Status: **implemented; CI/native acceptance pending**
+Status: **implemented; macOS manual acceptance PASS; Windows manual acceptance deferred to the Phase 6 integration pass**
 
 Behavior:
 
@@ -63,6 +63,21 @@ In the `Phase 6 widget scratch` section verify:
 - selection across the rule remains source-safe
 - Korean/Japanese/Chinese IME behavior from Phase 5 remains unchanged
 
-## Next widget
+## Platform acceptance strategy
 
-After horizontal-rule acceptance: **task checkbox**.
+- macOS: manual acceptance after each widget slice
+- Windows: fmt/check/clippy/test CI after each slice
+- Windows native GUI/IME/manual acceptance: deferred and batched at the end of Phase 6
+- Any Windows-only failure found in the final pass is fixed before Phase 6 is closed
+
+The final Windows pass will cover widgets plus the Phase 5 IME, navigation, selection, reflow, undo/redo, mouse, and DX12 regressions in one fixture.
+
+## Slice 02 - task checkbox
+
+Status: **in progress**.
+
+The task checkbox reuses the projected-widget contract introduced by Slice 01. Its native interaction must resolve to an editor/host action and keep the Markdown marker authoritative.
+
+## Next widget after Slice 02
+
+**image**.
