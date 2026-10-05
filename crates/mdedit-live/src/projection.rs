@@ -326,6 +326,12 @@ impl StyleSpan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WidgetKind {
     HorizontalRule,
+    TaskCheckbox,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WidgetPayload {
+    None,
     TaskCheckbox { checked: bool },
 }
 
@@ -347,44 +353,59 @@ impl WidgetAction {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProjectedWidget {
     kind: WidgetKind,
+    payload: WidgetPayload,
     source_range: TextRange,
     projected_range: ProjectedRange,
 }
 
 impl ProjectedWidget {
     #[must_use]
-    pub const fn kind(self) -> WidgetKind {
+    pub const fn kind(&self) -> WidgetKind {
         self.kind
     }
 
     #[must_use]
-    pub const fn source_range(self) -> TextRange {
+    pub const fn payload(&self) -> &WidgetPayload {
+        &self.payload
+    }
+
+    #[must_use]
+    pub const fn source_range(&self) -> TextRange {
         self.source_range
     }
 
     #[must_use]
-    pub const fn projected_range(self) -> ProjectedRange {
+    pub const fn projected_range(&self) -> ProjectedRange {
         self.projected_range
     }
 
     #[must_use]
-    pub const fn primary_action(self) -> Option<WidgetAction> {
-        match self.kind {
-            WidgetKind::HorizontalRule => None,
-            WidgetKind::TaskCheckbox { checked } => Some(WidgetAction::SetTaskChecked {
+    pub const fn task_checked(&self) -> Option<bool> {
+        match self.payload {
+            WidgetPayload::TaskCheckbox { checked } => Some(checked),
+            WidgetPayload::None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn primary_action(&self) -> Option<WidgetAction> {
+        match self.payload {
+            WidgetPayload::TaskCheckbox { checked } => Some(WidgetAction::SetTaskChecked {
                 marker_range: self.source_range,
                 checked: !checked,
             }),
+            WidgetPayload::None => None,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct WidgetCandidate {
     kind: WidgetKind,
+    payload: WidgetPayload,
     source_range: TextRange,
     conceal_range: TextRange,
     active: bool,
@@ -1327,6 +1348,7 @@ fn collect_widget_candidates(
                 || context_touches_range(context, conceal_range);
             output.push(WidgetCandidate {
                 kind: WidgetKind::HorizontalRule,
+                payload: WidgetPayload::None,
                 source_range,
                 conceal_range,
                 active,
@@ -1337,7 +1359,8 @@ fn collect_widget_candidates(
             let active = policy == RevealPolicy::SourceVisible
                 || context_touches_range(context, source_range);
             output.push(WidgetCandidate {
-                kind: WidgetKind::TaskCheckbox { checked },
+                kind: WidgetKind::TaskCheckbox,
+                payload: WidgetPayload::TaskCheckbox { checked },
                 source_range,
                 conceal_range: source_range,
                 active,
@@ -1419,6 +1442,7 @@ fn project_widgets(
         .map(|widget| {
             Ok(ProjectedWidget {
                 kind: widget.kind,
+                payload: widget.payload.clone(),
                 source_range: widget.source_range,
                 projected_range: map.source_range_to_projected(widget.conceal_range)?,
             })
@@ -1674,11 +1698,11 @@ mod tests {
         assert_eq!(projection.widgets().len(), 2);
         assert_eq!(
             projection.widgets()[0].kind(),
-            WidgetKind::TaskCheckbox { checked: false }
+            WidgetKind::TaskCheckbox
         );
         assert_eq!(
             projection.widgets()[1].kind(),
-            WidgetKind::TaskCheckbox { checked: true }
+            WidgetKind::TaskCheckbox
         );
         assert!(projection.widgets().iter().all(|widget| {
             widget.projected_range().is_empty()
@@ -1688,6 +1712,8 @@ mod tests {
                 )
         }));
 
+        assert_eq!(projection.widgets()[0].task_checked(), Some(false));
+        assert_eq!(projection.widgets()[1].task_checked(), Some(true));
         assert_eq!(
             projection.widgets()[0].primary_action(),
             Some(WidgetAction::SetTaskChecked {
@@ -1726,7 +1752,7 @@ mod tests {
             projection
                 .widgets()
                 .iter()
-                .filter(|widget| matches!(widget.kind(), WidgetKind::TaskCheckbox { .. }))
+                .filter(|widget| widget.kind() == WidgetKind::TaskCheckbox)
                 .count(),
             1
         );
@@ -1734,10 +1760,10 @@ mod tests {
             projection
                 .widgets()
                 .iter()
-                .find(|widget| matches!(widget.kind(), WidgetKind::TaskCheckbox { .. }))
+                .find(|widget| widget.kind() == WidgetKind::TaskCheckbox)
                 .unwrap()
                 .kind(),
-            WidgetKind::TaskCheckbox { checked: true }
+            WidgetKind::TaskCheckbox
         );
     }
 
