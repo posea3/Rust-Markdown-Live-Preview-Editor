@@ -455,6 +455,35 @@ mod tests {
     }
 
     #[test]
+    fn task_list_markers_keep_exact_source_ranges_and_checked_state() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let snapshot = parse(source, MarkdownDialect::gfm());
+
+        let mut markers = Vec::new();
+        fn collect(node: &SyntaxNode, output: &mut Vec<(bool, TextRange)>) {
+            if let SyntaxKind::TaskListMarker { checked } = node.kind() {
+                output.push((checked, node.range()));
+            }
+            for child in node.children() {
+                collect(child, output);
+            }
+        }
+        collect(snapshot.root(), &mut markers);
+
+        assert_eq!(markers.len(), 2);
+        assert_eq!(
+            &source[markers[0].1.as_usize_range()],
+            "[ ]"
+        );
+        assert!(!markers[0].0);
+        assert_eq!(
+            &source[markers[1].1.as_usize_range()],
+            "[x]"
+        );
+        assert!(markers[1].0);
+    }
+
+    #[test]
     fn horizontal_rule_keeps_an_exact_source_mapped_leaf() {
         let source = "above\n\n---\n\nbelow\n";
         let snapshot = parse(source, MarkdownDialect::commonmark());
