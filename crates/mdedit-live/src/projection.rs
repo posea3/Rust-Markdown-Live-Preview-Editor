@@ -1667,7 +1667,7 @@ mod tests {
             source.matches('\n').count()
         );
         assert_eq!(projection.widgets().len(), 1);
-        let widget = projection.widgets()[0];
+        let widget = &projection.widgets()[0];
         assert_eq!(widget.kind(), WidgetKind::HorizontalRule);
         assert!(widget.projected_range().is_empty());
     }
