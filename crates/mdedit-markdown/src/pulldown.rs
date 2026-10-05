@@ -459,8 +459,8 @@ mod tests {
         let source = "![blue square](fixtures/phase-06-image.png \"fixture\")\n";
         let snapshot = parse(source, MarkdownDialect::commonmark());
 
-        let image = find_first(snapshot.root(), &|kind| kind == SyntaxKind::Image)
-            .expect("image node");
+        let image =
+            find_first(snapshot.root(), &|kind| kind == SyntaxKind::Image).expect("image node");
 
         assert_eq!(
             &source[image.range().as_usize_range()],
