@@ -455,6 +455,32 @@ mod tests {
     }
 
     #[test]
+    fn image_nodes_keep_exact_source_and_link_metadata() {
+        let source = "![blue square](fixtures/phase-06-image.png \"fixture\")\n";
+        let snapshot = parse(source, MarkdownDialect::commonmark());
+
+        let image = find_first(snapshot.root(), &|kind| kind == SyntaxKind::Image)
+            .expect("image node");
+
+        assert_eq!(
+            &source[image.range().as_usize_range()],
+            "![blue square](fixtures/phase-06-image.png \"fixture\")"
+        );
+        assert!(matches!(
+            image.metadata(),
+            SyntaxMetadata::Image(metadata)
+                if metadata.destination() == "fixtures/phase-06-image.png"
+                    && metadata.title() == "fixture"
+        ));
+        let alt = image
+            .children()
+            .iter()
+            .find(|child| child.kind() == SyntaxKind::Text)
+            .expect("image alt text");
+        assert_eq!(&source[alt.range().as_usize_range()], "blue square");
+    }
+
+    #[test]
     fn task_list_markers_keep_exact_source_ranges_and_checked_state() {
         let source = "- [ ] todo\n- [x] done\n";
         let snapshot = parse(source, MarkdownDialect::gfm());
