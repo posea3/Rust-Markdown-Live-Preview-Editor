@@ -471,15 +471,9 @@ mod tests {
         collect(snapshot.root(), &mut markers);
 
         assert_eq!(markers.len(), 2);
-        assert_eq!(
-            &source[markers[0].1.as_usize_range()],
-            "[ ]"
-        );
+        assert_eq!(&source[markers[0].1.as_usize_range()], "[ ]");
         assert!(!markers[0].0);
-        assert_eq!(
-            &source[markers[1].1.as_usize_range()],
-            "[x]"
-        );
+        assert_eq!(&source[markers[1].1.as_usize_range()], "[x]");
         assert!(markers[1].0);
     }
 
