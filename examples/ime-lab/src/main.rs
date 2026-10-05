@@ -1315,7 +1315,7 @@ impl WindowState {
         let mut rects = Vec::new();
 
         for widget in self.live_preview.widgets(&self.session) {
-            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(*widget)
+            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(widget)
             else {
                 continue;
             };
@@ -1331,11 +1331,11 @@ impl WindowState {
                         HORIZONTAL_RULE_COLOR,
                     ));
                 }
-                WidgetKind::TaskCheckbox { checked } => {
+                WidgetKind::TaskCheckbox => {
                     append_task_checkbox_rects(
                         &mut rects,
                         task_checkbox_rect(anchor_x, line_top, line_height),
-                        checked,
+                        widget.task_checked().unwrap_or(false),
                     );
                 }
             }
@@ -1344,7 +1344,7 @@ impl WindowState {
         rects
     }
 
-    fn widget_anchor_geometry(&self, widget: ProjectedWidget) -> Option<(f32, f32, f32)> {
+    fn widget_anchor_geometry(&self, widget: &ProjectedWidget) -> Option<(f32, f32, f32)> {
         let cursor = display_offset_to_cursor(
             &self.display_text,
             widget.projected_range().start().to_usize(),
@@ -1366,12 +1366,14 @@ impl WindowState {
             .iter()
             .filter_map(|widget| match widget.kind() {
                 WidgetKind::HorizontalRule => None,
-                WidgetKind::TaskCheckbox { .. } => {
-                    self.widget_anchor_geometry(*widget)
-                        .map(|(anchor_x, line_top, line_height)| {
-                            (*widget, task_checkbox_rect(anchor_x, line_top, line_height))
-                        })
-                }
+                WidgetKind::TaskCheckbox => self
+                    .widget_anchor_geometry(widget)
+                    .map(|(anchor_x, line_top, line_height)| {
+                        (
+                            widget.clone(),
+                            task_checkbox_rect(anchor_x, line_top, line_height),
+                        )
+                    }),
             })
             .collect()
     }
