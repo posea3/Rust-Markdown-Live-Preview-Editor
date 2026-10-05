@@ -156,10 +156,8 @@ impl EditorSession {
             .ranges()
             .iter()
             .map(|selection| {
-                let anchor = change_map.map_old_to_new(
-                    selection.anchor.offset,
-                    selection.anchor.affinity,
-                )?;
+                let anchor = change_map
+                    .map_old_to_new(selection.anchor.offset, selection.anchor.affinity)?;
                 let head =
                     change_map.map_old_to_new(selection.head.offset, selection.head.affinity)?;
                 Ok(SelectionRange {
@@ -168,15 +166,11 @@ impl EditorSession {
                 })
             })
             .collect::<Result<Vec<_>, SessionError>>()?;
-        let selection_after =
-            SelectionSet::new(mapped_ranges, self.selections.primary_index())?;
+        let selection_after = SelectionSet::new(mapped_ranges, self.selections.primary_index())?;
 
-        let transaction = Transaction::new(
-            self.document.revision(),
-            changes,
-            TransactionKind::Widget,
-        )
-        .with_selection(selection_after);
+        let transaction =
+            Transaction::new(self.document.revision(), changes, TransactionKind::Widget)
+                .with_selection(selection_after);
         let before = self.selections.clone();
         if let Some(selection) =
             self.history
