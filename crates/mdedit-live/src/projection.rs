@@ -1696,14 +1696,8 @@ mod tests {
         );
 
         assert_eq!(projection.widgets().len(), 2);
-        assert_eq!(
-            projection.widgets()[0].kind(),
-            WidgetKind::TaskCheckbox
-        );
-        assert_eq!(
-            projection.widgets()[1].kind(),
-            WidgetKind::TaskCheckbox
-        );
+        assert_eq!(projection.widgets()[0].kind(), WidgetKind::TaskCheckbox);
+        assert_eq!(projection.widgets()[1].kind(), WidgetKind::TaskCheckbox);
         assert!(projection.widgets().iter().all(|widget| {
             widget.projected_range().is_empty()
                 && matches!(
