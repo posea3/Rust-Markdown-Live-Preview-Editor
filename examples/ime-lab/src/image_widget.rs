@@ -9,6 +9,7 @@ use std::{
     thread,
 };
 
+use wgpu::util::DeviceExt;
 use wgpu::{
     AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState,
@@ -20,7 +21,6 @@ use wgpu::{
     TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState,
     VertexStepMode,
 };
-use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::geometry::ScreenRect;
@@ -163,11 +163,7 @@ impl ImageWidgetHost {
             .prepare(device, draws, viewport_width, viewport_height)
     }
 
-    pub fn render<'a>(
-        &'a self,
-        pass: &mut RenderPass<'a>,
-        batches: &'a [ImageDrawBatch],
-    ) {
+    pub fn render<'a>(&'a self, pass: &mut RenderPass<'a>, batches: &'a [ImageDrawBatch]) {
         self.renderer.render(pass, batches);
     }
 }
@@ -185,16 +181,15 @@ enum DecodedImage {
     },
 }
 
-fn decode_local_image(
-    base_dir: &Path,
-    destination: &str,
-) -> Result<(u32, u32, Vec<u8>), String> {
+fn decode_local_image(base_dir: &Path, destination: &str) -> Result<(u32, u32, Vec<u8>), String> {
     if destination.starts_with("http://")
         || destination.starts_with("https://")
         || destination.starts_with("data:")
         || destination.starts_with("file:")
     {
-        return Err("remote/data/file URI loading is intentionally delegated to the host".to_owned());
+        return Err(
+            "remote/data/file URI loading is intentionally delegated to the host".to_owned(),
+        );
     }
 
     let relative = Path::new(destination);
