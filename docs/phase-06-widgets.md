@@ -78,7 +78,7 @@ Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance PAS
 
 Behavior:
 
-- GFM `TaskListMarker { checked }` becomes `WidgetKind::TaskCheckbox { checked }` while inactive.
+- GFM `TaskListMarker { checked }` becomes `WidgetKind::TaskCheckbox` with `WidgetPayload::TaskCheckbox { checked }` while inactive.
 - Exact `[ ]` / `[x]` marker bytes are canonical and source-mapped.
 - Inactive task markers collapse to projected widget anchors.
 - Native rendering draws an unchecked box or checked indicator in the left gutter without changing source text.
@@ -101,7 +101,7 @@ Manual acceptance on macOS:
 
 ## Slice 03 - image
 
-Status: **in progress**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
 Current contract:
 
