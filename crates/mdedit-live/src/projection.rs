@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
     BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ParseStatus,
-    SyntaxKind, SyntaxNode, SyntaxSnapshot,
+    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -327,12 +327,38 @@ impl StyleSpan {
 pub enum WidgetKind {
     HorizontalRule,
     TaskCheckbox,
+    Image,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageWidgetData {
+    destination: String,
+    title: String,
+    alt: String,
+}
+
+impl ImageWidgetData {
+    #[must_use]
+    pub fn destination(&self) -> &str {
+        &self.destination
+    }
+
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    #[must_use]
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WidgetPayload {
     None,
     TaskCheckbox { checked: bool },
+    Image(ImageWidgetData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -384,20 +410,28 @@ impl ProjectedWidget {
 
     #[must_use]
     pub const fn task_checked(&self) -> Option<bool> {
-        match self.payload {
-            WidgetPayload::TaskCheckbox { checked } => Some(checked),
-            WidgetPayload::None => None,
+        match &self.payload {
+            WidgetPayload::TaskCheckbox { checked } => Some(*checked),
+            WidgetPayload::None | WidgetPayload::Image(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn image(&self) -> Option<&ImageWidgetData> {
+        match &self.payload {
+            WidgetPayload::Image(image) => Some(image),
+            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } => None,
         }
     }
 
     #[must_use]
     pub const fn primary_action(&self) -> Option<WidgetAction> {
-        match self.payload {
+        match &self.payload {
             WidgetPayload::TaskCheckbox { checked } => Some(WidgetAction::SetTaskChecked {
                 marker_range: self.source_range,
-                checked: !checked,
+                checked: !*checked,
             }),
-            WidgetPayload::None => None,
+            WidgetPayload::None | WidgetPayload::Image(_) => None,
         }
     }
 }
@@ -1366,6 +1400,20 @@ fn collect_widget_candidates(
                 active,
             });
         }
+        SyntaxKind::Image if image_is_standalone(source, node.range()) => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            if let Some(image) = image_widget_data(source, node) {
+                output.push(WidgetCandidate {
+                    kind: WidgetKind::Image,
+                    payload: WidgetPayload::Image(image),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+            }
+        }
         _ => {}
     }
 
@@ -1373,6 +1421,56 @@ fn collect_widget_candidates(
         collect_widget_candidates(source, child, policy, context, output)?;
     }
     Ok(())
+}
+
+fn image_widget_data(source: &str, node: &SyntaxNode) -> Option<ImageWidgetData> {
+    let SyntaxMetadata::Image(metadata) = node.metadata() else {
+        return None;
+    };
+
+    let mut alt = String::new();
+    collect_image_alt_text(source, node, &mut alt);
+
+    Some(ImageWidgetData {
+        destination: metadata.destination().to_owned(),
+        title: metadata.title().to_owned(),
+        alt,
+    })
+}
+
+fn collect_image_alt_text(source: &str, node: &SyntaxNode, output: &mut String) {
+    for child in node.children() {
+        if child.kind() == SyntaxKind::Text {
+            let range = child.range().as_usize_range();
+            if range.end <= source.len()
+                && source.is_char_boundary(range.start)
+                && source.is_char_boundary(range.end)
+            {
+                output.push_str(&source[range]);
+            }
+        } else {
+            collect_image_alt_text(source, child, output);
+        }
+    }
+}
+
+fn image_is_standalone(source: &str, source_range: TextRange) -> bool {
+    let range = source_range.as_usize_range();
+    if range.end > source.len()
+        || !source.is_char_boundary(range.start)
+        || !source.is_char_boundary(range.end)
+    {
+        return false;
+    }
+
+    let line_start = source[..range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = source[range.end..]
+        .find('\n')
+        .map_or(source.len(), |relative| range.end + relative);
+
+    source[line_start..line_end].trim() == source[range].trim()
 }
 
 fn horizontal_rule_conceal_range(
@@ -1758,6 +1856,66 @@ mod tests {
                 .unwrap()
                 .kind(),
             WidgetKind::TaskCheckbox
+        );
+    }
+
+    #[test]
+    fn standalone_image_becomes_projected_widget_with_link_metadata() {
+        let source = "before\n\n![blue square](fixtures/phase-06-image.png \"fixture\")\n\nafter\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let image = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Image)
+            .expect("standalone image widget");
+        assert!(image.projected_range().is_empty());
+        assert!(!projection.text().contains("![blue square]"));
+
+        let data = image.image().expect("image payload");
+        assert_eq!(data.destination(), "fixtures/phase-06-image.png");
+        assert_eq!(data.title(), "fixture");
+        assert_eq!(data.alt(), "blue square");
+    }
+
+    #[test]
+    fn image_source_reveals_when_caret_enters_image_range() {
+        let source = "![alt](image.png)\n";
+        let marker = source.find("image.png").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Image)
+        );
+    }
+
+    #[test]
+    fn inline_image_remains_source_visible_until_inline_reservation_exists() {
+        let source = "prefix ![alt](image.png) suffix";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Image)
         );
     }
 
