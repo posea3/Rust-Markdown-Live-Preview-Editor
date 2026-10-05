@@ -481,6 +481,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn local_fixture_decodes_off_the_host_boundary() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        let (width, height, rgba) =
+            decode_local_image(&base, "phase-06-image.png").expect("decode fixture");
+
+        assert_eq!((width, height), (96, 48));
+        assert_eq!(rgba.len(), width as usize * height as usize * 4);
+    }
+
+    #[test]
     fn resolver_rejects_remote_and_absolute_paths_before_io() {
         let base = Path::new(".");
 
