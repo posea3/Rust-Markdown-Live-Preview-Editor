@@ -1,5 +1,6 @@
 mod accessibility;
 mod geometry;
+mod image_widget;
 mod live_preview;
 mod trace_capture;
 
@@ -17,12 +18,15 @@ use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
+use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
 use live_preview::LivePreviewState;
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use mdedit_input::{EditorInput, EditorSession};
-use mdedit_live::{CaretDirection, LayoutPosition, ReflowMeasurement};
+use mdedit_live::{
+    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, WidgetAction, WidgetKind,
+};
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -48,6 +52,20 @@ const CARET_WIDTH: f32 = 2.0;
 const DRAG_SCROLL_MARGIN: f32 = 42.0;
 const SELECTION_COLOR: [f32; 4] = [0.18, 0.38, 0.72, 0.55];
 const CARET_COLOR: [f32; 4] = [0.96, 0.97, 0.99, 1.0];
+const HORIZONTAL_RULE_COLOR: [f32; 4] = [0.48, 0.50, 0.56, 0.92];
+const HORIZONTAL_RULE_THICKNESS: f32 = 1.5;
+const HORIZONTAL_RULE_INSET: f32 = 8.0;
+const TASK_CHECKBOX_SIZE: f32 = 14.0;
+const TASK_CHECKBOX_GAP: f32 = 5.0;
+const TASK_CHECKBOX_BORDER: f32 = 1.5;
+const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
+const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
+const IMAGE_PREVIEW_MAX_HEIGHT: f32 = 24.0;
+const IMAGE_PREVIEW_MAX_WIDTH: f32 = 180.0;
+const IMAGE_PLACEHOLDER_WIDTH: f32 = 56.0;
+const IMAGE_PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.48, 0.56, 0.90];
+const IMAGE_LOADING_COLOR: [f32; 4] = [0.55, 0.60, 0.72, 0.75];
+const IMAGE_FAILED_COLOR: [f32; 4] = [0.78, 0.38, 0.38, 0.92];
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -223,6 +241,7 @@ struct WindowState {
     atlas: TextAtlas,
     text_renderer: TextRenderer,
     rect_renderer: RectRenderer,
+    image_widgets: ImageWidgetHost,
     text_buffer: Buffer,
     accessibility_adapter: AccessKitAdapter,
 
@@ -331,6 +350,7 @@ impl WindowState {
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let rect_renderer = RectRenderer::new(&device, format);
+        let image_widgets = ImageWidgetHost::new(&device, format, window.clone(), image_base_dir());
         eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
@@ -370,6 +390,7 @@ impl WindowState {
             atlas,
             text_renderer,
             rect_renderer,
+            image_widgets,
             text_buffer,
             accessibility_adapter,
             session,
@@ -908,6 +929,12 @@ impl WindowState {
     }
 
     fn begin_drag_selection(&mut self) {
+        if self.activate_widget_at_pointer() {
+            self.drag_anchor = None;
+            self.dragging = false;
+            return;
+        }
+
         let Some(anchor) = self.hit_test_source_anchor() else {
             return;
         };
@@ -1293,6 +1320,176 @@ impl WindowState {
         rects
     }
 
+    fn widget_rectangles(&self) -> Vec<ScreenRect> {
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
+        let line_width = (available_width - HORIZONTAL_RULE_INSET * 2.0).max(1.0);
+        let mut rects = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(widget)
+            else {
+                continue;
+            };
+
+            match widget.kind() {
+                WidgetKind::HorizontalRule => {
+                    let y = TEXT_TOP + line_top + (line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
+                    rects.push(ScreenRect::new(
+                        TEXT_LEFT + HORIZONTAL_RULE_INSET,
+                        y,
+                        line_width,
+                        HORIZONTAL_RULE_THICKNESS,
+                        HORIZONTAL_RULE_COLOR,
+                    ));
+                }
+                WidgetKind::TaskCheckbox => {
+                    append_task_checkbox_rects(
+                        &mut rects,
+                        task_checkbox_rect(anchor_x, line_top, line_height),
+                        widget.task_checked().unwrap_or(false),
+                    );
+                }
+                WidgetKind::Image => {
+                    let Some(image) = widget.image() else {
+                        continue;
+                    };
+                    match self.image_widgets.state(image.destination()) {
+                        ImageHostState::Ready => {}
+                        ImageHostState::Loading | ImageHostState::Missing => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                image_placeholder_rect(anchor_x, line_top, line_height),
+                                IMAGE_LOADING_COLOR,
+                            );
+                        }
+                        ImageHostState::Failed => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                image_placeholder_rect(anchor_x, line_top, line_height),
+                                IMAGE_FAILED_COLOR,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        rects
+    }
+
+    fn widget_anchor_geometry(&self, widget: &ProjectedWidget) -> Option<(f32, f32, f32)> {
+        let cursor = display_offset_to_cursor(
+            &self.display_text,
+            widget.projected_range().start().to_usize(),
+        );
+        self.text_buffer.layout_runs().find_map(|run| {
+            (run.line_i == cursor.line).then(|| {
+                (
+                    run.cursor_position(&cursor).unwrap_or(0.0),
+                    run.line_top,
+                    run.line_height,
+                )
+            })
+        })
+    }
+
+    fn widget_hit_regions(&self) -> Vec<(ProjectedWidget, ScreenRect)> {
+        self.live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| match widget.kind() {
+                WidgetKind::HorizontalRule | WidgetKind::Image => None,
+                WidgetKind::TaskCheckbox => {
+                    self.widget_anchor_geometry(widget)
+                        .map(|(anchor_x, line_top, line_height)| {
+                            (
+                                widget.clone(),
+                                task_checkbox_rect(anchor_x, line_top, line_height),
+                            )
+                        })
+                }
+            })
+            .collect()
+    }
+
+    fn activate_widget_at_pointer(&mut self) -> bool {
+        self.refresh_layout();
+        let pointer_x = self.cursor_position.x as f32;
+        let pointer_y = self.cursor_position.y as f32;
+        let action = self
+            .widget_hit_regions()
+            .into_iter()
+            .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
+            .and_then(|(widget, _)| widget.primary_action());
+
+        let Some(action) = action else {
+            return false;
+        };
+
+        match action {
+            WidgetAction::SetTaskChecked {
+                marker_range,
+                checked,
+            } => {
+                let replacement = if checked { "[x]" } else { "[ ]" };
+                if let Err(error) = self.apply_input(EditorInput::WidgetReplace {
+                    range: marker_range,
+                    text: replacement.to_owned(),
+                }) {
+                    eprintln!("task checkbox widget action error: {error}");
+                    return false;
+                }
+            }
+        }
+
+        self.preferred_x = None;
+        self.ensure_caret_visible = false;
+        self.request_redraw();
+        true
+    }
+
+    fn widget_clip_rect(&self) -> ScreenRect {
+        let left = (TEXT_LEFT - TASK_CHECKBOX_SIZE - TASK_CHECKBOX_GAP - 4.0).max(0.0);
+        ScreenRect::new(
+            left,
+            TEXT_TOP,
+            (self.surface_config.width as f32 - left - TEXT_LEFT).max(1.0),
+            (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0),
+            [0.0; 4],
+        )
+    }
+
+    fn sync_image_widgets(&mut self) {
+        let destinations = self
+            .live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| widget.image().map(|image| image.destination().to_owned()))
+            .collect::<Vec<_>>();
+
+        for destination in destinations {
+            self.image_widgets.request(&destination);
+        }
+    }
+
+    fn image_draw_requests(&self) -> Vec<ImageDrawRequest> {
+        let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
+
+        self.live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| {
+                let image = widget.image()?;
+                let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
+                let (anchor_x, line_top, line_height) = self.widget_anchor_geometry(widget)?;
+                let rect = image_preview_rect(anchor_x, line_top, line_height, width, height);
+
+                (rect.y >= TEXT_TOP && rect.y + rect.height <= viewport_bottom)
+                    .then(|| ImageDrawRequest::new(image.destination().to_owned(), rect))
+            })
+            .collect()
+    }
+
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
         let show_caret = self.session.focused()
             && (self.session.composition().is_some()
@@ -1413,6 +1610,8 @@ impl WindowState {
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
         self.refresh_layout();
+        self.sync_image_widgets();
+        self.image_widgets.drain_ready(&self.device, &self.queue);
         self.update_accessibility_tree();
 
         if self.viewport_dirty {
@@ -1456,6 +1655,14 @@ impl WindowState {
         }
 
         let selection_rects = self.selection_rectangles();
+        let widget_rects = self.widget_rectangles();
+        let image_draws = self.image_draw_requests();
+        let image_batches = self.image_widgets.prepare(
+            &self.device,
+            &image_draws,
+            self.surface_config.width,
+            self.surface_config.height,
+        );
         let caret_rects = self.caret_rectangles();
         let clip = self.text_clip_rect();
         let selection_batch = self.rect_renderer.prepare(
@@ -1464,6 +1671,13 @@ impl WindowState {
             self.surface_config.width,
             self.surface_config.height,
             clip,
+        );
+        let widget_batch = self.rect_renderer.prepare(
+            &self.device,
+            &widget_rects,
+            self.surface_config.width,
+            self.surface_config.height,
+            self.widget_clip_rect(),
         );
         let caret_batch = self.rect_renderer.prepare(
             &self.device,
@@ -1526,6 +1740,29 @@ impl WindowState {
             if let Some(batch) = selection_batch.as_ref() {
                 self.rect_renderer.render(&mut pass, batch);
             }
+            if let Some(batch) = widget_batch.as_ref() {
+                self.rect_renderer.render(&mut pass, batch);
+            }
+        }
+
+        if !image_batches.is_empty() {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("mdedit images"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.image_widgets.render(&mut pass, &image_batches);
         }
 
         {
@@ -1919,6 +2156,122 @@ fn vertical_target_cursor(
         .filter(|target| !same_logical_cursor(*target, cursor))
 }
 
+fn image_base_dir() -> std::path::PathBuf {
+    env::var_os("MDEDIT_IMAGE_BASE_DIR").map_or_else(
+        || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"),
+        std::path::PathBuf::from,
+    )
+}
+
+fn image_preview_rect(
+    anchor_x: f32,
+    line_top: f32,
+    line_height: f32,
+    intrinsic_width: u32,
+    intrinsic_height: u32,
+) -> ScreenRect {
+    let max_height = (line_height - 4.0).clamp(4.0, IMAGE_PREVIEW_MAX_HEIGHT);
+    let aspect = intrinsic_width as f32 / intrinsic_height.max(1) as f32;
+    let width = (max_height * aspect).clamp(4.0, IMAGE_PREVIEW_MAX_WIDTH);
+    let height = (width / aspect.max(f32::EPSILON)).min(max_height);
+    let x = TEXT_LEFT + anchor_x;
+    let y = TEXT_TOP + line_top + (line_height - height) * 0.5;
+    ScreenRect::new(x, y, width, height, [1.0; 4])
+}
+
+fn image_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
+    let height = (line_height - 6.0).clamp(8.0, IMAGE_PREVIEW_MAX_HEIGHT);
+    ScreenRect::new(
+        TEXT_LEFT + anchor_x,
+        TEXT_TOP + line_top + (line_height - height) * 0.5,
+        IMAGE_PLACEHOLDER_WIDTH,
+        height,
+        IMAGE_PLACEHOLDER_COLOR,
+    )
+}
+
+fn append_image_placeholder_rects(
+    output: &mut Vec<ScreenRect>,
+    bounds: ScreenRect,
+    accent: [f32; 4],
+) {
+    let border = 1.5;
+    output.extend([
+        ScreenRect::new(bounds.x, bounds.y, bounds.width, border, accent),
+        ScreenRect::new(
+            bounds.x,
+            bounds.y + bounds.height - border,
+            bounds.width,
+            border,
+            accent,
+        ),
+        ScreenRect::new(bounds.x, bounds.y, border, bounds.height, accent),
+        ScreenRect::new(
+            bounds.x + bounds.width - border,
+            bounds.y,
+            border,
+            bounds.height,
+            accent,
+        ),
+        ScreenRect::new(
+            bounds.x + 6.0,
+            bounds.y + bounds.height * 0.55,
+            (bounds.width - 12.0).max(1.0),
+            2.0,
+            accent,
+        ),
+    ]);
+}
+
+fn task_checkbox_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
+    let x = (TEXT_LEFT + anchor_x - TASK_CHECKBOX_SIZE - TASK_CHECKBOX_GAP).max(2.0);
+    let y = TEXT_TOP + line_top + (line_height - TASK_CHECKBOX_SIZE) * 0.5;
+    ScreenRect::new(
+        x,
+        y,
+        TASK_CHECKBOX_SIZE,
+        TASK_CHECKBOX_SIZE,
+        TASK_CHECKBOX_COLOR,
+    )
+}
+
+fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, checked: bool) {
+    let b = TASK_CHECKBOX_BORDER;
+    output.extend([
+        ScreenRect::new(bounds.x, bounds.y, bounds.width, b, TASK_CHECKBOX_COLOR),
+        ScreenRect::new(
+            bounds.x,
+            bounds.y + bounds.height - b,
+            bounds.width,
+            b,
+            TASK_CHECKBOX_COLOR,
+        ),
+        ScreenRect::new(bounds.x, bounds.y, b, bounds.height, TASK_CHECKBOX_COLOR),
+        ScreenRect::new(
+            bounds.x + bounds.width - b,
+            bounds.y,
+            b,
+            bounds.height,
+            TASK_CHECKBOX_COLOR,
+        ),
+    ]);
+
+    if checked {
+        let inset = 3.5;
+        output.push(ScreenRect::new(
+            bounds.x + inset,
+            bounds.y + inset,
+            (bounds.width - inset * 2.0).max(1.0),
+            (bounds.height - inset * 2.0).max(1.0),
+            TASK_CHECKBOX_CHECKED_COLOR,
+        ));
+    }
+}
+
+fn point_in_rect(x: f32, y: f32, rect: ScreenRect) -> bool {
+    x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
+}
+
 fn visual_horizontal_target(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
@@ -2302,6 +2655,69 @@ mod tests {
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn image_preview_geometry_preserves_aspect_ratio_within_line_budget() {
+        let rect = image_preview_rect(0.0, 0.0, LINE_HEIGHT, 200, 100);
+
+        assert!(rect.height <= IMAGE_PREVIEW_MAX_HEIGHT);
+        assert!(rect.width <= IMAGE_PREVIEW_MAX_WIDTH);
+        assert!((rect.width / rect.height - 2.0).abs() < 0.01);
+        assert!(rect.x >= TEXT_LEFT);
+        assert!(rect.y >= TEXT_TOP);
+    }
+
+    #[test]
+    fn image_placeholder_uses_one_text_row_without_forcing_reflow() {
+        let rect = image_placeholder_rect(0.0, 0.0, LINE_HEIGHT);
+        assert!(rect.height < LINE_HEIGHT);
+        assert_eq!(rect.width, IMAGE_PLACEHOLDER_WIDTH);
+
+        let mut pieces = Vec::new();
+        append_image_placeholder_rects(&mut pieces, rect, IMAGE_LOADING_COLOR);
+        assert_eq!(pieces.len(), 5);
+    }
+
+    #[test]
+    fn task_checkbox_geometry_stays_in_the_left_gutter_and_is_hittable() {
+        let rect = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
+
+        assert!(rect.x < TEXT_LEFT);
+        assert!(rect.y >= TEXT_TOP);
+        assert!(point_in_rect(
+            rect.x + rect.width * 0.5,
+            rect.y + rect.height * 0.5,
+            rect
+        ));
+        assert!(!point_in_rect(rect.x + rect.width + 1.0, rect.y, rect));
+
+        let mut unchecked = Vec::new();
+        append_task_checkbox_rects(&mut unchecked, rect, false);
+        assert_eq!(unchecked.len(), 4);
+
+        let mut checked = Vec::new();
+        append_task_checkbox_rects(&mut checked, rect, true);
+        assert_eq!(checked.len(), 5);
+    }
+
+    #[test]
+    fn empty_widget_row_has_layout_run_for_native_geometry() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let display = "above\n\n\n\nbelow\n";
+
+        buffer.set_text(display, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let rule_row = display_offset_to_cursor(display, "above\n\n".len()).line;
+        let run = buffer
+            .layout_runs()
+            .find(|run| run.line_i == rule_row)
+            .expect("empty widget row should retain layout geometry");
+
+        assert!(run.line_height > 0.0);
     }
 
     #[test]

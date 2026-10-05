@@ -220,6 +220,17 @@ Deferred:
 
 ## Phase 6 - Widgets
 
+Status: **in progress — horizontal rule and task checkbox macOS PASS; standalone image widget implemented with 3-OS CI PASS and macOS manual acceptance pending; Windows native manual acceptance deferred to the final integration pass**
+
+Rules:
+
+- canonical Markdown source remains authoritative
+- widgets are derived from syntax + Live Preview projection
+- inactive widgets may conceal only their proven source range
+- entering a widget's source range reveals editable Markdown
+- native views own geometry and painting
+- widgets emit editor/host actions; they never mutate the buffer directly
+
 Order:
 
 1. horizontal rule

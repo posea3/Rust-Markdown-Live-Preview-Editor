@@ -57,3 +57,31 @@ Type after each label with the matching native IME. Preedit must remain visible 
 Screen readers should expose the projected Live Preview text rather than hidden Markdown marker bytes.
 
 Edit this sentence through Narrator or VoiceOver selection/replacement actions.
+
+
+## Phase 6 widget scratch
+
+The horizontal rule below should render as a native line while inactive. Moving the caret onto its line should reveal the Markdown source for editing.
+
+Above the rule.
+
+---
+
+Below the rule.
+
+
+### Task checkbox scratch
+
+- [ ] unchecked task
+- [x] checked task
+
+The markers above should render as native checkboxes while inactive. Clicking a checkbox should toggle only its canonical Markdown marker and remain one undo/redo step.
+
+
+### Image widget scratch
+
+The standalone image below should collapse to a native preview while inactive.
+
+![Phase 6 fixture](phase-06-image.png "local fixture")
+
+Inline image source remains editable for now: prefix ![inline](phase-06-image.png) suffix

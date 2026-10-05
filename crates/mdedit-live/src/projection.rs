@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
     BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ParseStatus,
-    SyntaxKind, SyntaxNode, SyntaxSnapshot,
+    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -323,6 +323,128 @@ impl StyleSpan {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WidgetKind {
+    HorizontalRule,
+    TaskCheckbox,
+    Image,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageWidgetData {
+    destination: String,
+    title: String,
+    alt: String,
+}
+
+impl ImageWidgetData {
+    #[must_use]
+    pub fn destination(&self) -> &str {
+        &self.destination
+    }
+
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    #[must_use]
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WidgetPayload {
+    None,
+    TaskCheckbox { checked: bool },
+    Image(ImageWidgetData),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WidgetAction {
+    SetTaskChecked {
+        marker_range: TextRange,
+        checked: bool,
+    },
+}
+
+impl WidgetAction {
+    #[must_use]
+    pub const fn replacement_text(self) -> &'static str {
+        match self {
+            Self::SetTaskChecked { checked: true, .. } => "[x]",
+            Self::SetTaskChecked { checked: false, .. } => "[ ]",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectedWidget {
+    kind: WidgetKind,
+    payload: WidgetPayload,
+    source_range: TextRange,
+    projected_range: ProjectedRange,
+}
+
+impl ProjectedWidget {
+    #[must_use]
+    pub const fn kind(&self) -> WidgetKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn payload(&self) -> &WidgetPayload {
+        &self.payload
+    }
+
+    #[must_use]
+    pub const fn source_range(&self) -> TextRange {
+        self.source_range
+    }
+
+    #[must_use]
+    pub const fn projected_range(&self) -> ProjectedRange {
+        self.projected_range
+    }
+
+    #[must_use]
+    pub const fn task_checked(&self) -> Option<bool> {
+        match &self.payload {
+            WidgetPayload::TaskCheckbox { checked } => Some(*checked),
+            WidgetPayload::None | WidgetPayload::Image(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn image(&self) -> Option<&ImageWidgetData> {
+        match &self.payload {
+            WidgetPayload::Image(image) => Some(image),
+            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn primary_action(&self) -> Option<WidgetAction> {
+        match &self.payload {
+            WidgetPayload::TaskCheckbox { checked } => Some(WidgetAction::SetTaskChecked {
+                marker_range: self.source_range,
+                checked: !*checked,
+            }),
+            WidgetPayload::None | WidgetPayload::Image(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WidgetCandidate {
+    kind: WidgetKind,
+    payload: WidgetPayload,
+    source_range: TextRange,
+    conceal_range: TextRange,
+    active: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionFallbackReason {
     SyntaxRawFallback,
@@ -515,6 +637,7 @@ pub struct Projection {
     map: ProjectionMap,
     blocks: Vec<ProjectedBlock>,
     styles: Vec<StyleSpan>,
+    widgets: Vec<ProjectedWidget>,
     reveal_groups: Vec<RevealGroup>,
     concealed: Vec<ConcealSpan>,
     structural_padding: Vec<StructuralPaddingSpan>,
@@ -580,8 +703,9 @@ impl Projection {
             .collect::<Vec<_>>();
 
         let structural_padding = build_structural_padding(&source, &reveal_groups)?;
+        let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
 
-        if has_overlapping_projection_ranges(&concealed, &structural_padding) {
+        if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
                 document.revision(),
                 syntax.source_len(),
@@ -596,11 +720,18 @@ impl Projection {
             .iter()
             .map(|span| span.source_range)
             .chain(structural_padding.iter().map(|span| span.source_range))
+            .chain(
+                widget_candidates
+                    .iter()
+                    .filter(|widget| !widget.active)
+                    .map(|widget| widget.conceal_range),
+            )
             .collect();
         let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
         let text = materialize_projection(&source, map.concealed_ranges());
         let projected_blocks = project_blocks(blocks, &map)?;
         let styles = project_styles(syntax.root(), &map)?;
+        let widgets = project_widgets(&widget_candidates, &map)?;
 
         Ok(Self {
             revision: syntax.revision(),
@@ -610,6 +741,7 @@ impl Projection {
             map,
             blocks: projected_blocks,
             styles,
+            widgets,
             reveal_groups,
             concealed,
             structural_padding,
@@ -636,6 +768,7 @@ impl Projection {
             map,
             blocks: projected_blocks,
             styles,
+            widgets: Vec::new(),
             reveal_groups: Vec::new(),
             concealed: Vec::new(),
             structural_padding: Vec::new(),
@@ -675,6 +808,11 @@ impl Projection {
     #[must_use]
     pub fn styles(&self) -> &[StyleSpan] {
         &self.styles
+    }
+
+    #[must_use]
+    pub fn widgets(&self) -> &[ProjectedWidget] {
+        &self.widgets
     }
 
     #[must_use]
@@ -1132,11 +1270,18 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
 fn has_overlapping_projection_ranges(
     concealed: &[ConcealSpan],
     structural_padding: &[StructuralPaddingSpan],
+    widgets: &[WidgetCandidate],
 ) -> bool {
     let mut ranges = concealed
         .iter()
         .map(|span| span.source_range)
         .chain(structural_padding.iter().map(|span| span.source_range))
+        .chain(
+            widgets
+                .iter()
+                .filter(|widget| !widget.active)
+                .map(|widget| widget.conceal_range),
+        )
         .collect::<Vec<_>>();
     ranges.sort_by_key(|range| (range.start().get(), range.end().get()));
 
@@ -1200,6 +1345,204 @@ fn project_blocks(
                 id: block.id(),
                 source_range: block.range(),
                 projected_range: map.source_range_to_projected(block.range())?,
+            })
+        })
+        .collect()
+}
+
+fn build_widget_candidates(
+    source: &str,
+    root: &SyntaxNode,
+    policy: RevealPolicy,
+    context: &RevealContext,
+) -> Result<Vec<WidgetCandidate>, ProjectionBuildError> {
+    let mut widgets = Vec::new();
+    collect_widget_candidates(source, root, policy, context, &mut widgets)?;
+    widgets.sort_by_key(|widget| {
+        (
+            widget.source_range.start().get(),
+            widget.source_range.end().get(),
+        )
+    });
+    Ok(widgets)
+}
+
+fn collect_widget_candidates(
+    source: &str,
+    node: &SyntaxNode,
+    policy: RevealPolicy,
+    context: &RevealContext,
+    output: &mut Vec<WidgetCandidate>,
+) -> Result<(), ProjectionBuildError> {
+    match node.kind() {
+        SyntaxKind::Rule => {
+            let source_range = node.range();
+            let conceal_range = horizontal_rule_conceal_range(source, source_range)?;
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, conceal_range);
+            output.push(WidgetCandidate {
+                kind: WidgetKind::HorizontalRule,
+                payload: WidgetPayload::None,
+                source_range,
+                conceal_range,
+                active,
+            });
+        }
+        SyntaxKind::TaskListMarker { checked } => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            output.push(WidgetCandidate {
+                kind: WidgetKind::TaskCheckbox,
+                payload: WidgetPayload::TaskCheckbox { checked },
+                source_range,
+                conceal_range: source_range,
+                active,
+            });
+        }
+        SyntaxKind::Image if image_is_standalone(source, node.range()) => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            if let Some(image) = image_widget_data(source, node) {
+                output.push(WidgetCandidate {
+                    kind: WidgetKind::Image,
+                    payload: WidgetPayload::Image(image),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+            }
+        }
+        _ => {}
+    }
+
+    for child in node.children() {
+        collect_widget_candidates(source, child, policy, context, output)?;
+    }
+    Ok(())
+}
+
+fn image_widget_data(source: &str, node: &SyntaxNode) -> Option<ImageWidgetData> {
+    let SyntaxMetadata::Image(metadata) = node.metadata() else {
+        return None;
+    };
+
+    let mut alt = String::new();
+    collect_image_alt_text(source, node, &mut alt);
+
+    Some(ImageWidgetData {
+        destination: metadata.destination().to_owned(),
+        title: metadata.title().to_owned(),
+        alt,
+    })
+}
+
+fn collect_image_alt_text(source: &str, node: &SyntaxNode, output: &mut String) {
+    for child in node.children() {
+        if child.kind() == SyntaxKind::Text {
+            let range = child.range().as_usize_range();
+            if range.end <= source.len()
+                && source.is_char_boundary(range.start)
+                && source.is_char_boundary(range.end)
+            {
+                output.push_str(&source[range]);
+            }
+        } else {
+            collect_image_alt_text(source, child, output);
+        }
+    }
+}
+
+fn image_is_standalone(source: &str, source_range: TextRange) -> bool {
+    let range = source_range.as_usize_range();
+    if range.end > source.len()
+        || !source.is_char_boundary(range.start)
+        || !source.is_char_boundary(range.end)
+    {
+        return false;
+    }
+
+    let line_start = source[..range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = source[range.end..]
+        .find('\n')
+        .map_or(source.len(), |relative| range.end + relative);
+
+    source[line_start..line_end].trim() == source[range].trim()
+}
+
+fn horizontal_rule_conceal_range(
+    source: &str,
+    source_range: TextRange,
+) -> Result<TextRange, ProjectionBuildError> {
+    let range = source_range.as_usize_range();
+    if range.end > source.len()
+        || !source.is_char_boundary(range.start)
+        || !source.is_char_boundary(range.end)
+    {
+        return Err(ProjectionBuildError::InvalidWidgetBounds {
+            start: range.start,
+            end: range.end,
+        });
+    }
+
+    let bytes = source.as_bytes();
+    let mut end = range.end;
+    while end > range.start && matches!(bytes[end - 1], b'\r' | b'\n') {
+        end -= 1;
+    }
+    if end == range.start {
+        return Err(ProjectionBuildError::InvalidWidgetBounds {
+            start: range.start,
+            end: range.end,
+        });
+    }
+
+    let start = TextSize::try_from_usize(range.start)
+        .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    let end = TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    TextRange::new(start, end).map_err(|_| ProjectionBuildError::InvalidWidgetBounds {
+        start: range.start,
+        end: range.end,
+    })
+}
+
+fn context_touches_range(context: &RevealContext, range: TextRange) -> bool {
+    context
+        .carets()
+        .iter()
+        .any(|caret| range_contains_point(range, *caret))
+        || context.selections().iter().any(|selection| {
+            if selection.is_empty() {
+                range_contains_point(range, selection.start())
+            } else {
+                ranges_overlap_nonempty(range, *selection)
+            }
+        })
+        || context.compositions().iter().any(|composition| {
+            if composition.is_empty() {
+                range_contains_point(range, composition.start())
+            } else {
+                ranges_overlap_nonempty(range, *composition)
+            }
+        })
+}
+
+fn project_widgets(
+    candidates: &[WidgetCandidate],
+    map: &ProjectionMap,
+) -> Result<Vec<ProjectedWidget>, ProjectionBuildError> {
+    candidates
+        .iter()
+        .filter(|widget| !widget.active)
+        .map(|widget| {
+            Ok(ProjectedWidget {
+                kind: widget.kind,
+                payload: widget.payload.clone(),
+                source_range: widget.source_range,
+                projected_range: map.source_range_to_projected(widget.conceal_range)?,
             })
         })
         .collect()
@@ -1323,6 +1666,10 @@ pub enum ProjectionBuildError {
         start: usize,
         end: usize,
     },
+    InvalidWidgetBounds {
+        start: usize,
+        end: usize,
+    },
     DocumentTooLarge,
 }
 
@@ -1371,6 +1718,9 @@ impl fmt::Display for ProjectionBuildError {
                     "structural padding bounds {start}..{end} are invalid"
                 )
             }
+            Self::InvalidWidgetBounds { start, end } => {
+                write!(formatter, "widget bounds {start}..{end} are invalid")
+            }
             Self::DocumentTooLarge => {
                 write!(formatter, "document exceeds the supported source size")
             }
@@ -1398,6 +1748,171 @@ mod tests {
         let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
 
         Projection::build(&snapshot, &syntax, &blocks, &delimiters, policy, context).unwrap()
+    }
+
+    #[test]
+    fn inactive_horizontal_rule_becomes_projected_widget_without_removing_line_break() {
+        let source = "above\n\n---\n\nbelow\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        assert!(!projection.text().contains("---"));
+        assert_eq!(
+            projection.text().matches('\n').count(),
+            source.matches('\n').count()
+        );
+        assert_eq!(projection.widgets().len(), 1);
+        let widget = &projection.widgets()[0];
+        assert_eq!(widget.kind(), WidgetKind::HorizontalRule);
+        assert!(widget.projected_range().is_empty());
+    }
+
+    #[test]
+    fn horizontal_rule_reveals_source_when_caret_enters_widget_range() {
+        let source = "above\n\n---\n\nbelow\n";
+        let marker = source.find("---").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
+        );
+
+        assert!(projection.text().contains("---"));
+        assert!(projection.widgets().is_empty());
+    }
+
+    #[test]
+    fn inactive_task_markers_become_checkbox_widgets_with_toggle_actions() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(source.len()).unwrap()),
+        );
+
+        assert_eq!(projection.widgets().len(), 2);
+        assert_eq!(projection.widgets()[0].kind(), WidgetKind::TaskCheckbox);
+        assert_eq!(projection.widgets()[1].kind(), WidgetKind::TaskCheckbox);
+        assert!(projection.widgets().iter().all(|widget| {
+            widget.projected_range().is_empty()
+                && matches!(
+                    &source[widget.source_range().as_usize_range()],
+                    "[ ]" | "[x]"
+                )
+        }));
+
+        assert_eq!(projection.widgets()[0].task_checked(), Some(false));
+        assert_eq!(projection.widgets()[1].task_checked(), Some(true));
+        assert_eq!(
+            projection.widgets()[0].primary_action(),
+            Some(WidgetAction::SetTaskChecked {
+                marker_range: projection.widgets()[0].source_range(),
+                checked: true,
+            })
+        );
+        assert_eq!(
+            projection.widgets()[0]
+                .primary_action()
+                .unwrap()
+                .replacement_text(),
+            "[x]"
+        );
+        assert_eq!(
+            projection.widgets()[1]
+                .primary_action()
+                .unwrap()
+                .replacement_text(),
+            "[ ]"
+        );
+    }
+
+    #[test]
+    fn task_marker_source_is_revealed_when_caret_enters_it() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let marker = source.find("[ ]").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker + 1).unwrap()),
+        );
+
+        assert!(projection.text().contains("[ ]"));
+        assert_eq!(
+            projection
+                .widgets()
+                .iter()
+                .filter(|widget| widget.kind() == WidgetKind::TaskCheckbox)
+                .count(),
+            1
+        );
+        assert_eq!(
+            projection
+                .widgets()
+                .iter()
+                .find(|widget| widget.kind() == WidgetKind::TaskCheckbox)
+                .unwrap()
+                .kind(),
+            WidgetKind::TaskCheckbox
+        );
+    }
+
+    #[test]
+    fn standalone_image_becomes_projected_widget_with_link_metadata() {
+        let source = "before\n\n![blue square](fixtures/phase-06-image.png \"fixture\")\n\nafter\n";
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let image = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Image)
+            .expect("standalone image widget");
+        assert!(image.projected_range().is_empty());
+        assert!(!projection.text().contains("![blue square]"));
+
+        let data = image.image().expect("image payload");
+        assert_eq!(data.destination(), "fixtures/phase-06-image.png");
+        assert_eq!(data.title(), "fixture");
+        assert_eq!(data.alt(), "blue square");
+    }
+
+    #[test]
+    fn image_source_reveals_when_caret_enters_image_range() {
+        let source = "![alt](image.png)\n";
+        let marker = source.find("image.png").unwrap();
+        let projection = build(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Image)
+        );
+    }
+
+    #[test]
+    fn inline_image_remains_source_visible_until_inline_reservation_exists() {
+        let source = "prefix ![alt](image.png) suffix";
+        let projection = build(source, RevealPolicy::ConcealInactive, &RevealContext::new());
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Image)
+        );
     }
 
     #[test]
