@@ -1,7 +1,8 @@
 use std::{fmt::Write as _, ops::Range};
 
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange,
+    TextSize,
 };
 use thiserror::Error;
 
@@ -121,6 +122,12 @@ impl EditorTrace {
 fn encode_input(input: &EditorInput) -> String {
     match input {
         EditorInput::InsertText(text) => format!("insert\t{}", encode_hex(text)),
+        EditorInput::WidgetReplace { range, text } => format!(
+            "widget-replace\t{}:{}\t{}",
+            range.start().get(),
+            range.end().get(),
+            encode_hex(text)
+        ),
         EditorInput::ImeEnabled => "ime-enabled".to_owned(),
         EditorInput::ImePreedit { text, selection } => format!(
             "ime-preedit\t{}\t{}",
@@ -152,6 +159,23 @@ fn decode_input(line: &str) -> Result<EditorInput, TraceError> {
 
     let input = match kind {
         "insert" => EditorInput::InsertText(decode_hex(required_field(&mut fields, line)?)?),
+        "widget-replace" => {
+            let encoded_range = required_field(&mut fields, line)?;
+            let (start, end) = encoded_range
+                .split_once(':')
+                .ok_or_else(|| TraceError::InvalidRange(encoded_range.to_owned()))?;
+            let start = start
+                .parse::<u32>()
+                .map_err(|_| TraceError::InvalidRange(encoded_range.to_owned()))?;
+            let end = end
+                .parse::<u32>()
+                .map_err(|_| TraceError::InvalidRange(encoded_range.to_owned()))?;
+            EditorInput::WidgetReplace {
+                range: TextRange::new(TextSize::new(start), TextSize::new(end))
+                    .map_err(|_| TraceError::InvalidRange(encoded_range.to_owned()))?,
+                text: decode_hex(required_field(&mut fields, line)?)?,
+            }
+        }
         "ime-enabled" => EditorInput::ImeEnabled,
         "ime-preedit" => EditorInput::ImePreedit {
             text: decode_hex(required_field(&mut fields, line)?)?,
@@ -423,6 +447,10 @@ mod tests {
         let mut trace = EditorTrace::new("a한🙂z".to_owned(), selection());
         for input in [
             EditorInput::InsertText("\t\n한🙂".to_owned()),
+            EditorInput::WidgetReplace {
+                range: TextRange::new(TextSize::new(1), TextSize::new(4)).unwrap(),
+                text: "[x]".to_owned(),
+            },
             EditorInput::ImeEnabled,
             EditorInput::ImePreedit {
                 text: "かな".to_owned(),
