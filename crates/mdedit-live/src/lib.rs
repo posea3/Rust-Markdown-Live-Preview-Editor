@@ -13,8 +13,9 @@ mod reflow;
 pub use caret::{CaretDirection, ProjectedCaretStop, ProjectedCaretStops};
 pub use hit::{HitBias, ProjectedHit, ProjectedSelection, ProjectedSelectionEndpoint};
 pub use projection::{
-    ConcealSpan, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, ProjectedWidget,
-    Projection, ProjectionBias, ProjectionBuildError, ProjectionFallbackReason, ProjectionMap,
+    ConcealSpan, ImageWidgetData, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan,
+    ProjectedWidget, Projection, ProjectionBias, ProjectionBuildError, ProjectionFallbackReason,
+    ProjectionMap,
     ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
     StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan, WidgetAction, WidgetKind,
     WidgetPayload,
