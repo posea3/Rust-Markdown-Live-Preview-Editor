@@ -1,5 +1,6 @@
 mod accessibility;
 mod geometry;
+mod image_widget;
 mod live_preview;
 mod trace_capture;
 
@@ -13,6 +14,7 @@ use accesskit_winit::{
 use arboard::Clipboard;
 use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
+use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
@@ -58,6 +60,12 @@ const TASK_CHECKBOX_GAP: f32 = 5.0;
 const TASK_CHECKBOX_BORDER: f32 = 1.5;
 const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
 const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
+const IMAGE_PREVIEW_MAX_HEIGHT: f32 = 24.0;
+const IMAGE_PREVIEW_MAX_WIDTH: f32 = 180.0;
+const IMAGE_PLACEHOLDER_WIDTH: f32 = 56.0;
+const IMAGE_PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.48, 0.56, 0.90];
+const IMAGE_LOADING_COLOR: [f32; 4] = [0.55, 0.60, 0.72, 0.75];
+const IMAGE_FAILED_COLOR: [f32; 4] = [0.78, 0.38, 0.38, 0.92];
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -233,6 +241,7 @@ struct WindowState {
     atlas: TextAtlas,
     text_renderer: TextRenderer,
     rect_renderer: RectRenderer,
+    image_widgets: ImageWidgetHost,
     text_buffer: Buffer,
     accessibility_adapter: AccessKitAdapter,
 
@@ -380,6 +389,7 @@ impl WindowState {
             atlas,
             text_renderer,
             rect_renderer,
+            image_widgets,
             text_buffer,
             accessibility_adapter,
             session,
@@ -1338,6 +1348,28 @@ impl WindowState {
                         widget.task_checked().unwrap_or(false),
                     );
                 }
+                WidgetKind::Image => {
+                    let Some(image) = widget.image() else {
+                        continue;
+                    };
+                    match self.image_widgets.state(image.destination()) {
+                        ImageHostState::Ready => {}
+                        ImageHostState::Loading | ImageHostState::Missing => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                image_placeholder_rect(anchor_x, line_top, line_height),
+                                IMAGE_LOADING_COLOR,
+                            );
+                        }
+                        ImageHostState::Failed => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                image_placeholder_rect(anchor_x, line_top, line_height),
+                                IMAGE_FAILED_COLOR,
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -1365,7 +1397,7 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| match widget.kind() {
-                WidgetKind::HorizontalRule => None,
+                WidgetKind::HorizontalRule | WidgetKind::Image => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
@@ -1424,6 +1456,38 @@ impl WindowState {
             (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0),
             [0.0; 4],
         )
+    }
+
+    fn sync_image_widgets(&mut self) {
+        let destinations = self
+            .live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| widget.image().map(|image| image.destination().to_owned()))
+            .collect::<Vec<_>>();
+
+        for destination in destinations {
+            self.image_widgets.request(&destination);
+        }
+    }
+
+    fn image_draw_requests(&self) -> Vec<ImageDrawRequest> {
+        let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
+
+        self.live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| {
+                let image = widget.image()?;
+                let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
+                let (anchor_x, line_top, line_height) = self.widget_anchor_geometry(widget)?;
+                let rect = image_preview_rect(anchor_x, line_top, line_height, width, height);
+
+                (rect.y >= TEXT_TOP && rect.y + rect.height <= viewport_bottom).then(|| {
+                    ImageDrawRequest::new(image.destination().to_owned(), rect)
+                })
+            })
+            .collect()
     }
 
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
@@ -1546,6 +1610,8 @@ impl WindowState {
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
         self.refresh_layout();
+        self.sync_image_widgets();
+        self.image_widgets.drain_ready(&self.device, &self.queue);
         self.update_accessibility_tree();
 
         if self.viewport_dirty {
@@ -1590,6 +1656,13 @@ impl WindowState {
 
         let selection_rects = self.selection_rectangles();
         let widget_rects = self.widget_rectangles();
+        let image_draws = self.image_draw_requests();
+        let image_batches = self.image_widgets.prepare(
+            &self.device,
+            &image_draws,
+            self.surface_config.width,
+            self.surface_config.height,
+        );
         let caret_rects = self.caret_rectangles();
         let clip = self.text_clip_rect();
         let selection_batch = self.rect_renderer.prepare(
@@ -1670,6 +1743,26 @@ impl WindowState {
             if let Some(batch) = widget_batch.as_ref() {
                 self.rect_renderer.render(&mut pass, batch);
             }
+        }
+
+        if !image_batches.is_empty() {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("mdedit images"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.image_widgets.render(&mut pass, &image_batches);
         }
 
         {
@@ -2061,6 +2154,73 @@ fn vertical_target_cursor(
         .cursor_motion(font_system, cursor, None, motion)
         .map(|(target, _)| target)
         .filter(|target| !same_logical_cursor(*target, cursor))
+}
+
+fn image_base_dir() -> std::path::PathBuf {
+    env::var_os("MDEDIT_IMAGE_BASE_DIR").map_or_else(
+        || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"),
+        std::path::PathBuf::from,
+    )
+}
+
+fn image_preview_rect(
+    anchor_x: f32,
+    line_top: f32,
+    line_height: f32,
+    intrinsic_width: u32,
+    intrinsic_height: u32,
+) -> ScreenRect {
+    let max_height = (line_height - 4.0).clamp(4.0, IMAGE_PREVIEW_MAX_HEIGHT);
+    let aspect = intrinsic_width as f32 / intrinsic_height.max(1) as f32;
+    let width = (max_height * aspect).clamp(4.0, IMAGE_PREVIEW_MAX_WIDTH);
+    let height = (width / aspect.max(f32::EPSILON)).min(max_height);
+    let x = TEXT_LEFT + anchor_x;
+    let y = TEXT_TOP + line_top + (line_height - height) * 0.5;
+    ScreenRect::new(x, y, width, height, [1.0; 4])
+}
+
+fn image_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
+    let height = (line_height - 6.0).clamp(8.0, IMAGE_PREVIEW_MAX_HEIGHT);
+    ScreenRect::new(
+        TEXT_LEFT + anchor_x,
+        TEXT_TOP + line_top + (line_height - height) * 0.5,
+        IMAGE_PLACEHOLDER_WIDTH,
+        height,
+        IMAGE_PLACEHOLDER_COLOR,
+    )
+}
+
+fn append_image_placeholder_rects(
+    output: &mut Vec<ScreenRect>,
+    bounds: ScreenRect,
+    accent: [f32; 4],
+) {
+    let border = 1.5;
+    output.extend([
+        ScreenRect::new(bounds.x, bounds.y, bounds.width, border, accent),
+        ScreenRect::new(
+            bounds.x,
+            bounds.y + bounds.height - border,
+            bounds.width,
+            border,
+            accent,
+        ),
+        ScreenRect::new(bounds.x, bounds.y, border, bounds.height, accent),
+        ScreenRect::new(
+            bounds.x + bounds.width - border,
+            bounds.y,
+            border,
+            bounds.height,
+            accent,
+        ),
+        ScreenRect::new(
+            bounds.x + 6.0,
+            bounds.y + bounds.height * 0.55,
+            (bounds.width - 12.0).max(1.0),
+            2.0,
+            accent,
+        ),
+    ]);
 }
 
 fn task_checkbox_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
@@ -2495,6 +2655,28 @@ mod tests {
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn image_preview_geometry_preserves_aspect_ratio_within_line_budget() {
+        let rect = image_preview_rect(0.0, 0.0, LINE_HEIGHT, 200, 100);
+
+        assert!(rect.height <= IMAGE_PREVIEW_MAX_HEIGHT);
+        assert!(rect.width <= IMAGE_PREVIEW_MAX_WIDTH);
+        assert!((rect.width / rect.height - 2.0).abs() < 0.01);
+        assert!(rect.x >= TEXT_LEFT);
+        assert!(rect.y >= TEXT_TOP);
+    }
+
+    #[test]
+    fn image_placeholder_uses_one_text_row_without_forcing_reflow() {
+        let rect = image_placeholder_rect(0.0, 0.0, LINE_HEIGHT);
+        assert!(rect.height < LINE_HEIGHT);
+        assert_eq!(rect.width, IMAGE_PLACEHOLDER_WIDTH);
+
+        let mut pieces = Vec::new();
+        append_image_placeholder_rects(&mut pieces, rect, IMAGE_LOADING_COLOR);
+        assert_eq!(pieces.len(), 5);
     }
 
     #[test]
