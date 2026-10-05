@@ -74,7 +74,7 @@ The final Windows pass will cover widgets plus the Phase 5 IME, navigation, sele
 
 ## Slice 02 - task checkbox
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance PASS; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
 Behavior:
 
@@ -99,6 +99,31 @@ Manual acceptance on macOS:
 - arrow navigation across task lines remains normal
 - IME behavior remains unchanged
 
-## Next widget after Slice 02
+## Slice 03 - image
 
-**image**.
+Status: **in progress**.
+
+Current contract:
+
+- standalone CommonMark/GFM image syntax is projected as `WidgetKind::Image`
+- destination/title/alt text are preserved in `ImageWidgetData`
+- entering the image source range reveals canonical Markdown
+- inline images remain source-visible until an inline-width reservation contract exists
+- the IME lab owns resource resolution; `mdedit-live` performs no filesystem/network I/O
+- the IME lab resolver is sandboxed to its configured image base directory
+- remote/data/file URIs are intentionally delegated to a future host resolver
+- local image decode runs off the UI thread
+- decoded RGBA data is uploaded to a native wgpu texture
+- while loading or on failure, a native placeholder is drawn
+- the initial preview is constrained to one text row, so this slice does not yet introduce block-height reflow
+
+Acceptance target:
+
+- the standalone fixture image renders as an actual native preview
+- moving the caret/clicking onto the collapsed image position reveals the Markdown source
+- moving away restores the preview
+- missing/unsupported image resources fail to a placeholder without breaking editing
+- the inline image example remains source text
+- IME/navigation/checkbox/horizontal-rule behavior does not regress
+
+Next image substep after this acceptance: block-height reservation/reflow policy, then **math**.
