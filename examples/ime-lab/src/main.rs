@@ -14,11 +14,11 @@ use accesskit_winit::{
 use arboard::Clipboard;
 use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
-use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
+use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
 use live_preview::LivePreviewState;
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
@@ -1483,9 +1483,8 @@ impl WindowState {
                 let (anchor_x, line_top, line_height) = self.widget_anchor_geometry(widget)?;
                 let rect = image_preview_rect(anchor_x, line_top, line_height, width, height);
 
-                (rect.y >= TEXT_TOP && rect.y + rect.height <= viewport_bottom).then(|| {
-                    ImageDrawRequest::new(image.destination().to_owned(), rect)
-                })
+                (rect.y >= TEXT_TOP && rect.y + rect.height <= viewport_bottom)
+                    .then(|| ImageDrawRequest::new(image.destination().to_owned(), rect))
             })
             .collect()
     }
