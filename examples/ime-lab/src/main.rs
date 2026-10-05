@@ -1315,15 +1315,14 @@ impl WindowState {
         let mut rects = Vec::new();
 
         for widget in self.live_preview.widgets(&self.session) {
-            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(*widget) else {
+            let Some((anchor_x, line_top, line_height)) = self.widget_anchor_geometry(*widget)
+            else {
                 continue;
             };
 
             match widget.kind() {
                 WidgetKind::HorizontalRule => {
-                    let y = TEXT_TOP
-                        + line_top
-                        + (line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
+                    let y = TEXT_TOP + line_top + (line_height - HORIZONTAL_RULE_THICKNESS) * 0.5;
                     rects.push(ScreenRect::new(
                         TEXT_LEFT + HORIZONTAL_RULE_INSET,
                         y,
@@ -1367,14 +1366,12 @@ impl WindowState {
             .iter()
             .filter_map(|widget| match widget.kind() {
                 WidgetKind::HorizontalRule => None,
-                WidgetKind::TaskCheckbox { .. } => self
-                    .widget_anchor_geometry(*widget)
-                    .map(|(anchor_x, line_top, line_height)| {
-                        (
-                            *widget,
-                            task_checkbox_rect(anchor_x, line_top, line_height),
-                        )
-                    }),
+                WidgetKind::TaskCheckbox { .. } => {
+                    self.widget_anchor_geometry(*widget)
+                        .map(|(anchor_x, line_top, line_height)| {
+                            (*widget, task_checkbox_rect(anchor_x, line_top, line_height))
+                        })
+                }
             })
             .collect()
     }
@@ -2109,10 +2106,7 @@ fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, 
 }
 
 fn point_in_rect(x: f32, y: f32, rect: ScreenRect) -> bool {
-    x >= rect.x
-        && x <= rect.x + rect.width
-        && y >= rect.y
-        && y <= rect.y + rect.height
+    x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
 fn visual_horizontal_target(
