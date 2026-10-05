@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — horizontal rule complete on macOS; task checkbox implemented with 3-OS CI PASS; Windows native manual acceptance deferred to the final integration pass**
+Status: **in progress — horizontal rule and task checkbox macOS PASS; standalone image widget implementation in progress; Windows native manual acceptance deferred to the final integration pass**
 
 Rules:
 
