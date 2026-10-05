@@ -15,8 +15,7 @@ pub use hit::{HitBias, ProjectedHit, ProjectedSelection, ProjectedSelectionEndpo
 pub use projection::{
     ConcealSpan, ImageWidgetData, ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan,
     ProjectedWidget, Projection, ProjectionBias, ProjectionBuildError, ProjectionFallbackReason,
-    ProjectionMap,
-    ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
+    ProjectionMap, ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
     StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan, WidgetAction, WidgetKind,
     WidgetPayload,
 };
