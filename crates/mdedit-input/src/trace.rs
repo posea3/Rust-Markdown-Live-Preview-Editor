@@ -1,8 +1,7 @@
 use std::{fmt::Write as _, ops::Range};
 
 use mdedit_core::{
-    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange,
-    TextSize,
+    Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
 use thiserror::Error;
 
