@@ -74,7 +74,7 @@ The final Windows pass will cover widgets plus the Phase 5 IME, navigation, sele
 
 ## Slice 02 - task checkbox
 
-Status: **implemented; CI and macOS manual acceptance pending; Windows manual acceptance deferred to the Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
 Behavior:
 
