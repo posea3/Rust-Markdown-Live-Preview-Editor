@@ -1366,14 +1366,15 @@ impl WindowState {
             .iter()
             .filter_map(|widget| match widget.kind() {
                 WidgetKind::HorizontalRule => None,
-                WidgetKind::TaskCheckbox => self
-                    .widget_anchor_geometry(widget)
-                    .map(|(anchor_x, line_top, line_height)| {
-                        (
-                            widget.clone(),
-                            task_checkbox_rect(anchor_x, line_top, line_height),
-                        )
-                    }),
+                WidgetKind::TaskCheckbox => {
+                    self.widget_anchor_geometry(widget)
+                        .map(|(anchor_x, line_top, line_height)| {
+                            (
+                                widget.clone(),
+                                task_checkbox_rect(anchor_x, line_top, line_height),
+                            )
+                        })
+                }
             })
             .collect()
     }
