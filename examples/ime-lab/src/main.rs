@@ -350,8 +350,7 @@ impl WindowState {
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let rect_renderer = RectRenderer::new(&device, format);
-        let image_widgets =
-            ImageWidgetHost::new(&device, format, window.clone(), image_base_dir());
+        let image_widgets = ImageWidgetHost::new(&device, format, window.clone(), image_base_dir());
         eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
