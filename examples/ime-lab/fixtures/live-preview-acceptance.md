@@ -76,3 +76,12 @@ Below the rule.
 - [x] checked task
 
 The markers above should render as native checkboxes while inactive. Clicking a checkbox should toggle only its canonical Markdown marker and remain one undo/redo step.
+
+
+### Image widget scratch
+
+The standalone image below should collapse to a native preview while inactive.
+
+![Phase 6 fixture](phase-06-image.png "local fixture")
+
+Inline image source remains editable for now: prefix ![inline](phase-06-image.png) suffix
