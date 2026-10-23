@@ -66,7 +66,7 @@ Exit gate:
 
 ## Phase 3 - Raw native editor / IME lab
 
-Status: **in progress — Windows Korean/GPU/caret acceptance passed; remaining platform acceptance pending**
+Status: **implementation complete — Windows/macOS Korean/Japanese/Chinese core IME acceptance passed**
 
 Implemented in the first Phase 3 slice:
 
@@ -97,40 +97,51 @@ Implemented in the first Phase 3 slice:
 - Windows DX12-first wgpu startup with adapter/backend diagnostics and environment overrides
 - affinity-only horizontal caret-stop filtering so one Left/Right press produces one visible step
 - caret-only redraw/layout/accessibility hot-path reductions validated during Windows acceptance
+- macOS IME empty-preedit, non-Latin shortcut, trailing-line, teardown, selection-highlight, and focus-loss/refocus hardening
 
-Manual acceptance now confirmed on Windows:
+Manual acceptance:
 
-- Korean IME: PASS
-- Left/Right one press = one visible caret step: PASS
-- sustained horizontal movement: PASS
-- Intel UHD Graphics 630 DX12 startup: PASS
+- Windows Korean IME: PASS
+- Windows Japanese IME: PASS
+- Windows Chinese IME: PASS
+- Windows Left/Right one press = one visible caret step and sustained movement: PASS
+- Windows Intel UHD Graphics 630 DX12 startup: PASS
 - FIFO/Mailbox comparison: not the cause of the former two-key caret symptom
+- macOS Korean IME: PASS
+- macOS Japanese IME: PASS
+- macOS Chinese IME: PASS
+- macOS focus loss/refocus: PASS
+- macOS Korean first syllable immediately after switching input source: UPSTREAM BLOCKER (`rust-windowing/winit#3095`); no local editor-layer workaround is carried
+- Narrator manual acceptance: DEFERRED
+- VoiceOver manual acceptance: DEFERRED
 
-Remaining Phase 3 hardening:
-
-- Windows Japanese IME acceptance
-- Windows Chinese IME acceptance
-- macOS Korean/Japanese/Chinese IME acceptance
-- manual focus-loss/composition edge-case acceptance
-- Narrator/VoiceOver text, selection, and edit-action acceptance
-
-Phase 4 syntax work may proceed on this accepted Windows baseline. Do not start Phase 5 Live Preview until the required IME, undo/redo, selection, mouse editing, and accessibility gates are stable on the intended Tier 1 platforms.
+Phase 3 is closed as an implementation milestone. Core Windows/macOS Korean/Japanese/Chinese IME acceptance is complete. The screen-reader checks are intentionally deferred until Markdown/Live Preview semantics exist, and the macOS Korean cold-start issue is tracked as a windowing-layer dependency item rather than an editor implementation blocker. Phase 4 and Phase 5 work may proceed on this base.
 
 ## Phase 4 - Markdown syntax engine
 
-Add `mdedit-markdown`.
+Status: **core complete — syntax, metadata, delimiters, block identity, extensions, compatibility fixtures, and parse reconciliation implemented**
 
-Implement:
+Implemented:
 
-- MarkdownParser trait
-- pulldown-cmark adapter
-- SyntaxSnapshot
-- SyntaxNode / SyntaxKind
-- block identity/cache boundary
-- MarkdownDialect
-- DelimiterResolver
+- `mdedit-markdown` crate
+- `MarkdownParser` trait
+- pulldown-cmark adapter behind project-owned types
+- `SyntaxSnapshot`
+- `SyntaxNode` / `SyntaxKind`
+- `MarkdownDialect`
 - raw-source failure mode
-- extension scanner/merge policy
+- full-parse correctness baseline with source-range validation
+- stable top-level block identity/cache boundary with content fingerprints and conservative reconciliation
+- exact source `DelimiterResolver` for the initial Live Preview marker set with conservative unresolved diagnostics
+- generic `SyntaxExtension` scanner/merge engine with deterministic overlap policy and protected syntax regions
+- opt-in Obsidian compatibility scanner backed by real wikilink/embed/highlight/comment/callout/block-ID syntax
+- project-owned semantic metadata for parser information needed by styling/widgets/host integration
+- file-backed CommonMark/GFM/Obsidian compatibility fixtures
+- parse request/result reconciliation contract for stale revisions, config epochs, superseded requests, and safe raw fallback
+
+Remaining follow-up:
+
+- additional compatibility cases discovered during Phase 5 projection work
 
 First rendering milestone keeps all Markdown markers visible and adds only semantic styles.
 
@@ -175,9 +186,11 @@ Order:
 
 Widgets emit editor/host actions. They never mutate the buffer directly.
 
-## Phase 7 - Public extension API
+## Phase 7 - Extension API hardening
 
-Ship sample extensions and compatibility tests.
+The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
+
+Ship additional sample extensions, compatibility tests, and API-stability guidance.
 
 Target use cases:
 
