@@ -1,0 +1,15 @@
+[package]
+name = "mdedit-input"
+description = "Framework-independent text input, IME composition, and editor session layer for mdedit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+mdedit-core = { path = "../mdedit-core" }
+thiserror = "2"
+
+[lints]
+workspace = true
