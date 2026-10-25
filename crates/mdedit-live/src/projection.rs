@@ -76,16 +76,11 @@ pub enum ProjectionBias {
     After,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RevealPolicy {
+    #[default]
     SourceVisible,
     ConcealInactive,
-}
-
-impl Default for RevealPolicy {
-    fn default() -> Self {
-        Self::SourceVisible
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
