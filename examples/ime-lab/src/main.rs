@@ -3237,6 +3237,27 @@ mod tests {
     }
 
     #[test]
+    fn history_with_unchanged_selection_preserves_manual_viewport() {
+        let selection = SelectionSet::caret(Anchor::new(TextSize::ZERO, Affinity::Before));
+
+        assert!(
+            !history_action_should_follow_caret(&selection, &selection),
+            "widget undo/redo must not scroll back to an unrelated caret when selection is unchanged",
+        );
+    }
+
+    #[test]
+    fn history_with_restored_selection_follows_caret() {
+        let before = SelectionSet::caret(Anchor::new(TextSize::new(12), Affinity::After));
+        let after = SelectionSet::caret(Anchor::new(TextSize::new(4), Affinity::After));
+
+        assert!(
+            history_action_should_follow_caret(&before, &after),
+            "ordinary history that restores a different selection should keep caret-follow behavior",
+        );
+    }
+
+    #[test]
     fn shortcut_uses_physical_latin_key_under_non_latin_input_source() {
         assert_eq!(
             shortcut_character(Key::Character("ㅋ"), &PhysicalKey::Code(KeyCode::KeyZ),),
