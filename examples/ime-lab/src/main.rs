@@ -1474,8 +1474,7 @@ impl WindowState {
     }
 
     fn update_image_reservations(&mut self) -> bool {
-        let available_width =
-            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
         let reservations = self
             .live_preview
             .widgets(&self.session)
@@ -1793,17 +1792,16 @@ impl WindowState {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            let clip_width =
-                self.surface_config.width.saturating_sub((TEXT_LEFT * 2.0) as u32);
-            let clip_height =
-                self.surface_config.height.saturating_sub((TEXT_TOP * 2.0) as u32);
+            let clip_width = self
+                .surface_config
+                .width
+                .saturating_sub((TEXT_LEFT * 2.0) as u32);
+            let clip_height = self
+                .surface_config
+                .height
+                .saturating_sub((TEXT_TOP * 2.0) as u32);
             if clip_width > 0 && clip_height > 0 {
-                pass.set_scissor_rect(
-                    TEXT_LEFT as u32,
-                    TEXT_TOP as u32,
-                    clip_width,
-                    clip_height,
-                );
+                pass.set_scissor_rect(TEXT_LEFT as u32, TEXT_TOP as u32, clip_width, clip_height);
                 self.image_widgets.render(&mut pass, &image_batches);
             }
         }
@@ -2222,9 +2220,7 @@ fn image_block_layout(
     let intrinsic_width = intrinsic_width.max(1) as f32;
     let intrinsic_height = intrinsic_height.max(1) as f32;
     let aspect = intrinsic_width / intrinsic_height;
-    let max_width = available_width
-        .min(IMAGE_BLOCK_MAX_WIDTH)
-        .max(line_height);
+    let max_width = available_width.min(IMAGE_BLOCK_MAX_WIDTH).max(line_height);
     let mut width = intrinsic_width.min(max_width);
     let mut height = width / aspect.max(f32::EPSILON);
 
@@ -2234,9 +2230,7 @@ fn image_block_layout(
     }
 
     let reserved_height = height + IMAGE_BLOCK_PADDING * 2.0;
-    let rows = (reserved_height / line_height.max(1.0))
-        .ceil()
-        .max(1.0) as usize;
+    let rows = (reserved_height / line_height.max(1.0)).ceil().max(1.0) as usize;
 
     ImageBlockLayout {
         width: width.max(1.0),
