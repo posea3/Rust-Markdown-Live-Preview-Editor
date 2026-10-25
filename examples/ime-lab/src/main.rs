@@ -2,6 +2,7 @@ mod accessibility;
 mod geometry;
 mod image_widget;
 mod live_preview;
+mod math_widget;
 mod trace_capture;
 
 use std::{
@@ -26,6 +27,7 @@ use glyphon::{
 };
 use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
 use live_preview::{LivePreviewState, WidgetBlockReservation};
+use math_widget::{MathHostState, MathWidgetHost};
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
@@ -73,6 +75,13 @@ const IMAGE_PLACEHOLDER_WIDTH: f32 = 56.0;
 const IMAGE_PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.48, 0.56, 0.90];
 const IMAGE_LOADING_COLOR: [f32; 4] = [0.55, 0.60, 0.72, 0.75];
 const IMAGE_FAILED_COLOR: [f32; 4] = [0.78, 0.38, 0.38, 0.92];
+const MATH_BLOCK_MAX_HEIGHT: f32 = 240.0;
+const MATH_BLOCK_MAX_WIDTH: f32 = 720.0;
+const MATH_BLOCK_MIN_HEIGHT: f32 = 42.0;
+const MATH_BLOCK_PADDING: f32 = 10.0;
+const MATH_PLACEHOLDER_WIDTH: f32 = 112.0;
+const MATH_LOADING_COLOR: [f32; 4] = [0.54, 0.58, 0.72, 0.78];
+const MATH_FAILED_COLOR: [f32; 4] = [0.82, 0.40, 0.40, 0.94];
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -249,6 +258,7 @@ struct WindowState {
     text_renderer: TextRenderer,
     rect_renderer: RectRenderer,
     image_widgets: ImageWidgetHost,
+    math_widgets: MathWidgetHost,
     text_buffer: Buffer,
     accessibility_adapter: AccessKitAdapter,
 
@@ -371,6 +381,7 @@ impl WindowState {
             image_base_dir(),
             image_ready_delay,
         );
+        let math_widgets = MathWidgetHost::new(window.clone());
         eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
@@ -416,6 +427,7 @@ impl WindowState {
             text_renderer,
             rect_renderer,
             image_widgets,
+            math_widgets,
             text_buffer,
             accessibility_adapter,
             session,
