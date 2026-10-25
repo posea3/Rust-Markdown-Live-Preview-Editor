@@ -456,15 +456,7 @@ mod tests {
 
     #[test]
     fn math_nodes_keep_exact_source_ranges_and_content() {
-        let source = concat!(
-            "inline $x^2$\n\n",
-            "$",
-            "$",
-            "\\frac{a}{b}",
-            "$",
-            "$",
-            "\n"
-        );
+        let source = concat!("inline $x^2$\n\n", "$", "$", "\\frac{a}{b}", "$", "$", "\n");
         let snapshot = parse(source, MarkdownDialect::obsidian());
 
         let inline = find_first(snapshot.root(), &|kind| kind == SyntaxKind::InlineMath)
