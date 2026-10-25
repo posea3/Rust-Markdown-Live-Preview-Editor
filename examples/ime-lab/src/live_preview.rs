@@ -4,15 +4,42 @@ use mdedit_core::{Affinity, Anchor, Revision, SelectionSet, TextRange};
 use mdedit_input::EditorSession;
 use mdedit_live::{
     CaretDirection, HitBias, ProjectedCaretStops, ProjectedSelectionEndpoint, ProjectedSize,
-    ProjectedWidget, Projection, ReflowAnchor, RevealContext, RevealPolicy,
+    ProjectedWidget, Projection, ReflowAnchor, RevealContext, RevealPolicy, WidgetKind,
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WidgetBlockReservation {
+    source_range: TextRange,
+    extra_lines: u16,
+}
+
+impl WidgetBlockReservation {
+    #[must_use]
+    pub const fn new(source_range: TextRange, extra_lines: u16) -> Self {
+        Self {
+            source_range,
+            extra_lines,
+        }
+    }
+
+    #[must_use]
+    pub const fn source_range(self) -> TextRange {
+        self.source_range
+    }
+
+    #[must_use]
+    pub const fn extra_lines(self) -> u16 {
+        self.extra_lines
+    }
+}
+
 pub struct LivePreviewState {
     block_cache: BlockCache,
     frame: Option<LivePreviewFrame>,
+    reservations: Vec<WidgetBlockReservation>,
 }
 
 impl Default for LivePreviewState {
@@ -27,21 +54,44 @@ impl LivePreviewState {
         Self {
             block_cache: BlockCache::new(),
             frame: None,
+            reservations: Vec::new(),
         }
+    }
+
+    pub fn set_widget_reservations(
+        &mut self,
+        mut reservations: Vec<WidgetBlockReservation>,
+    ) -> bool {
+        reservations.retain(|reservation| reservation.extra_lines > 0);
+        reservations.sort_by_key(|reservation| {
+            (
+                reservation.source_range.start().get(),
+                reservation.source_range.end().get(),
+                reservation.extra_lines,
+            )
+        });
+        reservations.dedup();
+
+        if self.reservations == reservations {
+            return false;
+        }
+
+        self.reservations = reservations;
+        true
     }
 
     pub fn refresh(&mut self, session: &EditorSession) -> Result<LivePreviewRefresh, String> {
         if self
             .frame
             .as_ref()
-            .is_some_and(|frame| frame.matches(session))
+            .is_some_and(|frame| frame.matches(session, &self.reservations))
         {
             return Ok(LivePreviewRefresh::unchanged());
         }
 
         if session.composition().is_some()
             && let Some(frame) = self.frame.as_mut()
-            && frame.can_reuse_projection_for_composition(session)
+            && frame.can_reuse_projection_for_composition(session, &self.reservations)
         {
             frame.update_composition_overlay(session)?;
             return Ok(LivePreviewRefresh {
@@ -50,7 +100,11 @@ impl LivePreviewState {
             });
         }
 
-        let next = match LivePreviewFrame::build(session, &mut self.block_cache) {
+        let next = match LivePreviewFrame::build(
+            session,
+            &mut self.block_cache,
+            &self.reservations,
+        ) {
             Ok(frame) => frame,
             Err(error) => {
                 self.frame = None;
@@ -84,7 +138,7 @@ impl LivePreviewState {
     pub fn display_caret_offset(&self, session: &EditorSession) -> Option<usize> {
         self.frame
             .as_ref()
-            .filter(|frame| frame.matches(session))
+            .filter(|frame| frame.matches(session, &self.reservations))
             .and_then(|frame| frame.display_caret_offset(session))
     }
 
@@ -96,7 +150,7 @@ impl LivePreviewState {
     ) -> Option<usize> {
         self.frame
             .as_ref()
-            .filter(|frame| frame.matches(session))
+            .filter(|frame| frame.matches(session, &self.reservations))
             .and_then(|frame| frame.source_anchor_to_display(anchor))
     }
 
@@ -109,7 +163,7 @@ impl LivePreviewState {
     ) -> Option<Anchor> {
         self.frame
             .as_ref()
-            .filter(|frame| frame.matches(session))
+            .filter(|frame| frame.matches(session, &self.reservations))
             .and_then(|frame| frame.display_to_source_anchor(display_offset, affinity))
     }
 
@@ -122,7 +176,7 @@ impl LivePreviewState {
     ) -> Option<Anchor> {
         self.frame
             .as_ref()
-            .filter(|frame| frame.matches(session))
+            .filter(|frame| frame.matches(session, &self.reservations))
             .and_then(|frame| frame.move_source_caret(anchor, direction))
     }
 
@@ -130,7 +184,7 @@ impl LivePreviewState {
     pub fn widgets<'a>(&'a self, session: &EditorSession) -> &'a [ProjectedWidget] {
         self.frame
             .as_ref()
-            .filter(|frame| frame.matches(session))
+            .filter(|frame| frame.matches(session, &self.reservations))
             .map_or(&[], |frame| frame.projection.widgets())
     }
 
@@ -168,6 +222,8 @@ impl LivePreviewRefresh {
 #[derive(Clone, Copy, Debug)]
 pub struct LivePreviewReflow {
     anchor: ReflowAnchor,
+    before_display_offset: usize,
+    after_display_offset: usize,
 }
 
 impl LivePreviewReflow {
@@ -177,13 +233,13 @@ impl LivePreviewReflow {
     }
 
     #[must_use]
-    pub fn before_display_offset(self) -> usize {
-        self.anchor.before_projected().projected().to_usize()
+    pub const fn before_display_offset(self) -> usize {
+        self.before_display_offset
     }
 
     #[must_use]
-    pub fn after_display_offset(self) -> usize {
-        self.anchor.after_projected().projected().to_usize()
+    pub const fn after_display_offset(self) -> usize {
+        self.after_display_offset
     }
 }
 
@@ -194,13 +250,19 @@ struct LivePreviewFrame {
     projection: Projection,
     stops: ProjectedCaretStops,
     display_text: String,
+    reservations: Vec<WidgetBlockReservation>,
+    reservation_overlay: ReservationOverlay,
     overlay: Option<CompositionOverlay>,
     preedit_range: Option<Range<usize>>,
     composition_cursor: Option<usize>,
 }
 
 impl LivePreviewFrame {
-    fn build(session: &EditorSession, block_cache: &mut BlockCache) -> Result<Self, String> {
+    fn build(
+        session: &EditorSession,
+        block_cache: &mut BlockCache,
+        reservations: &[WidgetBlockReservation],
+    ) -> Result<Self, String> {
         let document = session.document().snapshot();
         let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::gfm());
         let blocks = block_cache
@@ -243,6 +305,8 @@ impl LivePreviewFrame {
             projection,
             stops,
             display_text,
+            reservations: reservations.to_vec(),
+            reservation_overlay: ReservationOverlay::default(),
             overlay: None,
             preedit_range: None,
             composition_cursor: None,
@@ -251,14 +315,24 @@ impl LivePreviewFrame {
         Ok(frame)
     }
 
-    fn can_reuse_projection_for_composition(&self, session: &EditorSession) -> bool {
+    fn can_reuse_projection_for_composition(
+        &self,
+        session: &EditorSession,
+        reservations: &[WidgetBlockReservation],
+    ) -> bool {
         self.revision == session.document().revision()
             && &self.selections == session.selections()
+            && self.reservations == reservations
             && session.composition().is_some()
     }
 
     fn update_composition_overlay(&mut self, session: &EditorSession) -> Result<(), String> {
         self.display_text = self.projection.text().to_owned();
+        self.reservation_overlay = ReservationOverlay::apply(
+            &mut self.display_text,
+            &self.projection,
+            &self.reservations,
+        )?;
         self.overlay = None;
         self.preedit_range = None;
         self.composition_cursor = None;
@@ -281,23 +355,31 @@ impl LivePreviewFrame {
             .source_to_projected(replace.end())
             .ok_or_else(|| "composition end is outside live projection".to_owned())?
             .to_usize();
+        let reserved_start = self
+            .reservation_overlay
+            .projected_to_display(projected_start, Affinity::Before)
+            .ok_or_else(|| "composition start is outside reserved layout".to_owned())?;
+        let reserved_end = self
+            .reservation_overlay
+            .projected_to_display(projected_end, Affinity::After)
+            .ok_or_else(|| "composition end is outside reserved layout".to_owned())?;
 
-        if projected_start > projected_end
-            || projected_end > self.display_text.len()
-            || !self.display_text.is_char_boundary(projected_start)
-            || !self.display_text.is_char_boundary(projected_end)
+        if reserved_start > reserved_end
+            || reserved_end > self.display_text.len()
+            || !self.display_text.is_char_boundary(reserved_start)
+            || !self.display_text.is_char_boundary(reserved_end)
         {
             return Err("composition range is not representable in live projection".to_owned());
         }
 
-        let projected_range = projected_start..projected_end;
+        let reserved_range = reserved_start..reserved_end;
         self.display_text
-            .replace_range(projected_range.clone(), composition.preedit());
+            .replace_range(reserved_range.clone(), composition.preedit());
 
-        let display_end = projected_start
+        let display_end = reserved_start
             .checked_add(composition.preedit().len())
             .ok_or_else(|| "composition display range overflow".to_owned())?;
-        let display_range = projected_start..display_end;
+        let display_range = reserved_start..display_end;
         let cursor_relative = composition
             .selection()
             .map_or(composition.preedit().len(), |selection| selection.end);
@@ -306,7 +388,7 @@ impl LivePreviewFrame {
         self.composition_cursor = display_range.start.checked_add(cursor_relative);
         self.preedit_range = Some(display_range.clone());
         self.overlay = Some(CompositionOverlay {
-            projected: projected_range,
+            reserved: reserved_range,
             display: display_range,
         });
 
@@ -318,19 +400,28 @@ impl LivePreviewFrame {
             return None;
         }
 
-        ReflowAnchor::same_source(
+        let anchor = ReflowAnchor::same_source(
             &self.projection,
             &self.stops,
             &next.projection,
             &next.stops,
             source,
-        )
-        .map(|anchor| LivePreviewReflow { anchor })
+        )?;
+        Some(LivePreviewReflow {
+            anchor,
+            before_display_offset: self.source_anchor_to_display(source)?,
+            after_display_offset: next.source_anchor_to_display(source)?,
+        })
     }
 
-    fn matches(&self, session: &EditorSession) -> bool {
+    fn matches(
+        &self,
+        session: &EditorSession,
+        reservations: &[WidgetBlockReservation],
+    ) -> bool {
         self.revision == session.document().revision()
             && &self.selections == session.selections()
+            && self.reservations == reservations
             && match (&self.composition, session.composition()) {
                 (None, None) => true,
                 (Some(key), Some(composition)) => key.matches(composition),
@@ -359,8 +450,11 @@ impl LivePreviewFrame {
             ProjectedSelectionEndpoint::from_source(&self.projection, &self.stops, anchor)?;
         let projected = endpoint.projected().to_usize();
 
-        self.overlay.as_ref().map_or(Some(projected), |overlay| {
-            overlay.projected_to_display(projected, anchor.affinity)
+        let reserved = self
+            .reservation_overlay
+            .projected_to_display(projected, anchor.affinity)?;
+        self.overlay.as_ref().map_or(Some(reserved), |overlay| {
+            overlay.reserved_to_display(reserved, anchor.affinity)
         })
     }
 
@@ -386,12 +480,15 @@ impl LivePreviewFrame {
             return None;
         }
 
-        let projected = self
+        let reserved = self
             .overlay
             .as_ref()
             .map_or(Some(display_offset), |overlay| {
-                overlay.display_to_projected(display_offset, affinity)
+                overlay.display_to_reserved(display_offset, affinity)
             })?;
+        let projected = self
+            .reservation_overlay
+            .display_to_projected(reserved, affinity)?;
         let projected = ProjectedSize::new(u32::try_from(projected).ok()?);
         let bias = match affinity {
             Affinity::Before => HitBias::Before,
@@ -431,19 +528,123 @@ impl CompositionKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct ReservationEntry {
+    projected_anchor: usize,
+    display: Range<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ReservationOverlay {
+    entries: Vec<ReservationEntry>,
+}
+
+impl ReservationOverlay {
+    fn apply(
+        display_text: &mut String,
+        projection: &Projection,
+        reservations: &[WidgetBlockReservation],
+    ) -> Result<Self, String> {
+        let mut specs = Vec::<(usize, usize)>::new();
+
+        for reservation in reservations {
+            let Some(widget) = projection.widgets().iter().find(|widget| {
+                widget.kind() == WidgetKind::Image
+                    && widget.source_range() == reservation.source_range
+            }) else {
+                continue;
+            };
+            let anchor = widget.projected_range().start().to_usize();
+            if anchor > display_text.len() || !display_text.is_char_boundary(anchor) {
+                return Err("widget reservation anchor is outside projected text".to_owned());
+            }
+            specs.push((anchor, usize::from(reservation.extra_lines)));
+        }
+
+        specs.sort_unstable_by_key(|(anchor, _)| *anchor);
+        let mut merged = Vec::<(usize, usize)>::new();
+        for (anchor, count) in specs {
+            if let Some((last_anchor, last_count)) = merged.last_mut()
+                && *last_anchor == anchor
+            {
+                *last_count = last_count.saturating_add(count);
+            } else {
+                merged.push((anchor, count));
+            }
+        }
+
+        let mut added = 0usize;
+        let mut entries = Vec::with_capacity(merged.len());
+        for (anchor, count) in &merged {
+            let start = anchor
+                .checked_add(added)
+                .ok_or_else(|| "widget reservation offset overflow".to_owned())?;
+            let end = start
+                .checked_add(*count)
+                .ok_or_else(|| "widget reservation offset overflow".to_owned())?;
+            entries.push(ReservationEntry {
+                projected_anchor: *anchor,
+                display: start..end,
+            });
+            added = added
+                .checked_add(*count)
+                .ok_or_else(|| "widget reservation offset overflow".to_owned())?;
+        }
+
+        for (anchor, count) in merged.into_iter().rev() {
+            if count > 0 {
+                display_text.insert_str(anchor, &"\n".repeat(count));
+            }
+        }
+
+        Ok(Self { entries })
+    }
+
+    fn projected_to_display(&self, projected: usize, affinity: Affinity) -> Option<usize> {
+        let mut added = 0usize;
+        for entry in &self.entries {
+            if projected < entry.projected_anchor {
+                break;
+            }
+            if projected == entry.projected_anchor {
+                return match affinity {
+                    Affinity::Before => projected.checked_add(added),
+                    Affinity::After => Some(entry.display.end),
+                };
+            }
+            added = added.checked_add(entry.display.end.checked_sub(entry.display.start)?)?;
+        }
+        projected.checked_add(added)
+    }
+
+    fn display_to_projected(&self, display: usize, _affinity: Affinity) -> Option<usize> {
+        let mut added = 0usize;
+        for entry in &self.entries {
+            if display < entry.display.start {
+                break;
+            }
+            if display <= entry.display.end {
+                return Some(entry.projected_anchor);
+            }
+            added = added.checked_add(entry.display.end.checked_sub(entry.display.start)?)?;
+        }
+        display.checked_sub(added)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct CompositionOverlay {
-    projected: Range<usize>,
+    reserved: Range<usize>,
     display: Range<usize>,
 }
 
 impl CompositionOverlay {
-    fn projected_to_display(&self, projected: usize, affinity: Affinity) -> Option<usize> {
-        if projected < self.projected.start {
-            return Some(projected);
+    fn reserved_to_display(&self, reserved: usize, affinity: Affinity) -> Option<usize> {
+        if reserved < self.reserved.start {
+            return Some(reserved);
         }
-        if projected > self.projected.end {
-            return projected
-                .checked_sub(self.projected.end.checked_sub(self.projected.start)?)
+        if reserved > self.reserved.end {
+            return reserved
+                .checked_sub(self.reserved.end.checked_sub(self.reserved.start)?)
                 .and_then(|value| {
                     value.checked_add(self.display.end.checked_sub(self.display.start)?)
                 });
@@ -455,7 +656,7 @@ impl CompositionOverlay {
         }
     }
 
-    fn display_to_projected(&self, display: usize, affinity: Affinity) -> Option<usize> {
+    fn display_to_reserved(&self, display: usize, affinity: Affinity) -> Option<usize> {
         if display < self.display.start {
             return Some(display);
         }
@@ -463,13 +664,13 @@ impl CompositionOverlay {
             return display
                 .checked_sub(self.display.end.checked_sub(self.display.start)?)
                 .and_then(|value| {
-                    value.checked_add(self.projected.end.checked_sub(self.projected.start)?)
+                    value.checked_add(self.reserved.end.checked_sub(self.reserved.start)?)
                 });
         }
 
         match affinity {
-            Affinity::Before => Some(self.projected.start),
-            Affinity::After => Some(self.projected.end),
+            Affinity::Before => Some(self.reserved.start),
+            Affinity::After => Some(self.reserved.end),
         }
     }
 }
@@ -483,6 +684,99 @@ mod tests {
 
     fn anchor(offset: u32, affinity: Affinity) -> Anchor {
         Anchor::new(TextSize::new(offset), affinity)
+    }
+
+    #[test]
+    fn image_block_reservation_adds_layout_rows_without_changing_source_mapping() {
+        let source = "before\n\n![alt](image.png)\n\nafter";
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let marker_start = source.find("![alt]").unwrap();
+        let marker_end = marker_start + "![alt](image.png)".len();
+        let range = TextRange::new(
+            TextSize::try_from_usize(marker_start).unwrap(),
+            TextSize::try_from_usize(marker_end).unwrap(),
+        )
+        .unwrap();
+
+        let mut state = LivePreviewState::new();
+        state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 3)]);
+        state.refresh(&session).unwrap();
+
+        let frame = state.frame().unwrap();
+        assert_eq!(
+            frame.display_text().matches('\n').count(),
+            frame.projection().text().matches('\n').count() + 3
+        );
+
+        let source_after = Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        );
+        let projected_after = ProjectedSelectionEndpoint::from_source(
+            frame.projection(),
+            &frame.stops,
+            source_after,
+        )
+        .unwrap()
+        .projected()
+        .to_usize();
+        assert_eq!(
+            frame.source_anchor_to_display(source_after),
+            Some(projected_after + 3)
+        );
+
+        let widget = frame
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Image)
+            .unwrap();
+        let reservation_start = widget.projected_range().start().to_usize();
+        let hit = frame
+            .display_to_source_anchor(reservation_start + 1, Affinity::After)
+            .unwrap();
+        assert!(
+            hit.offset == range.start() || hit.offset == range.end(),
+            "synthetic image rows must map back to the collapsed image source"
+        );
+    }
+
+    #[test]
+    fn adding_image_reservation_produces_reflow_offsets_for_same_source_anchor() {
+        let source = "before\n\n![alt](image.png)\n\nafter";
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let marker_start = source.find("![alt]").unwrap();
+        let marker_end = marker_start + "![alt](image.png)".len();
+        let range = TextRange::new(
+            TextSize::try_from_usize(marker_start).unwrap(),
+            TextSize::try_from_usize(marker_end).unwrap(),
+        )
+        .unwrap();
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let before = state
+            .display_caret_offset(&session)
+            .expect("caret before reservation");
+
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(
+            range, 4,
+        )]));
+        let refresh = state.refresh(&session).unwrap();
+        let reflow = refresh.reflow().expect("reservation reflow");
+
+        assert_eq!(reflow.before_display_offset(), before);
+        assert_eq!(reflow.after_display_offset(), before + 4);
     }
 
     #[test]
