@@ -25,15 +25,6 @@ impl WidgetBlockReservation {
         }
     }
 
-    #[must_use]
-    pub const fn source_range(self) -> TextRange {
-        self.source_range
-    }
-
-    #[must_use]
-    pub const fn extra_lines(self) -> u16 {
-        self.extra_lines
-    }
 }
 
 pub struct LivePreviewState {
