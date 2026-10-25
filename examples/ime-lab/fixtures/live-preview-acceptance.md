@@ -87,3 +87,18 @@ The standalone image below should collapse to a native preview while inactive.
 This sentence must stay below the full reserved image block and must never overlap the image during decode, reveal/conceal, resize, or scroll.
 
 Inline image source remains editable for now: prefix ![inline](phase-06-image.png) suffix
+
+
+### Math widget scratch
+
+Display math should render as a native block while inactive:
+
+$$\frac{a}{b} + \sqrt{x} = \sum_{i=1}^{n} i$$
+
+This sentence must remain below the rendered math block and must not overlap it during reveal/conceal or resize.
+
+Inline math remains editable source for now: prefix $x^2 + y^2$ suffix
+
+Invalid display math should fall back safely without crashing:
+
+$$\definitely_unknown_command{x}$$
