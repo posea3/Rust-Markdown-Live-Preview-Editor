@@ -120,7 +120,7 @@ The macOS acceptance pass covered native texture rendering, loading-to-ready, mo
 
 ### Image block-height reservation / reflow
 
-Status: **implemented; Windows/macOS/Ubuntu fmt/check/clippy/test PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu fmt/check/clippy/test PASS at the last accepted code baseline; macOS manual acceptance BLOCKED only on direct observation of loading → ready; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
 Decoded standalone images now reserve real document height rather than being squeezed into one text row.
 
@@ -150,6 +150,45 @@ Regression coverage includes:
 - decoded fixture reserves multiple rows
 - widget geometry after reservations uses source-to-display mapping
 - Phase 5 IME/navigation and earlier Phase 6 widget tests remain enabled
+
+### Block-height macOS acceptance result
+
+Manual run on macOS 15.7.5 / Apple M1 at `60065522`:
+
+- **PASS**: the standalone fixture image occupies several text rows instead of a one-row thumbnail
+- **PASS**: text below the image stays below the reserved block during resize and scroll
+- **BLOCKED / NOT TESTED**: the exact loading → ready transition happened before it could be observed
+- **PASS**: mouse and arrow-key source reveal
+- **PASS**: preview restoration and five reveal/conceal repetitions without unexpected viewport jump
+- **PASS**: lower viewport clipping, inline-source policy, missing-image one-row fallback, crash/panic and wgpu error checks
+- **PASS**: Horizontal Rule, Task Checkbox + undo/redo, arrow navigation, selection, scroll/reflow, Korean/Japanese/Chinese IME, and `**한글**`
+
+The block-height slice therefore remains **BLOCKED**, not failed. The only unresolved acceptance item is direct observation of viewport/caret stability during the one-row Loading placeholder → multi-row Ready block transition.
+
+### Deterministic loading → ready acceptance mode
+
+The IME lab supports an opt-in acceptance delay:
+
+```bash
+MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 \
+MDEDIT_IMAGE_READY_DELAY_MS=3000 \
+cargo run -p mdedit-ime-lab --release
+```
+
+When `MDEDIT_IMAGE_READY_DELAY_MS` is non-zero:
+
+- only a successfully decoded image's transition to Ready is delayed; missing/failed resources are not intentionally delayed
+- the value is capped at 30 seconds
+- the initial caret is placed at the sentence immediately below the standalone fixture image so the relevant block is visible immediately
+- normal runs remain unchanged because the default delay is zero
+
+For the focused retest verify:
+
+- the first visible state is the one-row Loading placeholder
+- after the delay it changes to the full multi-row native image block
+- the caret remains on the same logical text position
+- the viewport does not jump unexpectedly
+- the sentence below the image moves down with the reserved block rather than overlapping it
 
 ### Block-height macOS acceptance target
 
