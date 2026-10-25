@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — horizontal rule, task checkbox, and standalone image including block-height/reflow macOS PASS; Math widget in progress; Windows native manual acceptance deferred to the final integration pass**
+Status: **in progress — horizontal rule, task checkbox, and standalone image including block-height/reflow macOS PASS; Display Math implemented with 3-OS CI PASS and macOS manual acceptance pending; Windows native manual acceptance deferred to the final integration pass**
 
 Rules:
 
