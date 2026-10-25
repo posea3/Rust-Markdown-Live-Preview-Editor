@@ -328,6 +328,7 @@ pub enum WidgetKind {
     HorizontalRule,
     TaskCheckbox,
     Image,
+    DisplayMath,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -355,10 +356,23 @@ impl ImageWidgetData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MathWidgetData {
+    tex: String,
+}
+
+impl MathWidgetData {
+    #[must_use]
+    pub fn tex(&self) -> &str {
+        &self.tex
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WidgetPayload {
     None,
     TaskCheckbox { checked: bool },
     Image(ImageWidgetData),
+    DisplayMath(MathWidgetData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -412,7 +426,7 @@ impl ProjectedWidget {
     pub const fn task_checked(&self) -> Option<bool> {
         match &self.payload {
             WidgetPayload::TaskCheckbox { checked } => Some(*checked),
-            WidgetPayload::None | WidgetPayload::Image(_) => None,
+            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
         }
     }
 
@@ -420,7 +434,19 @@ impl ProjectedWidget {
     pub fn image(&self) -> Option<&ImageWidgetData> {
         match &self.payload {
             WidgetPayload::Image(image) => Some(image),
-            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } => None,
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::DisplayMath(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn display_math(&self) -> Option<&MathWidgetData> {
+        match &self.payload {
+            WidgetPayload::DisplayMath(math) => Some(math),
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_) => None,
         }
     }
 
@@ -431,7 +457,7 @@ impl ProjectedWidget {
                 marker_range: self.source_range,
                 checked: !*checked,
             }),
-            WidgetPayload::None | WidgetPayload::Image(_) => None,
+            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
         }
     }
 }
@@ -1414,6 +1440,22 @@ fn collect_widget_candidates(
                 });
             }
         }
+        SyntaxKind::DisplayMath => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            if let SyntaxMetadata::DisplayMath { content } = node.metadata() {
+                output.push(WidgetCandidate {
+                    kind: WidgetKind::DisplayMath,
+                    payload: WidgetPayload::DisplayMath(MathWidgetData {
+                        tex: content.clone(),
+                    }),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+            }
+        }
         _ => {}
     }
 
@@ -1740,9 +1782,23 @@ mod tests {
     use super::*;
 
     fn build(source: &str, policy: RevealPolicy, context: &RevealContext) -> Projection {
+        build_with_dialect(
+            source,
+            MarkdownDialect::gfm(),
+            policy,
+            context,
+        )
+    }
+
+    fn build_with_dialect(
+        source: &str,
+        dialect: MarkdownDialect,
+        policy: RevealPolicy,
+        context: &RevealContext,
+    ) -> Projection {
         let document = Document::new(source).unwrap();
         let snapshot = document.snapshot();
-        let syntax = PulldownCmarkParser.parse(&snapshot, &MarkdownDialect::gfm());
+        let syntax = PulldownCmarkParser.parse(&snapshot, &dialect);
         let mut block_cache = BlockCache::new();
         let blocks = block_cache.reconcile(&snapshot, &syntax).unwrap();
         let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
@@ -1912,6 +1968,69 @@ mod tests {
                 .widgets()
                 .iter()
                 .all(|widget| widget.kind() != WidgetKind::Image)
+        );
+    }
+
+    #[test]
+    fn inactive_display_math_becomes_block_widget_with_tex_payload() {
+        let source = "before\n\n$\\frac{a}{b} + \\sqrt{x}$\n\nafter\n";
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let widget = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::DisplayMath)
+            .expect("display math widget");
+
+        assert!(widget.projected_range().is_empty());
+        assert_eq!(
+            widget.display_math().expect("math payload").tex(),
+            "\\frac{a}{b} + \\sqrt{x}"
+        );
+        assert!(!projection.text().contains("$"));
+    }
+
+    #[test]
+    fn display_math_source_reveals_when_caret_enters_range() {
+        let source = "$x^2 + y^2$\n";
+        let marker = source.find("x^2").unwrap();
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::DisplayMath)
+        );
+    }
+
+    #[test]
+    fn inline_math_stays_source_visible_until_inline_width_is_reserved() {
+        let source = "prefix $x^2 + y^2$ suffix";
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::DisplayMath)
         );
     }
 
