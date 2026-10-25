@@ -2381,6 +2381,71 @@ fn image_block_rect(
     ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MathBlockLayout {
+    width: f32,
+    height: f32,
+    rows: usize,
+}
+
+fn math_block_layout(
+    intrinsic_width: u32,
+    intrinsic_height: u32,
+    available_width: f32,
+    line_height: f32,
+) -> MathBlockLayout {
+    let intrinsic_width = intrinsic_width.max(1) as f32;
+    let intrinsic_height = intrinsic_height.max(1) as f32;
+    let max_width = available_width.min(MATH_BLOCK_MAX_WIDTH).max(line_height);
+
+    let initial_scale = (MATH_BLOCK_MIN_HEIGHT / intrinsic_height).max(1.0);
+    let mut width = intrinsic_width * initial_scale;
+    let mut height = intrinsic_height * initial_scale;
+
+    if width > max_width {
+        let scale = max_width / width;
+        width *= scale;
+        height *= scale;
+    }
+    if height > MATH_BLOCK_MAX_HEIGHT {
+        let scale = MATH_BLOCK_MAX_HEIGHT / height;
+        width *= scale;
+        height *= scale;
+    }
+
+    let reserved_height = height + MATH_BLOCK_PADDING * 2.0;
+    let rows = (reserved_height / line_height.max(1.0)).ceil().max(1.0) as usize;
+
+    MathBlockLayout {
+        width: width.max(1.0),
+        height: height.max(1.0),
+        rows,
+    }
+}
+
+fn math_block_rect(
+    line_top: f32,
+    line_height: f32,
+    available_width: f32,
+    layout: MathBlockLayout,
+) -> ScreenRect {
+    let reserved_height = layout.rows as f32 * line_height;
+    let x = TEXT_LEFT + ((available_width - layout.width) * 0.5).max(0.0);
+    let y = TEXT_TOP + line_top + (reserved_height - layout.height) * 0.5;
+    ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
+}
+
+fn math_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
+    let height = (line_height - 6.0).clamp(8.0, line_height.max(8.0));
+    ScreenRect::new(
+        TEXT_LEFT + anchor_x,
+        TEXT_TOP + line_top + (line_height - height) * 0.5,
+        MATH_PLACEHOLDER_WIDTH,
+        height,
+        IMAGE_PLACEHOLDER_COLOR,
+    )
+}
+
 fn image_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
     let height = (line_height - 6.0).clamp(8.0, line_height.max(8.0));
     ScreenRect::new(
@@ -2857,6 +2922,35 @@ mod tests {
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn math_block_layout_scales_small_render_for_legibility_and_reserves_rows() {
+        let layout = math_block_layout(120, 20, 640.0, LINE_HEIGHT);
+        let rect = math_block_rect(0.0, LINE_HEIGHT, 640.0, layout);
+
+        assert!(layout.height >= MATH_BLOCK_MIN_HEIGHT - 0.01);
+        assert!(layout.rows >= 2);
+        assert!(layout.width <= MATH_BLOCK_MAX_WIDTH);
+        assert!(rect.x >= TEXT_LEFT);
+        assert!(rect.y >= TEXT_TOP);
+    }
+
+    #[test]
+    fn math_block_layout_caps_large_render() {
+        let layout = math_block_layout(3000, 1000, 640.0, LINE_HEIGHT);
+
+        assert!(layout.width <= 640.0);
+        assert!(layout.height <= MATH_BLOCK_MAX_HEIGHT);
+        assert!(layout.rows >= 1);
+    }
+
+    #[test]
+    fn math_placeholder_stays_within_one_text_row() {
+        let rect = math_placeholder_rect(0.0, 0.0, LINE_HEIGHT);
+
+        assert!(rect.height < LINE_HEIGHT);
+        assert_eq!(rect.width, MATH_PLACEHOLDER_WIDTH);
     }
 
     #[test]
