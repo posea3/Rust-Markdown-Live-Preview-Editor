@@ -1408,6 +1408,28 @@ impl WindowState {
                         }
                     }
                 }
+                WidgetKind::DisplayMath => {
+                    let Some(math) = widget.display_math() else {
+                        continue;
+                    };
+                    match self.math_widgets.state(math.tex(), &self.image_widgets) {
+                        MathHostState::Ready => {}
+                        MathHostState::Loading | MathHostState::Missing => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                math_placeholder_rect(anchor_x, line_top, line_height),
+                                MATH_LOADING_COLOR,
+                            );
+                        }
+                        MathHostState::Failed => {
+                            append_image_placeholder_rects(
+                                &mut rects,
+                                math_placeholder_rect(anchor_x, line_top, line_height),
+                                MATH_FAILED_COLOR,
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -1436,7 +1458,7 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| match widget.kind() {
-                WidgetKind::HorizontalRule | WidgetKind::Image => None,
+                WidgetKind::HorizontalRule | WidgetKind::Image | WidgetKind::DisplayMath => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
