@@ -387,7 +387,12 @@ impl WindowState {
         }
 
         let mut session = EditorSession::new(initial_document).expect("create editor session");
-        let initial_caret = if live_preview_acceptance {
+        let initial_caret = if live_preview_acceptance && !image_ready_delay.is_zero() {
+            initial_document
+                .find("This sentence must stay below")
+                .and_then(|offset| TextSize::try_from_usize(offset).ok())
+                .unwrap_or(TextSize::new(0))
+        } else if live_preview_acceptance {
             initial_document
                 .find("Use this document")
                 .and_then(|offset| TextSize::try_from_usize(offset).ok())
