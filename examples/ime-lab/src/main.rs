@@ -1498,8 +1498,7 @@ impl WindowState {
 
     fn image_draw_requests(&self) -> Vec<ImageDrawRequest> {
         let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
-        let available_width =
-            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
 
         self.live_preview
             .widgets(&self.session)
