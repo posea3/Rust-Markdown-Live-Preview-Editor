@@ -4,7 +4,13 @@ mod image_widget;
 mod live_preview;
 mod trace_capture;
 
-use std::{env, error::Error, ops::Range, sync::Arc, time::Instant};
+use std::{
+    env,
+    error::Error,
+    ops::Range,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use accessibility::{EditorAccessibilityAction, build_tree_update, translate_action};
 use accesskit::ActionRequest;
@@ -351,7 +357,20 @@ impl WindowState {
         let text_renderer =
             TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let rect_renderer = RectRenderer::new(&device, format);
-        let image_widgets = ImageWidgetHost::new(&device, format, window.clone(), image_base_dir());
+        let image_ready_delay = image_ready_delay();
+        if !image_ready_delay.is_zero() {
+            eprintln!(
+                "[mdedit-ime-lab] image ready acceptance delay enabled: {} ms",
+                image_ready_delay.as_millis()
+            );
+        }
+        let image_widgets = ImageWidgetHost::new(
+            &device,
+            format,
+            window.clone(),
+            image_base_dir(),
+            image_ready_delay,
+        );
         eprintln!("[mdedit-ime-lab] wgpu: render resources created");
 
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
@@ -2202,6 +2221,30 @@ fn image_base_dir() -> std::path::PathBuf {
         || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"),
         std::path::PathBuf::from,
     )
+}
+
+fn image_ready_delay() -> Duration {
+    const MAX_ACCEPTANCE_DELAY_MS: u64 = 30_000;
+
+    let Some(raw) = env::var_os("MDEDIT_IMAGE_READY_DELAY_MS") else {
+        return Duration::ZERO;
+    };
+    let Some(raw) = raw.to_str() else {
+        eprintln!(
+            "[mdedit-ime-lab] MDEDIT_IMAGE_READY_DELAY_MS is not valid Unicode; ignoring"
+        );
+        return Duration::ZERO;
+    };
+
+    match raw.trim().parse::<u64>() {
+        Ok(milliseconds) => Duration::from_millis(milliseconds.min(MAX_ACCEPTANCE_DELAY_MS)),
+        Err(error) => {
+            eprintln!(
+                "[mdedit-ime-lab] invalid MDEDIT_IMAGE_READY_DELAY_MS={raw:?}: {error}; ignoring"
+            );
+            Duration::ZERO
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
