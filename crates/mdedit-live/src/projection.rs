@@ -444,9 +444,9 @@ impl ProjectedWidget {
     pub fn display_math(&self) -> Option<&MathWidgetData> {
         match &self.payload {
             WidgetPayload::DisplayMath(math) => Some(math),
-            WidgetPayload::None
-            | WidgetPayload::TaskCheckbox { .. }
-            | WidgetPayload::Image(_) => None,
+            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } | WidgetPayload::Image(_) => {
+                None
+            }
         }
     }
 
@@ -1782,12 +1782,7 @@ mod tests {
     use super::*;
 
     fn build(source: &str, policy: RevealPolicy, context: &RevealContext) -> Projection {
-        build_with_dialect(
-            source,
-            MarkdownDialect::gfm(),
-            policy,
-            context,
-        )
+        build_with_dialect(source, MarkdownDialect::gfm(), policy, context)
     }
 
     fn build_with_dialect(
