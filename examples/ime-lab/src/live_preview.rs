@@ -927,11 +927,11 @@ mod tests {
     #[test]
     fn composition_overlay_preserves_offsets_after_preedit() {
         let overlay = CompositionOverlay {
-            projected: 2..5,
+            reserved: 2..5,
             display: 2..8,
         };
 
-        assert_eq!(overlay.projected_to_display(7, Affinity::After), Some(10));
-        assert_eq!(overlay.display_to_projected(10, Affinity::After), Some(7));
+        assert_eq!(overlay.reserved_to_display(7, Affinity::After), Some(10));
+        assert_eq!(overlay.display_to_reserved(10, Affinity::After), Some(7));
     }
 }
