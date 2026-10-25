@@ -158,8 +158,25 @@ impl ImageWidgetHost {
         }
     }
 
+    pub fn contains_texture(&self, destination: &str) -> bool {
+        self.renderer.contains(destination)
+    }
+
     pub fn intrinsic_size(&self, destination: &str) -> Option<(u32, u32)> {
         self.renderer.intrinsic_size(destination)
+    }
+
+    pub fn upload_rgba(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        destination: String,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) {
+        self.renderer
+            .upload(device, queue, destination, width, height, rgba);
     }
 
     pub fn prepare(
