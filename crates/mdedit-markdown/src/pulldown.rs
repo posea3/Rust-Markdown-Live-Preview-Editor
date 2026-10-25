@@ -455,6 +455,31 @@ mod tests {
     }
 
     #[test]
+    fn math_nodes_keep_exact_source_ranges_and_content() {
+        let source = "inline $x^2$\n\n$\\frac{a}{b}$\n";
+        let snapshot = parse(source, MarkdownDialect::obsidian());
+
+        let inline = find_first(snapshot.root(), &|kind| kind == SyntaxKind::InlineMath)
+            .expect("inline math");
+        assert_eq!(&source[inline.range().as_usize_range()], "$x^2$");
+        assert!(matches!(
+            inline.metadata(),
+            SyntaxMetadata::InlineMath { content } if content == "x^2"
+        ));
+
+        let display = find_first(snapshot.root(), &|kind| kind == SyntaxKind::DisplayMath)
+            .expect("display math");
+        assert_eq!(
+            &source[display.range().as_usize_range()],
+            "$\\frac{a}{b}$"
+        );
+        assert!(matches!(
+            display.metadata(),
+            SyntaxMetadata::DisplayMath { content } if content == "\\frac{a}{b}"
+        ));
+    }
+
+    #[test]
     fn image_nodes_keep_exact_source_and_link_metadata() {
         let source = "![blue square](fixtures/phase-06-image.png \"fixture\")\n";
         let snapshot = parse(source, MarkdownDialect::commonmark());
