@@ -2230,9 +2230,7 @@ fn image_ready_delay() -> Duration {
         return Duration::ZERO;
     };
     let Some(raw) = raw.to_str() else {
-        eprintln!(
-            "[mdedit-ime-lab] MDEDIT_IMAGE_READY_DELAY_MS is not valid Unicode; ignoring"
-        );
+        eprintln!("[mdedit-ime-lab] MDEDIT_IMAGE_READY_DELAY_MS is not valid Unicode; ignoring");
         return Duration::ZERO;
     };
 
