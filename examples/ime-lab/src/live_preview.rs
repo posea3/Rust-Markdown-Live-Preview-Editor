@@ -24,7 +24,6 @@ impl WidgetBlockReservation {
             extra_lines,
         }
     }
-
 }
 
 pub struct LivePreviewState {
