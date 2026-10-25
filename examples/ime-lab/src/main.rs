@@ -1793,7 +1793,19 @@ impl WindowState {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            self.image_widgets.render(&mut pass, &image_batches);
+            let clip_width =
+                self.surface_config.width.saturating_sub((TEXT_LEFT * 2.0) as u32);
+            let clip_height =
+                self.surface_config.height.saturating_sub((TEXT_TOP * 2.0) as u32);
+            if clip_width > 0 && clip_height > 0 {
+                pass.set_scissor_rect(
+                    TEXT_LEFT as u32,
+                    TEXT_TOP as u32,
+                    clip_width,
+                    clip_height,
+                );
+                self.image_widgets.render(&mut pass, &image_batches);
+            }
         }
 
         {
