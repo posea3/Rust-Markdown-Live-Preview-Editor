@@ -251,7 +251,7 @@ impl LivePreviewFrame {
         reservations: &[WidgetBlockReservation],
     ) -> Result<Self, String> {
         let document = session.document().snapshot();
-        let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::gfm());
+        let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::obsidian());
         let blocks = block_cache
             .reconcile(&document, &syntax)
             .map_err(|error| format!("block reconciliation failed: {error}"))?;
