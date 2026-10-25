@@ -1532,17 +1532,39 @@ impl WindowState {
         }
     }
 
-    fn update_image_reservations(&mut self) -> bool {
+    fn sync_math_widgets(&mut self) {
+        let formulas = self
+            .live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| widget.display_math().map(|math| math.tex().to_owned()))
+            .collect::<Vec<_>>();
+
+        for tex in formulas {
+            self.math_widgets.request(&tex);
+        }
+    }
+
+    fn update_block_widget_reservations(&mut self) -> bool {
         let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
         let reservations = self
             .live_preview
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| {
-                let image = widget.image()?;
-                let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
-                let layout = image_block_layout(width, height, available_width, LINE_HEIGHT);
-                let extra_lines = layout.rows.saturating_sub(1);
+                let rows = if let Some(image) = widget.image() {
+                    let (width, height) =
+                        self.image_widgets.intrinsic_size(image.destination())?;
+                    image_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                } else if let Some(math) = widget.display_math() {
+                    let (width, height) =
+                        self.math_widgets.intrinsic_size(math.tex(), &self.image_widgets)?;
+                    math_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                } else {
+                    return None;
+                };
+
+                let extra_lines = rows.saturating_sub(1);
                 (extra_lines > 0).then(|| {
                     WidgetBlockReservation::new(
                         widget.source_range(),
@@ -1571,6 +1593,27 @@ impl WindowState {
 
                 (rect.y < viewport_bottom && rect.y + rect.height > TEXT_TOP)
                     .then(|| ImageDrawRequest::new(image.destination().to_owned(), rect))
+            })
+            .collect()
+    }
+
+    fn math_draw_requests(&self) -> Vec<ImageDrawRequest> {
+        let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+
+        self.live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| {
+                let math = widget.display_math()?;
+                let (width, height) =
+                    self.math_widgets.intrinsic_size(math.tex(), &self.image_widgets)?;
+                let (_, line_top, line_height) = self.widget_anchor_geometry(widget)?;
+                let layout = math_block_layout(width, height, available_width, line_height);
+                let rect = math_block_rect(line_top, line_height, available_width, layout);
+
+                (rect.y < viewport_bottom && rect.y + rect.height > TEXT_TOP)
+                    .then(|| self.math_widgets.draw_request(math.tex(), rect))
             })
             .collect()
     }
