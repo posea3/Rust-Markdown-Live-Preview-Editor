@@ -1968,7 +1968,15 @@ mod tests {
 
     #[test]
     fn inactive_display_math_becomes_block_widget_with_tex_payload() {
-        let source = "before\n\n$\\frac{a}{b} + \\sqrt{x}$\n\nafter\n";
+        let source = concat!(
+            "before\n\n",
+            "$",
+            "$",
+            "\\frac{a}{b} + \\sqrt{x}",
+            "$",
+            "$",
+            "\n\nafter\n"
+        );
         let projection = build_with_dialect(
             source,
             MarkdownDialect::obsidian(),
@@ -1992,7 +2000,7 @@ mod tests {
 
     #[test]
     fn display_math_source_reveals_when_caret_enters_range() {
-        let source = "$x^2 + y^2$\n";
+        let source = concat!("$", "$", "x^2 + y^2", "$", "$", "\n");
         let marker = source.find("x^2").unwrap();
         let projection = build_with_dialect(
             source,
