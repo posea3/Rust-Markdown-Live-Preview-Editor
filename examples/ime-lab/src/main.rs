@@ -1738,9 +1738,15 @@ impl WindowState {
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
         self.image_widgets.drain_ready(&self.device, &self.queue);
+        self.math_widgets.drain_ready(
+            &mut self.image_widgets,
+            &self.device,
+            &self.queue,
+        );
         self.refresh_layout();
         self.sync_image_widgets();
-        if self.update_image_reservations() {
+        self.sync_math_widgets();
+        if self.update_block_widget_reservations() {
             self.refresh_layout();
         }
         self.update_accessibility_tree();
@@ -1787,10 +1793,11 @@ impl WindowState {
 
         let selection_rects = self.selection_rectangles();
         let widget_rects = self.widget_rectangles();
-        let image_draws = self.image_draw_requests();
+        let mut texture_draws = self.image_draw_requests();
+        texture_draws.extend(self.math_draw_requests());
         let image_batches = self.image_widgets.prepare(
             &self.device,
-            &image_draws,
+            &texture_draws,
             self.surface_config.width,
             self.surface_config.height,
         );
