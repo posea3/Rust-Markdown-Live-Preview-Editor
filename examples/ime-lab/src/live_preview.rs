@@ -100,11 +100,8 @@ impl LivePreviewState {
             });
         }
 
-        let next = match LivePreviewFrame::build(
-            session,
-            &mut self.block_cache,
-            &self.reservations,
-        ) {
+        let next = match LivePreviewFrame::build(session, &mut self.block_cache, &self.reservations)
+        {
             Ok(frame) => frame,
             Err(error) => {
                 self.frame = None;
@@ -414,11 +411,7 @@ impl LivePreviewFrame {
         })
     }
 
-    fn matches(
-        &self,
-        session: &EditorSession,
-        reservations: &[WidgetBlockReservation],
-    ) -> bool {
+    fn matches(&self, session: &EditorSession, reservations: &[WidgetBlockReservation]) -> bool {
         self.revision == session.document().revision()
             && &self.selections == session.selections()
             && self.reservations == reservations
@@ -717,14 +710,11 @@ mod tests {
             TextSize::try_from_usize(source.len()).unwrap(),
             Affinity::After,
         );
-        let projected_after = ProjectedSelectionEndpoint::from_source(
-            frame.projection(),
-            &frame.stops,
-            source_after,
-        )
-        .unwrap()
-        .projected()
-        .to_usize();
+        let projected_after =
+            ProjectedSelectionEndpoint::from_source(frame.projection(), &frame.stops, source_after)
+                .unwrap()
+                .projected()
+                .to_usize();
         assert_eq!(
             frame.source_anchor_to_display(source_after),
             Some(projected_after + 3)
@@ -769,9 +759,7 @@ mod tests {
             .display_caret_offset(&session)
             .expect("caret before reservation");
 
-        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(
-            range, 4,
-        )]));
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 4,)]));
         let refresh = state.refresh(&session).unwrap();
         let reflow = refresh.reflow().expect("reservation reflow");
 
