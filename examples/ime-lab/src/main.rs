@@ -19,7 +19,7 @@ use glyphon::{
     Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
 };
 use image_widget::{ImageDrawRequest, ImageHostState, ImageWidgetHost};
-use live_preview::LivePreviewState;
+use live_preview::{LivePreviewState, WidgetBlockReservation};
 use mdedit_core::{
     Affinity, Anchor, DeleteDirection, Movement, SelectionRange, SelectionSet, TextRange, TextSize,
 };
@@ -60,8 +60,9 @@ const TASK_CHECKBOX_GAP: f32 = 5.0;
 const TASK_CHECKBOX_BORDER: f32 = 1.5;
 const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
 const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
-const IMAGE_PREVIEW_MAX_HEIGHT: f32 = 24.0;
-const IMAGE_PREVIEW_MAX_WIDTH: f32 = 180.0;
+const IMAGE_BLOCK_MAX_HEIGHT: f32 = 360.0;
+const IMAGE_BLOCK_MAX_WIDTH: f32 = 720.0;
+const IMAGE_BLOCK_PADDING: f32 = 8.0;
 const IMAGE_PLACEHOLDER_WIDTH: f32 = 56.0;
 const IMAGE_PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.48, 0.56, 0.90];
 const IMAGE_LOADING_COLOR: [f32; 4] = [0.55, 0.60, 0.72, 0.75];
@@ -1472,8 +1473,34 @@ impl WindowState {
         }
     }
 
+    fn update_image_reservations(&mut self) -> bool {
+        let available_width =
+            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let reservations = self
+            .live_preview
+            .widgets(&self.session)
+            .iter()
+            .filter_map(|widget| {
+                let image = widget.image()?;
+                let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
+                let layout = image_block_layout(width, height, available_width, LINE_HEIGHT);
+                let extra_lines = layout.rows.saturating_sub(1);
+                (extra_lines > 0).then(|| {
+                    WidgetBlockReservation::new(
+                        widget.source_range(),
+                        u16::try_from(extra_lines).unwrap_or(u16::MAX),
+                    )
+                })
+            })
+            .collect();
+
+        self.live_preview.set_widget_reservations(reservations)
+    }
+
     fn image_draw_requests(&self) -> Vec<ImageDrawRequest> {
         let viewport_bottom = self.surface_config.height as f32 - TEXT_TOP;
+        let available_width =
+            (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
 
         self.live_preview
             .widgets(&self.session)
@@ -1482,9 +1509,10 @@ impl WindowState {
                 let image = widget.image()?;
                 let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
                 let (anchor_x, line_top, line_height) = self.widget_anchor_geometry(widget)?;
-                let rect = image_preview_rect(anchor_x, line_top, line_height, width, height);
+                let layout = image_block_layout(width, height, available_width, line_height);
+                let rect = image_block_rect(anchor_x, line_top, line_height, layout);
 
-                (rect.y >= TEXT_TOP && rect.y + rect.height <= viewport_bottom)
+                (rect.y < viewport_bottom && rect.y + rect.height > TEXT_TOP)
                     .then(|| ImageDrawRequest::new(image.destination().to_owned(), rect))
             })
             .collect()
@@ -1609,9 +1637,12 @@ impl WindowState {
     }
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
+        self.image_widgets.drain_ready(&self.device, &self.queue);
         self.refresh_layout();
         self.sync_image_widgets();
-        self.image_widgets.drain_ready(&self.device, &self.queue);
+        if self.update_image_reservations() {
+            self.refresh_layout();
+        }
         self.update_accessibility_tree();
 
         if self.viewport_dirty {
@@ -2163,20 +2194,55 @@ fn image_base_dir() -> std::path::PathBuf {
     )
 }
 
-fn image_preview_rect(
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ImageBlockLayout {
+    width: f32,
+    height: f32,
+    rows: usize,
+}
+
+fn image_block_layout(
+    intrinsic_width: u32,
+    intrinsic_height: u32,
+    available_width: f32,
+    line_height: f32,
+) -> ImageBlockLayout {
+    let intrinsic_width = intrinsic_width.max(1) as f32;
+    let intrinsic_height = intrinsic_height.max(1) as f32;
+    let aspect = intrinsic_width / intrinsic_height;
+    let max_width = available_width
+        .min(IMAGE_BLOCK_MAX_WIDTH)
+        .max(line_height);
+    let mut width = intrinsic_width.min(max_width);
+    let mut height = width / aspect.max(f32::EPSILON);
+
+    if height > IMAGE_BLOCK_MAX_HEIGHT {
+        height = IMAGE_BLOCK_MAX_HEIGHT;
+        width = (height * aspect).min(max_width);
+    }
+
+    let reserved_height = height + IMAGE_BLOCK_PADDING * 2.0;
+    let rows = (reserved_height / line_height.max(1.0))
+        .ceil()
+        .max(1.0) as usize;
+
+    ImageBlockLayout {
+        width: width.max(1.0),
+        height: height.max(1.0),
+        rows,
+    }
+}
+
+fn image_block_rect(
     anchor_x: f32,
     line_top: f32,
     line_height: f32,
-    intrinsic_width: u32,
-    intrinsic_height: u32,
+    layout: ImageBlockLayout,
 ) -> ScreenRect {
-    let max_height = (line_height - 4.0).clamp(4.0, IMAGE_PREVIEW_MAX_HEIGHT);
-    let aspect = intrinsic_width as f32 / intrinsic_height.max(1) as f32;
-    let width = (max_height * aspect).clamp(4.0, IMAGE_PREVIEW_MAX_WIDTH);
-    let height = (width / aspect.max(f32::EPSILON)).min(max_height);
+    let reserved_height = layout.rows as f32 * line_height;
     let x = TEXT_LEFT + anchor_x;
-    let y = TEXT_TOP + line_top + (line_height - height) * 0.5;
-    ScreenRect::new(x, y, width, height, [1.0; 4])
+    let y = TEXT_TOP + line_top + (reserved_height - layout.height) * 0.5;
+    ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
 }
 
 fn image_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
@@ -2658,18 +2724,31 @@ mod tests {
     }
 
     #[test]
-    fn image_preview_geometry_preserves_aspect_ratio_within_line_budget() {
-        let rect = image_preview_rect(0.0, 0.0, LINE_HEIGHT, 200, 100);
+    fn image_block_layout_reserves_multiple_rows_and_preserves_aspect_ratio() {
+        let layout = image_block_layout(200, 100, 640.0, LINE_HEIGHT);
+        let rect = image_block_rect(0.0, 0.0, LINE_HEIGHT, layout);
 
-        assert!(rect.height <= IMAGE_PREVIEW_MAX_HEIGHT);
-        assert!(rect.width <= IMAGE_PREVIEW_MAX_WIDTH);
+        assert!(layout.rows >= 4);
+        assert!(layout.height > LINE_HEIGHT);
+        assert!(layout.height <= IMAGE_BLOCK_MAX_HEIGHT);
+        assert!(layout.width <= IMAGE_BLOCK_MAX_WIDTH);
         assert!((rect.width / rect.height - 2.0).abs() < 0.01);
         assert!(rect.x >= TEXT_LEFT);
         assert!(rect.y >= TEXT_TOP);
+        assert!(rect.y + rect.height <= TEXT_TOP + layout.rows as f32 * LINE_HEIGHT);
     }
 
     #[test]
-    fn image_placeholder_uses_one_text_row_without_forcing_reflow() {
+    fn small_fixture_image_still_reserves_enough_rows_for_native_height() {
+        let layout = image_block_layout(96, 48, 640.0, LINE_HEIGHT);
+
+        assert_eq!(layout.width, 96.0);
+        assert_eq!(layout.height, 48.0);
+        assert_eq!(layout.rows, 3);
+    }
+
+    #[test]
+    fn image_placeholder_uses_one_text_row_until_decode_completes() {
         let rect = image_placeholder_rect(0.0, 0.0, LINE_HEIGHT);
         assert!(rect.height < LINE_HEIGHT);
         assert_eq!(rect.width, IMAGE_PLACEHOLDER_WIDTH);
