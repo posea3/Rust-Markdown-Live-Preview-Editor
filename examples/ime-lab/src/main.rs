@@ -2252,7 +2252,7 @@ fn image_block_rect(
 }
 
 fn image_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
-    let height = (line_height - 6.0).clamp(8.0, IMAGE_PREVIEW_MAX_HEIGHT);
+    let height = (line_height - 6.0).clamp(8.0, line_height.max(8.0));
     ScreenRect::new(
         TEXT_LEFT + anchor_x,
         TEXT_TOP + line_top + (line_height - height) * 0.5,
