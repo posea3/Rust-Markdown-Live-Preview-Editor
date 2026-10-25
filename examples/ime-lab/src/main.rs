@@ -1553,12 +1553,12 @@ impl WindowState {
             .iter()
             .filter_map(|widget| {
                 let rows = if let Some(image) = widget.image() {
-                    let (width, height) =
-                        self.image_widgets.intrinsic_size(image.destination())?;
+                    let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
                     image_block_layout(width, height, available_width, LINE_HEIGHT).rows
                 } else if let Some(math) = widget.display_math() {
-                    let (width, height) =
-                        self.math_widgets.intrinsic_size(math.tex(), &self.image_widgets)?;
+                    let (width, height) = self
+                        .math_widgets
+                        .intrinsic_size(math.tex(), &self.image_widgets)?;
                     math_block_layout(width, height, available_width, LINE_HEIGHT).rows
                 } else {
                     return None;
@@ -1606,8 +1606,9 @@ impl WindowState {
             .iter()
             .filter_map(|widget| {
                 let math = widget.display_math()?;
-                let (width, height) =
-                    self.math_widgets.intrinsic_size(math.tex(), &self.image_widgets)?;
+                let (width, height) = self
+                    .math_widgets
+                    .intrinsic_size(math.tex(), &self.image_widgets)?;
                 let (_, line_top, line_height) = self.widget_anchor_geometry(widget)?;
                 let layout = math_block_layout(width, height, available_width, line_height);
                 let rect = math_block_rect(line_top, line_height, available_width, layout);
@@ -1738,11 +1739,8 @@ impl WindowState {
 
     fn render(&mut self) -> Result<(), Box<dyn Error>> {
         self.image_widgets.drain_ready(&self.device, &self.queue);
-        self.math_widgets.drain_ready(
-            &mut self.image_widgets,
-            &self.device,
-            &self.queue,
-        );
+        self.math_widgets
+            .drain_ready(&mut self.image_widgets, &self.device, &self.queue);
         self.refresh_layout();
         self.sync_image_widgets();
         self.sync_math_widgets();
