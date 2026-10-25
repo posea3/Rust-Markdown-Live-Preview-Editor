@@ -42,10 +42,7 @@ impl MathWidgetHost {
     }
 
     pub fn request(&mut self, tex: &str) {
-        if tex.trim().is_empty()
-            || self.pending.contains(tex)
-            || self.failed.contains_key(tex)
-        {
+        if tex.trim().is_empty() || self.pending.contains(tex) || self.failed.contains_key(tex) {
             return;
         }
 
@@ -69,12 +66,7 @@ impl MathWidgetHost {
         });
     }
 
-    pub fn drain_ready(
-        &mut self,
-        textures: &mut ImageWidgetHost,
-        device: &Device,
-        queue: &Queue,
-    ) {
+    pub fn drain_ready(&mut self, textures: &mut ImageWidgetHost, device: &Device, queue: &Queue) {
         while let Ok(rendered) = self.receiver.try_recv() {
             match rendered {
                 RenderedMath::Ready {
@@ -115,11 +107,7 @@ impl MathWidgetHost {
         }
     }
 
-    pub fn intrinsic_size(
-        &self,
-        tex: &str,
-        textures: &ImageWidgetHost,
-    ) -> Option<(u32, u32)> {
+    pub fn intrinsic_size(&self, tex: &str, textures: &ImageWidgetHost) -> Option<(u32, u32)> {
         textures.intrinsic_size(&math_texture_key(tex))
     }
 
