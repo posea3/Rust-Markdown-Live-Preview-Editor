@@ -23,6 +23,7 @@ pub enum MathHostState {
 
 pub struct MathWidgetHost {
     pending: HashSet<String>,
+    ready: HashSet<String>,
     failed: HashMap<String, String>,
     sender: Sender<RenderedMath>,
     receiver: Receiver<RenderedMath>,
@@ -34,6 +35,7 @@ impl MathWidgetHost {
         let (sender, receiver) = mpsc::channel();
         Self {
             pending: HashSet::new(),
+            ready: HashSet::new(),
             failed: HashMap::new(),
             sender,
             receiver,
@@ -42,7 +44,11 @@ impl MathWidgetHost {
     }
 
     pub fn request(&mut self, tex: &str) {
-        if tex.trim().is_empty() || self.pending.contains(tex) || self.failed.contains_key(tex) {
+        if tex.trim().is_empty()
+            || self.pending.contains(tex)
+            || self.ready.contains(tex)
+            || self.failed.contains_key(tex)
+        {
             return;
         }
 
@@ -77,6 +83,7 @@ impl MathWidgetHost {
                 } => {
                     self.pending.remove(&tex);
                     self.failed.remove(&tex);
+                    self.ready.insert(tex.clone());
                     textures.upload_rgba(
                         device,
                         queue,
@@ -96,7 +103,7 @@ impl MathWidgetHost {
     }
 
     pub fn state(&self, tex: &str, textures: &ImageWidgetHost) -> MathHostState {
-        if textures.contains_texture(&math_texture_key(tex)) {
+        if self.ready.contains(tex) && textures.contains_texture(&math_texture_key(tex)) {
             MathHostState::Ready
         } else if self.pending.contains(tex) {
             MathHostState::Loading
