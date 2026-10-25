@@ -7,6 +7,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
     },
     thread,
+    time::Duration,
 };
 
 use wgpu::util::DeviceExt;
@@ -59,6 +60,7 @@ pub struct ImageWidgetHost {
     receiver: Receiver<DecodedImage>,
     renderer: ImageRenderer,
     wake_window: Arc<Window>,
+    ready_delay: Duration,
 }
 
 impl ImageWidgetHost {
@@ -67,6 +69,7 @@ impl ImageWidgetHost {
         surface_format: TextureFormat,
         wake_window: Arc<Window>,
         base_dir: PathBuf,
+        ready_delay: Duration,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
@@ -77,6 +80,7 @@ impl ImageWidgetHost {
             receiver,
             renderer: ImageRenderer::new(device, surface_format),
             wake_window,
+            ready_delay,
         }
     }
 
@@ -95,15 +99,21 @@ impl ImageWidgetHost {
         let base_dir = self.base_dir.clone();
         let destination = destination.to_owned();
         let wake_window = self.wake_window.clone();
+        let ready_delay = self.ready_delay;
         thread::spawn(move || {
             let result = decode_local_image(&base_dir, &destination);
             let message = match result {
-                Ok((width, height, rgba)) => DecodedImage::Ready {
-                    destination,
-                    width,
-                    height,
-                    rgba,
-                },
+                Ok((width, height, rgba)) => {
+                    if !ready_delay.is_zero() {
+                        thread::sleep(ready_delay);
+                    }
+                    DecodedImage::Ready {
+                        destination,
+                        width,
+                        height,
+                        rgba,
+                    }
+                }
                 Err(error) => DecodedImage::Failed { destination, error },
             };
             let _ = sender.send(message);
