@@ -84,4 +84,6 @@ The standalone image below should collapse to a native preview while inactive.
 
 ![Phase 6 fixture](phase-06-image.png "local fixture")
 
+This sentence must stay below the full reserved image block and must never overlap the image during decode, reveal/conceal, resize, or scroll.
+
 Inline image source remains editable for now: prefix ![inline](phase-06-image.png) suffix

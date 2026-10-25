@@ -65,7 +65,7 @@ In the `Phase 6 widget scratch` section verify:
 
 ## Platform acceptance strategy
 
-- macOS: manual acceptance after each widget slice
+- macOS: manual acceptance after each widget slice or substantial layout substep
 - Windows: fmt/check/clippy/test CI after each slice
 - Windows native GUI/IME/manual acceptance: deferred and batched at the end of Phase 6
 - Any Windows-only failure found in the final pass is fixed before Phase 6 is closed
@@ -101,9 +101,11 @@ Manual acceptance on macOS:
 
 ## Slice 03 - image
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
+Initial standalone-image slice status: **Windows/macOS/Ubuntu CI PASS; macOS manual acceptance PASS; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
-Current contract:
+The macOS acceptance pass covered native texture rendering, loading-to-ready, mouse/keyboard source reveal, repeated reveal/conceal, inline-source policy, missing-resource fallback, Horizontal Rule, Task Checkbox + undo/redo, navigation, selection, scroll/reflow, Korean/Japanese/Chinese IME, and `**한글**`.
+
+### Image resource/render contract
 
 - standalone CommonMark/GFM image syntax is projected as `WidgetKind::Image`
 - destination/title/alt text are preserved in `ImageWidgetData`
@@ -114,16 +116,54 @@ Current contract:
 - remote/data/file URIs are intentionally delegated to a future host resolver
 - local image decode runs off the UI thread
 - decoded RGBA data is uploaded to a native wgpu texture
-- while loading or on failure, a native placeholder is drawn
-- the initial preview is constrained to one text row, so this slice does not yet introduce block-height reflow
+- while loading or on failure, a native one-row placeholder is drawn
 
-Acceptance target:
+### Image block-height reservation / reflow
 
-- the standalone fixture image renders as an actual native preview
-- moving the caret/clicking onto the collapsed image position reveals the Markdown source
-- moving away restores the preview
-- missing/unsupported image resources fail to a placeholder without breaking editing
-- the inline image example remains source text
-- IME/navigation/checkbox/horizontal-rule behavior does not regress
+Status: **implemented; Windows/macOS/Ubuntu fmt/check/clippy/test PASS; macOS manual acceptance pending; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
-Next image substep after this acceptance: block-height reservation/reflow policy, then **math**.
+Decoded standalone images now reserve real document height rather than being squeezed into one text row.
+
+Design:
+
+- decoded intrinsic dimensions are converted to a block layout with aspect ratio preserved
+- images are not upscaled above intrinsic size
+- native block width is capped at 720 px and available editor width
+- native block height is capped at 360 px
+- vertical padding is included in the reserved height
+- because cosmic-text uses a uniform line height, the host reserves block height with synthetic layout-only newline rows
+- synthetic rows never modify canonical Markdown or `mdedit-live::Projection`
+- `ReservationOverlay` maps projected offsets through synthetic rows and maps hits inside the reserved block back to the collapsed image source
+- IME composition mapping is layered after reservation mapping, so source → projected → reserved layout → preedit display remains explicit
+- reflow now records before/after **display** offsets for the same canonical source anchor, allowing decode/reveal/resize changes to preserve viewport position
+- image geometry and all later widgets resolve through canonical source → final display mapping, so widgets after a tall image remain aligned
+- partially visible images are clipped to the text viewport
+- loading/failure placeholders stay one row and do not reserve a large block before a successful decode
+- resizing the editor can recompute the number of reserved rows without changing source
+
+Regression coverage includes:
+
+- synthetic image rows increase display layout height without changing canonical source/projection
+- hits inside synthetic rows map back to the image source
+- adding a reservation produces same-source reflow offsets
+- fixture aspect ratio is preserved
+- decoded fixture reserves multiple rows
+- widget geometry after reservations uses source-to-display mapping
+- Phase 5 IME/navigation and earlier Phase 6 widget tests remain enabled
+
+### Block-height macOS acceptance target
+
+- the standalone fixture image occupies several text rows instead of a one-row thumbnail
+- text after the image is pushed below the reserved block and never overlaps it
+- decode transition from one-row placeholder to full block does not jump the viewport/caret
+- clicking or navigating into the image block reveals the Markdown source
+- leaving the source restores the multi-row image block without a viewport jump
+- repeated reveal/conceal stays stable
+- scrolling through a partially visible image clips it to the editor viewport
+- Horizontal Rule / Task Checkbox geometry stays aligned after the image
+- selection across the block stays source-safe
+- inline images remain source-visible
+- missing resources remain a one-row safe placeholder
+- Korean/Japanese/Chinese IME and `**한글**` remain regression-free
+
+After this block-height substep passes macOS acceptance, the next Phase 6 widget is **math**.
