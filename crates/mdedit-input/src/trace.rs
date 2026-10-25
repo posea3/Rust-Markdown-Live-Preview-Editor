@@ -369,13 +369,16 @@ fn decode_hex(encoded: &str) -> Result<String, TraceError> {
         return Err(TraceError::InvalidHex(encoded.to_owned()));
     }
 
-    let mut bytes = Vec::with_capacity(encoded.len() / 2);
-    for chunk in encoded.as_bytes().chunks_exact(2) {
-        let pair =
-            std::str::from_utf8(chunk).map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
+    let source = encoded.as_bytes();
+    let mut bytes = Vec::with_capacity(source.len() / 2);
+    let mut index = 0;
+    while index < source.len() {
+        let pair = std::str::from_utf8(&source[index..index + 2])
+            .map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
         let byte =
             u8::from_str_radix(pair, 16).map_err(|_| TraceError::InvalidHex(encoded.to_owned()))?;
         bytes.push(byte);
+        index += 2;
     }
 
     String::from_utf8(bytes).map_err(|_| TraceError::InvalidUtf8)
