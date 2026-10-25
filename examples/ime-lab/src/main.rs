@@ -1379,10 +1379,11 @@ impl WindowState {
     }
 
     fn widget_anchor_geometry(&self, widget: &ProjectedWidget) -> Option<(f32, f32, f32)> {
-        let cursor = display_offset_to_cursor(
-            &self.display_text,
-            widget.projected_range().start().to_usize(),
-        );
+        let display_offset = self.live_preview.source_anchor_to_display(
+            &self.session,
+            Anchor::new(widget.source_range().start(), Affinity::Before),
+        )?;
+        let cursor = display_offset_to_cursor(&self.display_text, display_offset);
         self.text_buffer.layout_runs().find_map(|run| {
             (run.line_i == cursor.line).then(|| {
                 (
