@@ -675,6 +675,7 @@ impl WindowState {
         };
 
         if character == 'z' {
+            let before = self.session.selections().clone();
             let result = if self.modifiers.shift_key() {
                 self.apply_input(EditorInput::Redo)
             } else {
@@ -683,15 +684,16 @@ impl WindowState {
             if let Err(error) = result {
                 eprintln!("history error: {error}");
             }
-            self.after_caret_action();
+            self.after_history_action(&before);
             return true;
         }
 
         if character == 'y' {
+            let before = self.session.selections().clone();
             if let Err(error) = self.apply_input(EditorInput::Redo) {
                 eprintln!("redo error: {error}");
             }
-            self.after_caret_action();
+            self.after_history_action(&before);
             return true;
         }
 
@@ -941,6 +943,13 @@ impl WindowState {
     fn after_caret_action(&mut self) {
         self.preferred_x = None;
         self.ensure_caret_visible = true;
+        self.request_redraw();
+    }
+
+    fn after_history_action(&mut self, before: &SelectionSet) {
+        self.preferred_x = None;
+        self.ensure_caret_visible =
+            history_action_should_follow_caret(before, self.session.selections());
         self.request_redraw();
     }
 
@@ -2207,6 +2216,10 @@ fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: Cos
     let first = start.line.min(end.line);
     let last = start.line.max(end.line);
     (first..=last).contains(&line_i)
+}
+
+fn history_action_should_follow_caret(before: &SelectionSet, after: &SelectionSet) -> bool {
+    before != after
 }
 
 fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
