@@ -459,8 +459,13 @@ fn resolve_block_quote(
             if line.as_bytes().get(cursor) != Some(&b'>') {
                 break;
             }
-            found = true;
             let marker = range.start + relative_line_start + cursor;
+            // A quote can contain code or HTML whose literal content starts
+            // with `>`. Parser-owned content is never a structural marker.
+            if literal_source_contains(node, marker) {
+                break;
+            }
+            found = true;
             push_span(
                 output,
                 source,
@@ -486,6 +491,26 @@ fn resolve_block_quote(
     }
 
     Ok(())
+}
+
+fn literal_source_contains(node: &SyntaxNode, offset: usize) -> bool {
+    if !node.range().as_usize_range().contains(&offset) {
+        return false;
+    }
+    if matches!(
+        node.kind(),
+        SyntaxKind::Text
+            | SyntaxKind::InlineCode
+            | SyntaxKind::Html
+            | SyntaxKind::InlineHtml
+            | SyntaxKind::InlineMath
+            | SyntaxKind::DisplayMath
+    ) {
+        return true;
+    }
+    node.children()
+        .iter()
+        .any(|child| literal_source_contains(child, offset))
 }
 
 fn resolve_list_item(
@@ -580,13 +605,29 @@ fn resolve_link(
         return Ok(());
     }
 
-    if source.as_bytes().get(range.start) != Some(&b'[')
-        || source.as_bytes().get(content_start.saturating_sub(1)) != Some(&b'[')
-    {
+    if source.as_bytes().get(range.start) != Some(&b'[') || content_start != range.start + 1 {
         issue(output, node, DelimiterIssueReason::UnexpectedSourceForm);
         return Ok(());
     }
 
+    let suffix = &source[content_end..range.end];
+    if !suffix.starts_with(']') {
+        issue(output, node, DelimiterIssueReason::UnexpectedSourceForm);
+        return Ok(());
+    }
+
+    let destination_start = content_end + 1;
+    let destination = &source[destination_start..range.end];
+    let valid_destination = destination.is_empty()
+        || (destination.starts_with('(') && destination.ends_with(')'))
+        || (destination.starts_with('[') && destination.ends_with(']'));
+    if !valid_destination {
+        issue(output, node, DelimiterIssueReason::UnexpectedSourceForm);
+        return Ok(());
+    }
+
+    // Publish a construct's delimiters only after the complete form is proven.
+    // Unsupported syntax must not leave a partially concealed label behind.
     push_span(
         output,
         source,
@@ -595,13 +636,6 @@ fn resolve_link(
         range.start,
         range.start + 1,
     )?;
-
-    let suffix = &source[content_end..range.end];
-    if !suffix.starts_with(']') {
-        issue(output, node, DelimiterIssueReason::UnexpectedSourceForm);
-        return Ok(());
-    }
-
     push_span(
         output,
         source,
@@ -610,28 +644,16 @@ fn resolve_link(
         content_end,
         content_end + 1,
     )?;
-
-    let destination_start = content_end + 1;
-    if destination_start == range.end {
-        return Ok(());
+    if !destination.is_empty() {
+        push_span(
+            output,
+            source,
+            node.kind(),
+            DelimiterKind::LinkDestination,
+            destination_start,
+            range.end,
+        )?;
     }
-
-    let destination = &source[destination_start..range.end];
-    let valid_destination = (destination.starts_with('(') && destination.ends_with(')'))
-        || (destination.starts_with('[') && destination.ends_with(']'));
-    if !valid_destination {
-        issue(output, node, DelimiterIssueReason::UnexpectedSourceForm);
-        return Ok(());
-    }
-
-    push_span(
-        output,
-        source,
-        node.kind(),
-        DelimiterKind::LinkDestination,
-        destination_start,
-        range.end,
-    )?;
     Ok(())
 }
 
@@ -886,6 +908,51 @@ mod tests {
             slices(ordered, &ordered_snapshot, DelimiterKind::ListMarker),
             vec!["10.", "11)"]
         );
+    }
+
+    #[test]
+    fn block_quote_markers_never_include_fenced_code_content() {
+        for source in [
+            "> ```\n> > literal\n> >> more\n> ```\n",
+            "> > ```\r\n> > > literal\r\n> > ```\r\n",
+        ] {
+            let snapshot = resolve(source, MarkdownDialect::commonmark());
+            let literal = source.find("> literal").unwrap();
+            assert!(
+                snapshot.spans().iter().all(|span| {
+                    let range = span.range().as_usize_range();
+                    !range.contains(&literal)
+                }),
+                "literal code was claimed as a marker: {source:?}"
+            );
+            assert!(snapshot.issues().is_empty());
+        }
+    }
+
+    #[test]
+    fn unsupported_wikilinks_produce_no_partial_delimiters() {
+        for source in ["[[Note]]", "[[Note#Heading]]", "[[Note|Alias]]"] {
+            let snapshot = resolve(source, MarkdownDialect::obsidian());
+            assert!(snapshot.spans().is_empty(), "partial delimiters: {source}");
+            assert!(!snapshot.issues().is_empty());
+        }
+    }
+
+    #[test]
+    fn invalid_link_destination_does_not_leave_label_delimiters() {
+        let source = "[a]broken";
+        let mut node = SyntaxNode::new(
+            SyntaxKind::Link,
+            TextRange::new(TextSize::ZERO, TextSize::new(9)).unwrap(),
+        );
+        node.push_child(SyntaxNode::new(
+            SyntaxKind::Text,
+            TextRange::new(TextSize::new(1), TextSize::new(2)).unwrap(),
+        ));
+        let mut output = ResolveOutput::default();
+        resolve_link(source, &node, &mut output).unwrap();
+        assert!(output.spans.is_empty());
+        assert_eq!(output.issues.len(), 1);
     }
 
     #[test]
