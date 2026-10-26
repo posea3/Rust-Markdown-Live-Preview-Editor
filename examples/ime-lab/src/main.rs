@@ -1834,8 +1834,10 @@ impl WindowState {
             let table_specs = self.table_text_specs();
             let mut table_buffers = Vec::with_capacity(table_specs.len());
             for spec in &table_specs {
-                let mut buffer =
-                    Buffer::new(&mut self.font_system, Metrics::new(TABLE_FONT_SIZE, TABLE_TEXT_LINE_HEIGHT));
+                let mut buffer = Buffer::new(
+                    &mut self.font_system,
+                    Metrics::new(TABLE_FONT_SIZE, TABLE_TEXT_LINE_HEIGHT),
+                );
                 buffer.set_size(
                     Some((spec.bounds.width - TABLE_CELL_PADDING * 2.0).max(1.0)),
                     Some(spec.bounds.height.max(1.0)),
@@ -1864,8 +1866,8 @@ impl WindowState {
             });
             for (buffer, spec) in table_buffers.iter().zip(&table_specs) {
                 let left = spec.bounds.x + TABLE_CELL_PADDING;
-                let top = spec.bounds.y
-                    + ((spec.bounds.height - TABLE_TEXT_LINE_HEIGHT) * 0.5).max(0.0);
+                let top =
+                    spec.bounds.y + ((spec.bounds.height - TABLE_TEXT_LINE_HEIGHT) * 0.5).max(0.0);
                 text_areas.push(TextArea {
                     buffer,
                     left,
