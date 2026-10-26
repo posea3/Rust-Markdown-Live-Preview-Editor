@@ -950,11 +950,8 @@ impl WindowState {
 
     fn after_history_action(&mut self, before: &SelectionSet) {
         self.preferred_x = None;
-        self.pending_history_viewport_anchor = history_viewport_anchor(
-            before,
-            self.session.selections(),
-            self.text_buffer.scroll(),
-        );
+        self.pending_history_viewport_anchor =
+            history_viewport_anchor(before, self.session.selections(), self.text_buffer.scroll());
         self.ensure_caret_visible = self.pending_history_viewport_anchor.is_none();
         self.request_redraw();
     }
