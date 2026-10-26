@@ -82,6 +82,7 @@ const MATH_BLOCK_PADDING: f32 = 10.0;
 const MATH_PLACEHOLDER_WIDTH: f32 = 112.0;
 const MATH_LOADING_COLOR: [f32; 4] = [0.54, 0.58, 0.72, 0.78];
 const MATH_FAILED_COLOR: [f32; 4] = [0.82, 0.40, 0.40, 0.94];
+const TABLE_BLOCK_MAX_WIDTH: f32 = 720.0;
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -2468,6 +2469,76 @@ fn math_block_rect(
     let x = TEXT_LEFT + ((available_width - layout.width) * 0.5).max(0.0);
     let y = TEXT_TOP + line_top + (reserved_height - layout.height) * 0.5;
     ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TableBlockLayout {
+    width: f32,
+    height: f32,
+    rows: usize,
+    columns: usize,
+    visual_rows: usize,
+}
+
+fn table_block_layout(
+    columns: usize,
+    visual_rows: usize,
+    available_width: f32,
+    line_height: f32,
+) -> TableBlockLayout {
+    let columns = columns.max(1);
+    let visual_rows = visual_rows.max(1);
+    let line_height = line_height.max(1.0);
+    let width = available_width.min(TABLE_BLOCK_MAX_WIDTH).max(line_height);
+    let height = line_height * visual_rows as f32;
+
+    TableBlockLayout {
+        width,
+        height,
+        rows: visual_rows,
+        columns,
+        visual_rows,
+    }
+}
+
+fn table_block_rect(
+    line_top: f32,
+    line_height: f32,
+    available_width: f32,
+    layout: TableBlockLayout,
+) -> ScreenRect {
+    let reserved_height = layout.rows as f32 * line_height.max(1.0);
+    let x = TEXT_LEFT + ((available_width - layout.width) * 0.5).max(0.0);
+    let y = TEXT_TOP + line_top + (reserved_height - layout.height) * 0.5;
+    ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
+}
+
+fn table_cell_rect(
+    block: ScreenRect,
+    layout: TableBlockLayout,
+    row: usize,
+    column: usize,
+) -> Option<ScreenRect> {
+    if row >= layout.visual_rows || column >= layout.columns {
+        return None;
+    }
+
+    let cell_width = block.width / layout.columns as f32;
+    let cell_height = block.height / layout.visual_rows as f32;
+    let x = block.x + cell_width * column as f32;
+    let y = block.y + cell_height * row as f32;
+    let width = if column + 1 == layout.columns {
+        block.x + block.width - x
+    } else {
+        cell_width
+    };
+    let height = if row + 1 == layout.visual_rows {
+        block.y + block.height - y
+    } else {
+        cell_height
+    };
+
+    Some(ScreenRect::new(x, y, width, height, [0.0; 4]))
 }
 
 fn math_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
