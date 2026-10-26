@@ -2105,6 +2105,30 @@ mod tests {
     }
 
     #[test]
+    fn table_payload_uses_visible_cell_text_without_inline_markdown_markers() {
+        let source = concat!(
+            "| Name | Detail |\n",
+            "| --- | --- |\n",
+            "| **Ada** | [site](https://example.com) and `code` |\n",
+        );
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        let table = projection
+            .widgets()
+            .iter()
+            .find_map(ProjectedWidget::table)
+            .expect("table payload");
+
+        assert_eq!(table.header(), &["Name", "Detail"]);
+        assert_eq!(table.rows(), &[vec!["Ada", "site and code"]]);
+    }
+
+    #[test]
     fn table_source_reveals_when_caret_enters_table_range() {
         let source = concat!(
             "before\n\n",
