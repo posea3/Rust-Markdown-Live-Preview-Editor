@@ -147,22 +147,42 @@ First rendering milestone keeps all Markdown markers visible and adds only seman
 
 ## Phase 5 - Live Preview core
 
-Add `mdedit-live`.
+Status: **native Windows/macOS acceptance complete — Narrator/VoiceOver manual acceptance deferred**
 
-Implement:
+Implemented in the first slice:
 
-- Projection
-- ProjectedBlock / ProjectedSpan
-- ProjectionMap
-- Concealed spans
-- RevealGroup
-- RevealPolicy
-- caret-stop model
+- framework-independent `mdedit-live` crate
+- `Projection`
+- `ProjectedBlock` / `ProjectedSpan`
+- project-owned projected coordinate types
+- bidirectional `ProjectionMap` with explicit before/after bias at collapsed boundaries
+- semantic `StyleSpan` values
+- exact delimiter-backed `ConcealSpan`
+- `RevealGroup` / `RevealPolicy`
+- caret intersection reveal
 - selection intersection reveal
-- IME force reveal
-- reflow/caret scroll compensation
+- IME composition force reveal through source-range context
+- source-visible safe default
+- raw projection fallback on inconsistent syntax/concealment ownership
+- separate `StructuralPaddingSpan` modeling for ATX/Setext heading padding, block-quote separators, and list-marker padding
+- conservative list padding rule that preserves four-space code indentation after markers
+- Unicode-grapheme `ProjectedCaretStops` with direction-aware source-edge selection at collapsed boundaries
+- hidden delimiter/padding offsets do not become invisible horizontal movement steps
+- specificity-aware reveal resolution for nested constructs
+- half-open selection/composition overlap so boundary-only adjacency does not reveal neighbors
+- compact combined delimiter refinement (`***x***` reveals only the syntax layer being edited)
+- projected-byte `HitBias` / `ProjectedHit` snapping through valid grapheme caret stops
+- explicit canonical source-edge choice at collapsed hit boundaries
+- `ProjectedSelectionEndpoint` / `ProjectedSelection` source-to-projected and projected-to-source mapping
+- anchor/focus direction preservation, including selections whose endpoints collapse to the same projected position
+- range-local selection mapping compatible with future `SelectionSet` multi-selection integration without ownership coupling
+- `ReflowAnchor` before/after projected tracking for a canonical caret/selection anchor
+- same-source reveal/conceal reflow mapping plus externally ChangeMap-mapped cross-revision anchor support
+- finite logical `LayoutPosition` measurements on inline/block axes without view-framework types
+- `ReflowMeasurement` / `ScrollAdjustment` contract where the view adds after-minus-before layout delta to its scroll offset
+- explicit separation of scroll clamping, wrap width, shaped geometry, viewport policy, and auto-scroll into the native view
 
-Initial supported concealment:
+Initial exact-byte concealment covers resolved markers for:
 
 - headings
 - strong
@@ -171,7 +191,32 @@ Initial supported concealment:
 - inline code
 - block quote marker
 - list marker
-- link syntax
+- link syntax / autolinks
+
+Native integration now includes:
+
+- projected display rendering through the Phase 3 cosmic-text/glyphon/wgpu editor
+- source/display caret and selection mapping
+- projected mouse/drag hit testing and visual navigation
+- IME preedit overlay on projected text
+- reveal/conceal reflow compensation
+- AccessKit projected text/selection exposure with selection actions mapped back to canonical source
+- opt-in Markdown acceptance fixture and platform checklist
+
+Native acceptance completed:
+
+- Windows native Live Preview: PASS
+- macOS native Live Preview: PASS
+- Windows Korean/Japanese/Chinese IME preedit viewport stability: PASS
+- macOS Korean printable-delimiter-after-preedit regression: PASS
+- Up/Down navigation across viewport boundaries: PASS
+- Left/Right navigation across logical line boundaries: PASS
+- Windows/macOS/Linux CI: PASS
+
+Deferred:
+
+- Windows Narrator manual acceptance
+- macOS VoiceOver manual acceptance
 
 ## Phase 6 - Widgets
 

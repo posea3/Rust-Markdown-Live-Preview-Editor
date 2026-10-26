@@ -15,6 +15,8 @@ cosmic-text = "0.19"
 glyphon = "0.12"
 mdedit-core = { path = "../../crates/mdedit-core" }
 mdedit-input = { path = "../../crates/mdedit-input" }
+mdedit-live = { path = "../../crates/mdedit-live" }
+mdedit-markdown = { path = "../../crates/mdedit-markdown" }
 pollster = "0.4"
 unicode-segmentation = "1.13"
 wgpu = "30.0"
