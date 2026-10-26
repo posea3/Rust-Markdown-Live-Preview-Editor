@@ -756,7 +756,7 @@ impl Projection {
             }
         };
 
-        let concealed = reveal_groups
+        let mut concealed = reveal_groups
             .iter()
             .filter(|group| !group.revealed)
             .flat_map(|group| {
@@ -768,8 +768,14 @@ impl Projection {
             })
             .collect::<Vec<_>>();
 
-        let structural_padding = build_structural_padding(&source, &reveal_groups)?;
+        let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
         let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
+        concealed.retain(|span| {
+            !shadowed_by_inactive_widget(&widget_candidates, span.source_range)
+        });
+        structural_padding.retain(|span| {
+            !shadowed_by_inactive_widget(&widget_candidates, span.source_range)
+        });
 
         if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
@@ -1333,6 +1339,12 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
     }
 }
 
+fn shadowed_by_inactive_widget(widgets: &[WidgetCandidate], range: TextRange) -> bool {
+    widgets
+        .iter()
+        .any(|widget| !widget.active && range_contains(widget.conceal_range, range))
+}
+
 fn has_overlapping_projection_ranges(
     concealed: &[ConcealSpan],
     structural_padding: &[StructuralPaddingSpan],
@@ -1554,8 +1566,50 @@ fn table_cells(source: &str, row: &SyntaxNode) -> Vec<String> {
     row.children()
         .iter()
         .filter(|child| child.kind() == SyntaxKind::TableCell)
-        .filter_map(|cell| source_text(source, cell.range()).map(|text| text.trim().to_owned()))
+        .map(|cell| {
+            let mut text = String::new();
+            collect_table_cell_visible_text(source, cell, &mut text);
+            text.trim().to_owned()
+        })
         .collect()
+}
+
+fn collect_table_cell_visible_text(source: &str, node: &SyntaxNode, output: &mut String) {
+    match node.kind() {
+        SyntaxKind::Text | SyntaxKind::Html | SyntaxKind::InlineHtml => {
+            if let Some(text) = source_text(source, node.range()) {
+                output.push_str(text);
+            }
+            return;
+        }
+        SyntaxKind::InlineCode => {
+            if let SyntaxMetadata::InlineCode { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::InlineMath => {
+            if let SyntaxMetadata::InlineMath { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::FootnoteReference => {
+            if let SyntaxMetadata::FootnoteReference { label } = node.metadata() {
+                output.push_str(label);
+            }
+            return;
+        }
+        SyntaxKind::SoftBreak | SyntaxKind::HardBreak => {
+            output.push(' ');
+            return;
+        }
+        _ => {}
+    }
+
+    for child in node.children() {
+        collect_table_cell_visible_text(source, child, output);
+    }
 }
 
 fn source_text(source: &str, range: TextRange) -> Option<&str> {
