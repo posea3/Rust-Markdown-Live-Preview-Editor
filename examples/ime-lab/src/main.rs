@@ -3119,6 +3119,49 @@ mod tests {
     }
 
     #[test]
+    fn table_cell_layouts_keep_payload_text_alignment_and_header_role() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "\nafter\n",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(TextSize::ZERO, Affinity::Before));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let table = live_preview
+            .widgets(&session)
+            .iter()
+            .find_map(ProjectedWidget::table)
+            .expect("table payload");
+
+        let layout = table_block_layout(2, 2, 600.0, LINE_HEIGHT);
+        let block = table_block_rect(0.0, LINE_HEIGHT, 600.0, layout);
+        let cells = table_cell_layouts(table, block, layout);
+
+        assert_eq!(cells.len(), 4);
+        assert_eq!(
+            cells.iter().map(|cell| cell.text).collect::<Vec<_>>(),
+            vec!["Name", "Score", "Ada", "42"]
+        );
+        assert_eq!(
+            cells.iter().map(|cell| cell.alignment).collect::<Vec<_>>(),
+            vec![
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+            ]
+        );
+        assert!(cells[0].header);
+        assert!(cells[1].header);
+        assert!(!cells[2].header);
+        assert!(cells[2].bounds.y > cells[0].bounds.y);
+    }
+
+    #[test]
     fn table_block_layout_reserves_one_visual_row_per_table_row() {
         let layout = table_block_layout(3, 4, 640.0, LINE_HEIGHT);
 
