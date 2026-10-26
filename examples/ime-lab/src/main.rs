@@ -19,7 +19,7 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
+use cosmic_text::{Align, AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
@@ -36,6 +36,7 @@ use mdedit_live::{
     CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, TableWidgetData,
     WidgetAction, WidgetKind,
 };
+use mdedit_markdown::SyntaxTableAlignment;
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -87,6 +88,9 @@ const TABLE_BLOCK_MAX_WIDTH: f32 = 720.0;
 const TABLE_GRID_THICKNESS: f32 = 1.0;
 const TABLE_GRID_COLOR: [f32; 4] = [0.36, 0.39, 0.46, 0.92];
 const TABLE_HEADER_COLOR: [f32; 4] = [0.12, 0.14, 0.18, 0.96];
+const TABLE_CELL_PADDING: f32 = 7.0;
+const TABLE_FONT_SIZE: f32 = 17.0;
+const TABLE_TEXT_LINE_HEIGHT: f32 = 24.0;
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -1648,6 +1652,35 @@ impl WindowState {
             .collect()
     }
 
+    fn table_text_specs(&self) -> Vec<TableTextSpec> {
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let mut specs = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            let Some(table) = widget.table() else {
+                continue;
+            };
+            let Some((_, line_top, line_height)) = self.widget_anchor_geometry(widget) else {
+                continue;
+            };
+            let (columns, visual_rows) = table_dimensions(table);
+            let layout = table_block_layout(columns, visual_rows, available_width, line_height);
+            let block = table_block_rect(line_top, line_height, available_width, layout);
+            specs.extend(
+                table_cell_layouts(table, block, layout)
+                    .into_iter()
+                    .map(|cell| TableTextSpec {
+                        text: cell.text.to_owned(),
+                        bounds: cell.bounds,
+                        alignment: cell.alignment,
+                        header: cell.header,
+                    }),
+            );
+        }
+
+        specs
+    }
+
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
         let show_caret = self.session.focused()
             && (self.session.composition().is_some()
@@ -1798,21 +1831,63 @@ impl WindowState {
 
         let text_prepared = self.text_render_dirty;
         if text_prepared {
+            let table_specs = self.table_text_specs();
+            let mut table_buffers = Vec::with_capacity(table_specs.len());
+            for spec in &table_specs {
+                let mut buffer =
+                    Buffer::new(&mut self.font_system, Metrics::new(TABLE_FONT_SIZE, TABLE_TEXT_LINE_HEIGHT));
+                buffer.set_size(
+                    Some((spec.bounds.width - TABLE_CELL_PADDING * 2.0).max(1.0)),
+                    Some(spec.bounds.height.max(1.0)),
+                );
+                buffer.set_wrap(Wrap::None);
+                let attrs = Attrs::new().family(Family::SansSerif);
+                buffer.set_text(
+                    &spec.text,
+                    &attrs,
+                    Shaping::Advanced,
+                    Some(table_text_alignment(spec.alignment)),
+                );
+                buffer.shape_until_scroll(&mut self.font_system, false);
+                table_buffers.push(buffer);
+            }
+
+            let mut text_areas = Vec::with_capacity(1 + table_buffers.len());
+            text_areas.push(TextArea {
+                buffer: &self.text_buffer,
+                left: TEXT_LEFT,
+                top: TEXT_TOP,
+                scale: 1.0,
+                bounds: text_bounds,
+                default_color: Color::rgb(210, 214, 220),
+                custom_glyphs: &[],
+            });
+            for (buffer, spec) in table_buffers.iter().zip(&table_specs) {
+                let left = spec.bounds.x + TABLE_CELL_PADDING;
+                let top = spec.bounds.y
+                    + ((spec.bounds.height - TABLE_TEXT_LINE_HEIGHT) * 0.5).max(0.0);
+                text_areas.push(TextArea {
+                    buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: table_text_bounds(spec.bounds),
+                    default_color: if spec.header {
+                        Color::rgb(232, 234, 240)
+                    } else {
+                        Color::rgb(210, 214, 220)
+                    },
+                    custom_glyphs: &[],
+                });
+            }
+
             self.text_renderer.prepare(
                 &self.device,
                 &self.queue,
                 &mut self.font_system,
                 &mut self.atlas,
                 &self.viewport,
-                [TextArea {
-                    buffer: &self.text_buffer,
-                    left: TEXT_LEFT,
-                    top: TEXT_TOP,
-                    scale: 1.0,
-                    bounds: text_bounds,
-                    default_color: Color::rgb(210, 214, 220),
-                    custom_glyphs: &[],
-                }],
+                text_areas,
                 &mut self.swash_cache,
             )?;
             self.text_render_dirty = false;
@@ -2496,6 +2571,22 @@ struct TableBlockLayout {
     visual_rows: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TableCellLayout<'a> {
+    text: &'a str,
+    bounds: ScreenRect,
+    alignment: SyntaxTableAlignment,
+    header: bool,
+}
+
+#[derive(Clone, Debug)]
+struct TableTextSpec {
+    text: String,
+    bounds: ScreenRect,
+    alignment: SyntaxTableAlignment,
+    header: bool,
+}
+
 fn table_block_layout(
     columns: usize,
     visual_rows: usize,
@@ -2555,6 +2646,75 @@ fn table_cell_rect(
     };
 
     Some(ScreenRect::new(x, y, width, height, [0.0; 4]))
+}
+
+fn table_cell_layouts<'a>(
+    table: &'a TableWidgetData,
+    block: ScreenRect,
+    layout: TableBlockLayout,
+) -> Vec<TableCellLayout<'a>> {
+    let mut cells = Vec::new();
+    let mut visual_row = 0;
+
+    if !table.header().is_empty() {
+        for (column, text) in table.header().iter().enumerate().take(layout.columns) {
+            let Some(bounds) = table_cell_rect(block, layout, visual_row, column) else {
+                continue;
+            };
+            cells.push(TableCellLayout {
+                text,
+                bounds,
+                alignment: table
+                    .alignments()
+                    .get(column)
+                    .copied()
+                    .unwrap_or(SyntaxTableAlignment::None),
+                header: true,
+            });
+        }
+        visual_row += 1;
+    }
+
+    for row in table.rows() {
+        if visual_row >= layout.visual_rows {
+            break;
+        }
+        for (column, text) in row.iter().enumerate().take(layout.columns) {
+            let Some(bounds) = table_cell_rect(block, layout, visual_row, column) else {
+                continue;
+            };
+            cells.push(TableCellLayout {
+                text,
+                bounds,
+                alignment: table
+                    .alignments()
+                    .get(column)
+                    .copied()
+                    .unwrap_or(SyntaxTableAlignment::None),
+                header: false,
+            });
+        }
+        visual_row += 1;
+    }
+
+    cells
+}
+
+const fn table_text_alignment(alignment: SyntaxTableAlignment) -> Align {
+    match alignment {
+        SyntaxTableAlignment::None | SyntaxTableAlignment::Left => Align::Left,
+        SyntaxTableAlignment::Center => Align::Center,
+        SyntaxTableAlignment::Right => Align::Right,
+    }
+}
+
+fn table_text_bounds(bounds: ScreenRect) -> TextBounds {
+    TextBounds {
+        left: (bounds.x + TABLE_CELL_PADDING).floor() as i32,
+        top: bounds.y.floor() as i32,
+        right: (bounds.x + bounds.width - TABLE_CELL_PADDING).ceil() as i32,
+        bottom: (bounds.y + bounds.height).ceil() as i32,
+    }
 }
 
 fn table_dimensions(table: &TableWidgetData) -> (usize, usize) {
