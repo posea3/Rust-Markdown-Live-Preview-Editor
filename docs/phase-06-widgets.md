@@ -118,6 +118,22 @@ The macOS acceptance pass covered native texture rendering, loading-to-ready, mo
 - decoded RGBA data is uploaded to a native wgpu texture
 - while loading or on failure, a native one-row placeholder is drawn
 
+### Resource limits and upload failures
+
+- local image headers are checked against the active device's maximum 2D texture dimension before pixel decoding
+- encoded files, decoded pixel data, and RGBA uploads each have a 64 MiB resource budget
+- the shared image/math upload path rejects zero/oversized dimensions and mismatched RGBA buffers before creating a GPU texture
+- rejected image and math uploads enter their failure state and retain canonical Markdown; they do not become Ready or retry every frame
+- automated regression coverage includes device-limit boundaries, invalid buffers, byte-length overflow, decode limits, and normal fixture decoding
+
+The native GPU regression is opt-in because CI runners may not expose a graphics adapter:
+
+```bash
+cargo test -p mdedit-ime-lab gpu_upload_rejects_oversized_image_and_accepts_next_valid_image -- --ignored --nocapture
+```
+
+This regression passed on Windows with Intel UHD Graphics 630 / DX12: an image wider than the device limit was rejected, and the next valid image uploaded successfully. The broader Windows GUI/IME and macOS integration retests remain pending as recorded below.
+
 ### Image block-height reservation / reflow
 
 Status: **implemented; Windows/macOS/Ubuntu fmt/check/clippy/test PASS; macOS manual acceptance PASS; Windows native manual acceptance deferred to the Phase 6 integration pass**.
@@ -287,4 +303,3 @@ Display Math itself is therefore **PASS**. Phase 6 macOS integration remains ope
 The checkbox history regression was traced to the native shortcut handler always enabling caret-follow after every Undo/Redo, even when a widget transaction leaves the selection unchanged. A regression test was added first at `a224e90`; macOS CI reproduced the expected RED at `cargo check`. The minimal fix at `c450679` now preserves a manually positioned viewport when history leaves the selection unchanged, while retaining caret-follow when ordinary history restores a different selection.
 
 Before starting Slice 05, rerun the focused checkbox viewport case and native Korean/Japanese/Chinese IME on macOS. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
-

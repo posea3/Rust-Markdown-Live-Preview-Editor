@@ -16,7 +16,7 @@ A source-first, native Rust Markdown editing engine with Live Preview.
 - Phase 1: document/transaction/history core — complete
 - Phase 2: selection, Unicode navigation, and grapheme-safe deletion — complete
 - Phase 3: native input/IME lab — implementation complete; Windows/macOS Korean/Japanese/Chinese core IME acceptance passed
-- Phase 4: Markdown syntax engine — core implementation complete on a stacked branch
+- Phase 4: Markdown syntax engine — core implementation complete
 - Phase 5: Live Preview core — native Windows/macOS acceptance complete; Narrator/VoiceOver manual acceptance deferred
 - Phase 6: Widgets — in progress; horizontal rule, task checkbox, standalone image, and Display Math visual acceptance macOS PASS; checkbox Undo viewport fix awaiting focused macOS retest; CJK native IME integration retest pending
 

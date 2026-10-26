@@ -82,9 +82,7 @@ impl MathWidgetHost {
                     rgba,
                 } => {
                     self.pending.remove(&tex);
-                    self.failed.remove(&tex);
-                    self.ready.insert(tex.clone());
-                    textures.upload_rgba(
+                    let result = textures.upload_rgba(
                         device,
                         queue,
                         math_texture_key(&tex),
@@ -92,6 +90,19 @@ impl MathWidgetHost {
                         height,
                         &rgba,
                     );
+                    match result {
+                        Ok(()) => {
+                            self.failed.remove(&tex);
+                            self.ready.insert(tex);
+                        }
+                        Err(error) => {
+                            self.ready.remove(&tex);
+                            eprintln!(
+                                "[mdedit-ime-lab] math widget upload failed {tex:?}: {error}"
+                            );
+                            self.failed.insert(tex, error);
+                        }
+                    }
                 }
                 RenderedMath::Failed { tex, error } => {
                     self.pending.remove(&tex);

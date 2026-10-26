@@ -2033,6 +2033,37 @@ mod tests {
     }
 
     #[test]
+    fn quoted_fenced_code_preserves_literal_quote_characters() {
+        let source = "> ```\n> > literal\n> >> more\n> ```\n";
+        let projection = build(source, RevealPolicy::ConcealInactive, &RevealContext::new());
+        assert_eq!(projection.text(), "```\n> literal\n>> more\n```\n");
+
+        let nested = "> > ```\r\n> > > literal\r\n> > ```\r\n";
+        let projection = build(nested, RevealPolicy::ConcealInactive, &RevealContext::new());
+        assert_eq!(projection.text(), "```\r\n> literal\r\n```\r\n");
+    }
+
+    #[test]
+    fn unsupported_wikilinks_stay_source_visible_next_to_supported_markup() {
+        let source = "[[Note]] and **bold** and [[Note|Alias]]";
+        let document = Document::new(source).unwrap();
+        let snapshot = document.snapshot();
+        let syntax = PulldownCmarkParser.parse(&snapshot, &MarkdownDialect::obsidian());
+        let blocks = BlockCache::new().reconcile(&snapshot, &syntax).unwrap();
+        let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
+        let projection = Projection::build(
+            &snapshot,
+            &syntax,
+            &blocks,
+            &delimiters,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        )
+        .unwrap();
+        assert_eq!(projection.text(), "[[Note]] and bold and [[Note|Alias]]");
+    }
+
+    #[test]
     fn source_visible_projection_is_identity_and_keeps_semantic_styles() {
         let source = "**bold**";
         let projection = build(source, RevealPolicy::SourceVisible, &RevealContext::new());

@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use image::ImageDecoder;
 use wgpu::util::DeviceExt;
 use wgpu::{
     AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
@@ -25,6 +26,8 @@ use wgpu::{
 use winit::window::Window;
 
 use crate::geometry::ScreenRect;
+
+const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageHostState {
@@ -61,6 +64,7 @@ pub struct ImageWidgetHost {
     renderer: ImageRenderer,
     wake_window: Arc<Window>,
     ready_delay: Duration,
+    max_texture_dimension: u32,
 }
 
 impl ImageWidgetHost {
@@ -81,6 +85,7 @@ impl ImageWidgetHost {
             renderer: ImageRenderer::new(device, surface_format),
             wake_window,
             ready_delay,
+            max_texture_dimension: device.limits().max_texture_dimension_2d,
         }
     }
 
@@ -100,8 +105,9 @@ impl ImageWidgetHost {
         let destination = destination.to_owned();
         let wake_window = self.wake_window.clone();
         let ready_delay = self.ready_delay;
+        let max_texture_dimension = self.max_texture_dimension;
         thread::spawn(move || {
-            let result = decode_local_image(&base_dir, &destination);
+            let result = decode_local_image(&base_dir, &destination, max_texture_dimension);
             let message = match result {
                 Ok((width, height, rgba)) => {
                     if !ready_delay.is_zero() {
@@ -131,9 +137,24 @@ impl ImageWidgetHost {
                     rgba,
                 } => {
                     self.pending.remove(&destination);
-                    self.failed.remove(&destination);
-                    self.renderer
-                        .upload(device, queue, destination, width, height, &rgba);
+                    match self.renderer.upload(
+                        device,
+                        queue,
+                        destination.clone(),
+                        width,
+                        height,
+                        &rgba,
+                    ) {
+                        Ok(()) => {
+                            self.failed.remove(&destination);
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "[mdedit-ime-lab] image widget upload failed {destination:?}: {error}"
+                            );
+                            self.failed.insert(destination, error);
+                        }
+                    }
                 }
                 DecodedImage::Failed { destination, error } => {
                     self.pending.remove(&destination);
@@ -174,9 +195,9 @@ impl ImageWidgetHost {
         width: u32,
         height: u32,
         rgba: &[u8],
-    ) {
+    ) -> Result<(), String> {
         self.renderer
-            .upload(device, queue, destination, width, height, rgba);
+            .upload(device, queue, destination, width, height, rgba)
     }
 
     pub fn prepare(
@@ -208,7 +229,11 @@ enum DecodedImage {
     },
 }
 
-fn decode_local_image(base_dir: &Path, destination: &str) -> Result<(u32, u32, Vec<u8>), String> {
+fn decode_local_image(
+    base_dir: &Path,
+    destination: &str,
+    max_dimension: u32,
+) -> Result<(u32, u32, Vec<u8>), String> {
     if destination.starts_with("http://")
         || destination.starts_with("https://")
         || destination.starts_with("data:")
@@ -233,17 +258,68 @@ fn decode_local_image(base_dir: &Path, destination: &str) -> Result<(u32, u32, V
         return Err("image path escapes the configured base directory".to_owned());
     }
 
-    let bytes = fs::read(&candidate).map_err(|error| format!("image read failed: {error}"))?;
-    let decoded =
-        image::load_from_memory(&bytes).map_err(|error| format!("image decode failed: {error}"))?;
-    let rgba = decoded.to_rgba8();
-    let (width, height) = rgba.dimensions();
+    let encoded_len = fs::metadata(&candidate)
+        .map_err(|error| format!("image metadata failed: {error}"))?
+        .len();
+    if encoded_len > MAX_IMAGE_BYTES {
+        return Err("encoded image exceeds the 64 MiB resource budget".to_owned());
+    }
+    let mut reader = image::ImageReader::open(&candidate)
+        .map_err(|error| format!("image read failed: {error}"))?
+        .with_guessed_format()
+        .map_err(|error| format!("image format failed: {error}"))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(max_dimension);
+    limits.max_image_height = Some(max_dimension);
+    limits.max_alloc = Some(MAX_IMAGE_BYTES);
+    reader.limits(limits);
+    let decoder = reader
+        .into_decoder()
+        .map_err(|error| format!("image decoder failed: {error}"))?;
+    let (width, height) = decoder.dimensions();
+    rgba_byte_len(width, height, max_dimension)?;
+    if decoder.total_bytes() > MAX_IMAGE_BYTES {
+        return Err("decoded image exceeds the 64 MiB resource budget".to_owned());
+    }
+    let rgba = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("image decode failed: {error}"))?
+        .to_rgba8();
 
+    Ok((width, height, rgba.into_raw()))
+}
+
+fn rgba_byte_len(width: u32, height: u32, max_dimension: u32) -> Result<usize, String> {
     if width == 0 || height == 0 {
         return Err("image dimensions must be non-zero".to_owned());
     }
+    if width > max_dimension || height > max_dimension {
+        return Err(format!(
+            "image dimensions {width}x{height} exceed GPU limit {max_dimension}"
+        ));
+    }
+    let bytes = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "image byte length overflow".to_owned())?;
+    if bytes > MAX_IMAGE_BYTES {
+        return Err("RGBA image exceeds the 64 MiB resource budget".to_owned());
+    }
+    usize::try_from(bytes).map_err(|_| "image byte length overflow".to_owned())
+}
 
-    Ok((width, height, rgba.into_raw()))
+fn validate_rgba_upload(
+    width: u32,
+    height: u32,
+    rgba_len: usize,
+    max_dimension: u32,
+) -> Result<(), String> {
+    let expected = rgba_byte_len(width, height, max_dimension)?;
+    if rgba_len != expected {
+        return Err(format!(
+            "RGBA buffer length {rgba_len} does not match expected {expected}"
+        ));
+    }
+    Ok(())
 }
 
 struct GpuImage {
@@ -367,7 +443,13 @@ impl ImageRenderer {
         width: u32,
         height: u32,
         rgba: &[u8],
-    ) {
+    ) -> Result<(), String> {
+        validate_rgba_upload(
+            width,
+            height,
+            rgba.len(),
+            device.limits().max_texture_dimension_2d,
+        )?;
         let size = Extent3d {
             width,
             height,
@@ -423,6 +505,7 @@ impl ImageRenderer {
                 height,
             },
         );
+        Ok(())
     }
 
     fn prepare(
@@ -507,10 +590,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rgba_upload_rejects_device_limit_and_invalid_buffers() {
+        assert!(validate_rgba_upload(8193, 1, 8193 * 4, 8192).is_err());
+        assert!(validate_rgba_upload(1, 8193, 8193 * 4, 8192).is_err());
+        assert!(validate_rgba_upload(0, 1, 0, 8192).is_err());
+        assert!(validate_rgba_upload(2, 2, 15, 8192).is_err());
+        assert!(validate_rgba_upload(2, 2, 17, 8192).is_err());
+        assert!(validate_rgba_upload(u32::MAX, u32::MAX, 0, u32::MAX).is_err());
+        assert!(validate_rgba_upload(2, 2, 16, 8192).is_ok());
+        assert!(validate_rgba_upload(8192, 1, 8192 * 4, 8192).is_ok());
+    }
+
+    #[test]
+    fn image_size_budget_is_checked_before_rgba_allocation() {
+        assert!(rgba_byte_len(8192, 8192, 8192).is_err());
+        assert_eq!(rgba_byte_len(96, 48, 8192).unwrap(), 96 * 48 * 4);
+    }
+
+    #[test]
+    #[ignore = "requires a native graphics adapter; run with --ignored"]
+    fn gpu_upload_rejects_oversized_image_and_accepts_next_valid_image() {
+        pollster::block_on(async {
+            let descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            #[cfg(target_os = "windows")]
+            let descriptor = wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::DX12,
+                ..descriptor
+            };
+            let instance = wgpu::Instance::new(descriptor);
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .await
+                .unwrap();
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap();
+            let mut renderer = ImageRenderer::new(&device, TextureFormat::Rgba8UnormSrgb);
+            let width = device.limits().max_texture_dimension_2d + 1;
+            let oversized = vec![0; width as usize * 4];
+            assert!(
+                renderer
+                    .upload(&device, &queue, "oversized".into(), width, 1, &oversized)
+                    .is_err()
+            );
+            assert!(!renderer.contains("oversized"));
+            renderer
+                .upload(&device, &queue, "valid".into(), 1, 1, &[255; 4])
+                .unwrap();
+            assert_eq!(renderer.intrinsic_size("valid"), Some((1, 1)));
+        });
+    }
+
+    #[test]
     fn local_fixture_decodes_off_the_host_boundary() {
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
         let (width, height, rgba) =
-            decode_local_image(&base, "phase-06-image.png").expect("decode fixture");
+            decode_local_image(&base, "phase-06-image.png", 8192).expect("decode fixture");
 
         assert_eq!((width, height), (96, 48));
         assert_eq!(rgba.len(), width as usize * height as usize * 4);
@@ -520,10 +656,16 @@ mod tests {
     fn resolver_rejects_remote_and_absolute_paths_before_io() {
         let base = Path::new(".");
 
-        assert!(decode_local_image(base, "https://example.com/image.png").is_err());
-        assert!(decode_local_image(base, "data:image/png;base64,AAAA").is_err());
+        assert!(decode_local_image(base, "https://example.com/image.png", 8192).is_err());
+        assert!(decode_local_image(base, "data:image/png;base64,AAAA", 8192).is_err());
 
         #[cfg(unix)]
-        assert!(decode_local_image(base, "/tmp/image.png").is_err());
+        assert!(decode_local_image(base, "/tmp/image.png", 8192).is_err());
+    }
+
+    #[test]
+    fn decoder_rejects_image_larger_than_device_before_pixel_decode() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        assert!(decode_local_image(&base, "phase-06-image.png", 32).is_err());
     }
 }
