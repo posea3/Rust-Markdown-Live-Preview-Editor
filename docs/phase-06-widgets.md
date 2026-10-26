@@ -312,3 +312,79 @@ Focused macOS retest at `55a0556722a152605abe9edf14950345a1a46a60`:
 
 Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **Slice 05 - table**. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
 
+
+
+## Slice 05 - table
+
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+
+### Table contract
+
+- GFM/Obsidian table syntax remains canonical Markdown source
+- an inactive `SyntaxKind::Table` becomes `WidgetKind::Table` with a `TableWidgetData` payload
+- the payload preserves column alignment plus header/body visible cell text
+- the complete table source range is concealed only while the table widget is inactive
+- entering the table source range reveals canonical Markdown for editing; leaving restores the native table
+- when an inactive table owns a range, nested delimiter concealment and structural padding inside that range are shadowed so strong/link/code syntax cannot force an overlapping-concealment RawFallback
+- inline Markdown inside a native table cell is flattened to its visible text for this slice; canonical markers remain intact and reappear on source reveal
+- the native IME lab reserves one visual text row per header/body table row through the existing source-mapped reservation overlay
+- table width is centered and capped to the available editor width / 720 px
+- columns partition the native table block without overlap
+- the header row receives a native background; outer and inner grid lines use the existing native rectangle renderer
+- cell text is rendered through native cosmic-text/glyphon buffers, clipped to its cell, with GFM Left/Center/Right alignment applied
+- long-cell wrapping and rich inline styling inside the native table are not introduced by this slice; source reveal remains lossless
+
+### TDD / regression coverage
+
+RED → GREEN cycles covered:
+
+1. **Projection/data contract**
+   - RED: missing `WidgetKind::Table` / `ProjectedWidget::table()`
+   - GREEN: inactive table widget payload, alignment/header/row data, source reveal
+2. **Native geometry/reservation**
+   - RED: missing table block/cell geometry
+   - GREEN: block-height reservation, centered width cap, non-overlapping cell partition, native grid/header geometry
+3. **Cell text/alignment**
+   - RED: missing `table_cell_layouts`
+   - GREEN: header/body text, header role, Left/Center/Right alignment, native glyphon/cosmic-text cell text areas
+4. **Nested inline Markdown**
+   - RED: strong/link/code inside a table caused the whole table projection to fall back because nested concealment overlapped the table-owned range
+   - GREEN: inactive widget ownership shadows internal concealment; native cells receive visible text without Markdown marker bytes
+
+Latest code CI completed successfully on Windows, macOS, and Ubuntu before the acceptance-fixture/documentation-only commits.
+
+### macOS manual acceptance
+
+Run:
+
+```bash
+git fetch origin
+git switch feature/widgets-phase-06-table
+git pull
+
+cargo fmt --all -- --check
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+
+MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
+```
+
+In **Table widget scratch**, verify:
+
+- the first 3-column table is a native grid while inactive; Markdown pipes and separator markers are not visible
+- header/body text appears inside the correct cells
+- `Name` is left aligned, `Score` is right aligned, and `State` is centered
+- `Ada / 42 / ready` and `한글 / 7 / native` stay in their expected columns
+- the sentence after the table stays below the full table block without overlap
+- the second table displays `strong link code` as visible cell text without exposing `**`, link destination syntax, brackets, or backticks
+- clicking or arrow-navigating into either table reveals the exact canonical Markdown table source
+- leaving the source range restores the native table
+- repeat reveal/conceal at least five times and confirm no unexpected viewport jump
+- resize narrower/wider and confirm the table remains bounded/centered and cell boundaries do not overlap
+- selection and arrow navigation can cross the table safely
+- Horizontal Rule, Task Checkbox + Undo/Redo viewport preservation, Image, and Display Math remain regression-free
+- Korean `한글` native IME input and `**한글**` still keep the viewport stable
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #11 draft until this macOS acceptance passes. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
