@@ -223,7 +223,7 @@ For the focused retest verify:
 
 ## Slice 04 - math
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS Display Math visual acceptance PASS; Phase 6 macOS integration retest pending for checkbox-history viewport stability and CJK native IME; Windows native manual acceptance deferred to the Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS Display Math, checkbox-history viewport, and CJK native IME acceptance PASS; Windows native manual acceptance deferred to the Phase 6 integration pass**.
 
 ### Display Math contract
 
@@ -284,22 +284,31 @@ In **Math widget scratch**, verify:
 
 ### macOS acceptance result
 
-Manual acceptance on macOS 15.7.5 / Apple M1 at `08abd777`:
+Display Math visual acceptance passed on macOS 15.7.5 / Apple M1. A checkbox-history viewport regression was then found during integration: Undo could restore the checkbox state while moving a manually scrolled viewport back to the document start.
 
-- **PASS**: native centered display-math rendering
-- **PASS**: text below the math block stays below the reserved height without overlap
-- **PASS**: click/arrow source reveal and conceal restoration
-- **PASS**: five reveal/conceal repetitions without observed viewport movement
-- **PASS**: resize keeps the block centered and unclipped
-- **PASS**: inline math remains source-visible
-- **PASS**: invalid TeX falls back safely; renderer logs the unknown command and the app does not crash
-- **PASS**: Horizontal Rule and Image regression checks
-- **PASS**: Checkbox toggle and state restoration through undo/redo
-- **FAIL / regression found outside Math itself**: with the caret left at document start and the viewport manually scrolled to the checkbox, Cmd+Z restored checkbox state but moved the viewport from approximately `64:21` to `2:0`
-- **NOT TESTED**: native Korean/Japanese/Chinese IME input and `**한글**` composition path
+The first mitigation only disabled caret-follow when history preserved the selection, but a focused retest at `6c97d4c` reproduced the jump three times from approximately `scroll=64:21` to `scroll=0:0`. Redo preserved the viewport. Korean, Japanese, and Chinese native IME input all passed at that head, including Korean `**한글**`, with no viewport movement.
 
-Display Math itself is therefore **PASS**. Phase 6 macOS integration remains open.
+The regression was fixed on `feature/phase-06-widget-history-viewport-fix` by preserving the exact pre-history cosmic-text `Scroll` whenever Undo/Redo leaves the selection unchanged, then restoring that viewport after projection/layout rebuild. Ordinary history that restores a different selection keeps existing caret-follow behavior.
 
-The checkbox history regression was traced to the native shortcut handler always enabling caret-follow after every Undo/Redo, even when a widget transaction leaves the selection unchanged. A regression test was added first at `a224e90`; macOS CI reproduced the expected RED at `cargo check`. The minimal fix at `c450679` now preserves a manually positioned viewport when history leaves the selection unchanged, while retaining caret-follow when ordinary history restores a different selection.
+TDD and automated verification:
 
-Before starting Slice 05, rerun the focused checkbox viewport case and native Korean/Japanese/Chinese IME on macOS. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+- RED: test-only commit `61d3a27`; temporary PR #10 failed as expected before the history viewport-anchor helpers existed
+- GREEN: implementation branch CI passed on Windows, macOS, and Ubuntu
+- Rust 1.98 Clippy compatibility issues reported during acceptance were also removed without changing the Rust 1.90 project baseline
+
+Focused macOS retest at `55a0556722a152605abe9edf14950345a1a46a60`:
+
+- **PASS**: `cargo fmt --all -- --check`
+- **PASS**: `cargo check --workspace --all-targets`
+- **PASS**: `cargo clippy --workspace --all-targets -- -D warnings`
+- **PASS**: `cargo test --workspace` — 201 passed, 0 failed, 1 ignored
+- **PASS**: document-start caret + manually scrolled `scroll=64:21`, three checkbox toggle/Undo/Redo cycles with viewport unchanged
+- **PASS**: checkbox-near caret, three toggle/Undo/Redo cycles with viewport unchanged
+- **PASS**: checkbox state restoration on every Undo/Redo transition
+- **PASS**: Korean 2-set `한글` preedit/commit
+- **PASS**: Korean `**한글**` rendering
+- **PASS**: IME viewport stability at `scroll=19:0`
+- Japanese and Chinese native IME retain the prior `6c97d4c` PASS result
+
+Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **Slice 05 - table**. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+

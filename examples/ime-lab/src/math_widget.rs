@@ -187,7 +187,7 @@ mod tests {
         assert!(width > 0);
         assert!(height > 0);
         assert_eq!(rgba.len(), width as usize * height as usize * 4);
-        assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+        assert!(rgba.iter().skip(3).step_by(4).any(|alpha| *alpha != 0));
     }
 
     #[test]

@@ -287,6 +287,7 @@ struct WindowState {
     ime_trace_enabled: bool,
     live_preview_trace_enabled: bool,
     pending_ime_viewport_anchor: Option<ImeViewportAnchor>,
+    pending_history_viewport_anchor: Option<ImeViewportAnchor>,
     #[cfg(target_os = "macos")]
     deferred_composition_text: DeferredCompositionText,
 
@@ -454,6 +455,7 @@ impl WindowState {
             ime_trace_enabled: env_flag("MDEDIT_IME_TRACE"),
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
             pending_ime_viewport_anchor: None,
+            pending_history_viewport_anchor: None,
             #[cfg(target_os = "macos")]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
@@ -948,8 +950,9 @@ impl WindowState {
 
     fn after_history_action(&mut self, before: &SelectionSet) {
         self.preferred_x = None;
-        self.ensure_caret_visible =
-            history_action_should_follow_caret(before, self.session.selections());
+        self.pending_history_viewport_anchor =
+            history_viewport_anchor(before, self.session.selections(), self.text_buffer.scroll());
+        self.ensure_caret_visible = self.pending_history_viewport_anchor.is_none();
         self.request_redraw();
     }
 
@@ -1082,6 +1085,8 @@ impl WindowState {
     fn refresh_layout(&mut self) {
         let scroll_before = self.text_buffer.scroll();
         let ime_viewport_anchor = self.pending_ime_viewport_anchor.take();
+        let history_viewport_anchor = self.pending_history_viewport_anchor.take();
+        let viewport_anchor = ime_viewport_anchor.or(history_viewport_anchor);
         let next_preedit_text = self
             .session
             .composition()
@@ -1138,7 +1143,7 @@ impl WindowState {
         }
 
         if display_changed {
-            let old_scroll = ime_viewport_anchor
+            let old_scroll = viewport_anchor
                 .map(|anchor| anchor.scroll)
                 .unwrap_or_else(|| self.text_buffer.scroll());
 
@@ -1195,7 +1200,7 @@ impl WindowState {
             self.text_render_dirty = true;
         }
 
-        if ime_viewport_anchor.is_none()
+        if viewport_anchor.is_none()
             && let Some((reflow, before)) = reflow_before
             && let Some(after) = measure_layout_position(
                 &mut self.text_buffer,
@@ -1230,16 +1235,11 @@ impl WindowState {
             self.layout_dirty = false;
         }
 
-        if let Some(anchor) = ime_viewport_anchor {
-            // Do not compensate from the caret's newly measured Y position here.
-            // That value belongs to the just-rebuilt projection and can differ
-            // transiently while Windows emits empty-preedit/commit boundaries.
-            // Restoring the exact pre-IME scroll makes preedit purely visual and
-            // prevents a temporary layout from becoming a persistent jump.
-            if self.text_buffer.scroll() != anchor.scroll {
-                self.text_buffer.set_scroll(anchor.scroll);
-                self.text_buffer
-                    .shape_until_scroll(&mut self.font_system, false);
+        if let Some(anchor) = viewport_anchor {
+            // A preserved viewport is authoritative across transient projection/layout
+            // rebuilds. IME and widget history both use this path so an unrelated
+            // caret cannot turn a source-only change into a persistent scroll jump.
+            if restore_viewport_anchor(&mut self.text_buffer, &mut self.font_system, anchor) {
                 self.text_render_dirty = true;
             }
             self.ensure_caret_visible = false;
@@ -1283,7 +1283,7 @@ impl WindowState {
             eprintln!(
                 "[mdedit-live-preview] layout scroll_before={scroll_before:?} scroll_after={:?} ime_anchor={:?} display_caret={display_caret} caret_xy={:?}",
                 self.text_buffer.scroll(),
-                ime_viewport_anchor.map(|anchor| anchor.scroll),
+                viewport_anchor.map(|anchor| anchor.scroll),
                 self.caret_xy,
             );
         }
@@ -1564,13 +1564,12 @@ impl WindowState {
                 let rows = if let Some(image) = widget.image() {
                     let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
                     image_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else if let Some(math) = widget.display_math() {
+                } else {
+                    let math = widget.display_math()?;
                     let (width, height) = self
                         .math_widgets
                         .intrinsic_size(math.tex(), &self.image_widgets)?;
                     math_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else {
-                    return None;
                 };
 
                 let extra_lines = rows.saturating_sub(1);
@@ -2220,6 +2219,27 @@ fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: Cos
 
 fn history_action_should_follow_caret(before: &SelectionSet, after: &SelectionSet) -> bool {
     before != after
+}
+
+fn history_viewport_anchor(
+    before: &SelectionSet,
+    after: &SelectionSet,
+    scroll: Scroll,
+) -> Option<ImeViewportAnchor> {
+    (!history_action_should_follow_caret(before, after)).then_some(ImeViewportAnchor { scroll })
+}
+
+fn restore_viewport_anchor(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    anchor: ImeViewportAnchor,
+) -> bool {
+    if buffer.scroll() == anchor.scroll {
+        return false;
+    }
+    buffer.set_scroll(anchor.scroll);
+    buffer.shape_until_scroll(font_system, false);
+    true
 }
 
 fn shortcut_character(key: Key<&str>, physical_key: &PhysicalKey) -> Option<char> {
@@ -3247,6 +3267,48 @@ mod tests {
         assert!(selection_intersects_source_line(3, start, end));
         assert!(selection_intersects_source_line(4, start, end));
         assert!(!selection_intersects_source_line(5, start, end));
+    }
+
+    #[test]
+    fn checkbox_undo_restores_exact_manual_scroll_after_relayout() {
+        let mut session = EditorSession::new("- [ ] task\n").unwrap();
+        session.set_caret(Anchor::new(TextSize::ZERO, Affinity::Before));
+        let marker = TextRange::new(TextSize::new(2), TextSize::new(5)).unwrap();
+
+        session
+            .handle(EditorInput::WidgetReplace {
+                range: marker,
+                text: "[x]".to_owned(),
+            })
+            .unwrap();
+        let before_undo = session.selections().clone();
+        session.handle(EditorInput::Undo).unwrap();
+        assert_eq!(session.document().text(), "- [ ] task\n");
+        assert_eq!(session.selections(), &before_undo);
+
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let text = (0..100)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        buffer.set_text(&text, &attrs, Shaping::Advanced, None);
+
+        buffer.set_scroll(Scroll::new(64, 21.0, 0.0));
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+        assert!(stable.line > 0);
+
+        let anchor =
+            history_viewport_anchor(&before_undo, session.selections(), stable).expect("preserve");
+        buffer.set_scroll(Scroll::new(0, 0.0, 0.0));
+        buffer.shape_until_scroll(&mut font_system, false);
+        assert_ne!(buffer.scroll(), stable);
+
+        restore_viewport_anchor(&mut buffer, &mut font_system, anchor);
+        assert_eq!(buffer.scroll(), stable);
     }
 
     #[test]

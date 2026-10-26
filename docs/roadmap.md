@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — horizontal rule, task checkbox, standalone image, and Display Math visual acceptance macOS PASS; checkbox Undo viewport fix awaiting focused macOS retest and CJK native IME integration retest pending; Windows native manual acceptance deferred to the final integration pass**
+Status: **in progress — horizontal rule, task checkbox, standalone image, and Display Math macOS integration PASS; Slice 05 Table next; Windows native manual acceptance deferred to the final integration pass**
 
 Rules:
 
