@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
     BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ParseStatus,
-    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot,
+    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -324,6 +324,7 @@ pub enum WidgetKind {
     TaskCheckbox,
     Image,
     DisplayMath,
+    Table,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -363,11 +364,36 @@ impl MathWidgetData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableWidgetData {
+    alignments: Vec<SyntaxTableAlignment>,
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
+
+impl TableWidgetData {
+    #[must_use]
+    pub fn alignments(&self) -> &[SyntaxTableAlignment] {
+        &self.alignments
+    }
+
+    #[must_use]
+    pub fn header(&self) -> &[String] {
+        &self.header
+    }
+
+    #[must_use]
+    pub fn rows(&self) -> &[Vec<String>] {
+        &self.rows
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WidgetPayload {
     None,
     TaskCheckbox { checked: bool },
     Image(ImageWidgetData),
     DisplayMath(MathWidgetData),
+    Table(TableWidgetData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -421,7 +447,10 @@ impl ProjectedWidget {
     pub const fn task_checked(&self) -> Option<bool> {
         match &self.payload {
             WidgetPayload::TaskCheckbox { checked } => Some(*checked),
-            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
+            WidgetPayload::None
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 
@@ -431,7 +460,8 @@ impl ProjectedWidget {
             WidgetPayload::Image(image) => Some(image),
             WidgetPayload::None
             | WidgetPayload::TaskCheckbox { .. }
-            | WidgetPayload::DisplayMath(_) => None,
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 
@@ -439,9 +469,21 @@ impl ProjectedWidget {
     pub fn display_math(&self) -> Option<&MathWidgetData> {
         match &self.payload {
             WidgetPayload::DisplayMath(math) => Some(math),
-            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } | WidgetPayload::Image(_) => {
-                None
-            }
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::Table(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn table(&self) -> Option<&TableWidgetData> {
+        match &self.payload {
+            WidgetPayload::Table(table) => Some(table),
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_) => None,
         }
     }
 
@@ -452,7 +494,10 @@ impl ProjectedWidget {
                 marker_range: self.source_range,
                 checked: !*checked,
             }),
-            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
+            WidgetPayload::None
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 }
@@ -1421,6 +1466,23 @@ fn collect_widget_candidates(
                 active,
             });
         }
+        SyntaxKind::Table => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            if let Some(table) = table_widget_data(source, node) {
+                output.push(WidgetCandidate {
+                    kind: WidgetKind::Table,
+                    payload: WidgetPayload::Table(table),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+                if !active {
+                    return Ok(());
+                }
+            }
+        }
         SyntaxKind::Image if image_is_standalone(source, node.range()) => {
             let source_range = node.range();
             let active = policy == RevealPolicy::SourceVisible
@@ -1458,6 +1520,50 @@ fn collect_widget_candidates(
         collect_widget_candidates(source, child, policy, context, output)?;
     }
     Ok(())
+}
+
+fn table_widget_data(source: &str, node: &SyntaxNode) -> Option<TableWidgetData> {
+    let SyntaxMetadata::Table { alignments } = node.metadata() else {
+        return None;
+    };
+
+    let header = node
+        .children()
+        .iter()
+        .find(|child| child.kind() == SyntaxKind::TableHead)
+        .map_or_else(Vec::new, |head| table_cells(source, head));
+    let rows = node
+        .children()
+        .iter()
+        .filter(|child| child.kind() == SyntaxKind::TableRow)
+        .map(|row| table_cells(source, row))
+        .collect::<Vec<_>>();
+
+    if header.is_empty() && rows.is_empty() {
+        return None;
+    }
+
+    Some(TableWidgetData {
+        alignments: alignments.clone(),
+        header,
+        rows,
+    })
+}
+
+fn table_cells(source: &str, row: &SyntaxNode) -> Vec<String> {
+    row.children()
+        .iter()
+        .filter(|child| child.kind() == SyntaxKind::TableCell)
+        .filter_map(|cell| source_text(source, cell.range()).map(|text| text.trim().to_owned()))
+        .collect()
+}
+
+fn source_text(source: &str, range: TextRange) -> Option<&str> {
+    let range = range.as_usize_range();
+    (range.end <= source.len()
+        && source.is_char_boundary(range.start)
+        && source.is_char_boundary(range.end))
+    .then(|| &source[range])
 }
 
 fn image_widget_data(source: &str, node: &SyntaxNode) -> Option<ImageWidgetData> {
