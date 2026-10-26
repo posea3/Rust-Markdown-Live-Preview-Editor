@@ -2960,6 +2960,34 @@ mod tests {
     }
 
     #[test]
+    fn table_block_layout_reserves_one_visual_row_per_table_row() {
+        let layout = table_block_layout(3, 4, 640.0, LINE_HEIGHT);
+
+        assert_eq!(layout.columns, 3);
+        assert_eq!(layout.visual_rows, 4);
+        assert_eq!(layout.rows, 4);
+        assert!((layout.height - LINE_HEIGHT * 4.0).abs() < 0.01);
+        assert!(layout.width <= 640.0);
+        assert!(layout.width <= TABLE_BLOCK_MAX_WIDTH);
+    }
+
+    #[test]
+    fn table_cell_geometry_partitions_block_without_overlap() {
+        let layout = table_block_layout(3, 3, 600.0, LINE_HEIGHT);
+        let block = table_block_rect(0.0, LINE_HEIGHT, 600.0, layout);
+        let first = table_cell_rect(block, layout, 0, 0).expect("first cell");
+        let second = table_cell_rect(block, layout, 0, 1).expect("second cell");
+        let last = table_cell_rect(block, layout, 2, 2).expect("last cell");
+
+        assert!((first.x + first.width - second.x).abs() < 0.01);
+        assert!((first.width - second.width).abs() < 0.01);
+        assert!(last.x + last.width <= block.x + block.width + 0.01);
+        assert!(last.y + last.height <= block.y + block.height + 0.01);
+        assert!(table_cell_rect(block, layout, 3, 0).is_none());
+        assert!(table_cell_rect(block, layout, 0, 3).is_none());
+    }
+
+    #[test]
     fn math_block_layout_scales_small_render_for_legibility_and_reserves_rows() {
         let layout = math_block_layout(120, 20, 640.0, LINE_HEIGHT);
         let rect = math_block_rect(0.0, LINE_HEIGHT, 640.0, layout);
