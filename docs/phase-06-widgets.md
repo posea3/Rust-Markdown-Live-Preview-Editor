@@ -316,7 +316,7 @@ Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **S
 
 ## Slice 05 - table
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS manual acceptance pending; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; first macOS manual acceptance failed on table block reservation/reflow; focused macOS retest pending after the reservation fix; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
 
 ### Table contract
 
@@ -388,3 +388,51 @@ In **Table widget scratch**, verify:
 - no wgpu validation error, panic, or crash appears
 
 Keep PR #11 draft until this macOS acceptance passes. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+
+
+### macOS acceptance result — first pass FAIL, reservation fix ready for focused retest
+
+First macOS acceptance at `54e048d9da2927a088cbc244bce270b35d235c37`:
+
+- **PASS**: `cargo fmt --all -- --check`
+- **PASS**: `cargo check --workspace --all-targets`
+- **PASS**: `cargo clippy --workspace --all-targets -- -D warnings`
+- **PASS**: `cargo test --workspace` with 0 failures and the native-graphics-adapter test ignored
+- **PASS**: native grid, header/body text, Left/Right/Center alignment, both data rows
+- **PASS**: inline Markdown cell displayed `strong link code` without source markers
+- **PASS**: canonical table source reveal and native-grid restore
+- **PASS**: Rule/Image/Math and Checkbox Undo/Redo smoke
+- **PASS**: Korean preedit/commit and `**한글**` with stable `scroll=23:5`
+- **FAIL**: surrounding explanatory text overlapped the native grids
+- **FAIL**: repeated reveal/conceal moved the viewport between approximately `scroll=75:21` and `scroll=79:21`
+- narrow-width drag acceptance was not completed because the macOS window edge drag did not resize during that run
+- a macOS LaunchServices connection warning was printed, but no wgpu validation error, panic, or crash was observed
+
+Root cause:
+
+- `update_block_widget_reservations()` correctly created Table reservations
+- `ReservationOverlay::apply()` accepted only Image and DisplayMath widget kinds, so Table reservation rows were silently ignored
+- the grid was therefore painted at multi-row height while the text layout still occupied the collapsed one-row position, causing overlap
+- reveal then restored the full Markdown table lines without corresponding inactive reservation rows, explaining the multi-line reflow jump
+
+TDD regression:
+
+- RED commit `d310478b92ae5e64b11c8c6da0ed75bccfe45ea0`
+- `table_block_reservation_adds_layout_rows_without_changing_source_mapping` failed because the displayed newline count was 3 instead of the expected 5
+- `adding_table_reservation_produces_reflow_offsets_for_same_source_anchor` failed because the after offset stayed 14 instead of advancing to 16
+- GREEN commit `50e8f5947c01afa1bdc985dd4de7d9e2f3cd1df0`
+- minimal production change: include `WidgetKind::Table` in the existing reservation-overlay widget-kind filter
+- CI run `40382566358`: Windows, macOS, and Ubuntu all PASS for fmt/check/clippy/test
+
+The macOS window is created with the default resizable winit attributes; there is no `with_resizable(false)` or fixed minimum-size setting in the IME lab. The failed edge-drag observation is therefore kept as an acceptance item rather than treated as part of this reservation fix.
+
+Focused macOS retest should verify:
+
+- neither table overlaps the explanatory text above/below it
+- the sentence after each table remains below the complete native grid
+- reveal/conceal five times no longer produces the previous four-line viewport jump
+- canonical source reveal/restore, alignment, inline-marker concealment, and Korean IME remain smoke-PASS
+- if window edge resize works in the retest, narrow/wide table bounding can be closed; otherwise keep only that resize check open separately
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #11 draft until this focused macOS retest passes.
