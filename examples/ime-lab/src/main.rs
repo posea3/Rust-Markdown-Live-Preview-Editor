@@ -1567,13 +1567,12 @@ impl WindowState {
                 let rows = if let Some(image) = widget.image() {
                     let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
                     image_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else if let Some(math) = widget.display_math() {
+                } else {
+                    let math = widget.display_math()?;
                     let (width, height) = self
                         .math_widgets
                         .intrinsic_size(math.tex(), &self.image_widgets)?;
                     math_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else {
-                    return None;
                 };
 
                 let extra_lines = rows.saturating_sub(1);
