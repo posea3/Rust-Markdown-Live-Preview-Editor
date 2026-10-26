@@ -1439,6 +1439,7 @@ impl WindowState {
                         }
                     }
                 }
+                WidgetKind::Table => {}
             }
         }
 
@@ -1467,7 +1468,10 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| match widget.kind() {
-                WidgetKind::HorizontalRule | WidgetKind::Image | WidgetKind::DisplayMath => None,
+                WidgetKind::HorizontalRule
+                | WidgetKind::Image
+                | WidgetKind::DisplayMath
+                | WidgetKind::Table => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
