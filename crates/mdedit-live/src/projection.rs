@@ -770,12 +770,10 @@ impl Projection {
 
         let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
         let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
-        concealed.retain(|span| {
-            !shadowed_by_inactive_widget(&widget_candidates, span.source_range)
-        });
-        structural_padding.retain(|span| {
-            !shadowed_by_inactive_widget(&widget_candidates, span.source_range)
-        });
+        concealed
+            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
+        structural_padding
+            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
 
         if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
