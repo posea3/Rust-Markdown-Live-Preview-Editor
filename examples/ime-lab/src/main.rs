@@ -1451,8 +1451,7 @@ impl WindowState {
                     let (columns, visual_rows) = table_dimensions(table);
                     let layout =
                         table_block_layout(columns, visual_rows, available_width, line_height);
-                    let block =
-                        table_block_rect(line_top, line_height, available_width, layout);
+                    let block = table_block_rect(line_top, line_height, available_width, layout);
                     append_table_rects(&mut rects, block, layout);
                 }
             }
@@ -2572,11 +2571,7 @@ fn table_dimensions(table: &TableWidgetData) -> (usize, usize) {
     (columns, visual_rows.max(1))
 }
 
-fn append_table_rects(
-    output: &mut Vec<ScreenRect>,
-    block: ScreenRect,
-    layout: TableBlockLayout,
-) {
+fn append_table_rects(output: &mut Vec<ScreenRect>, block: ScreenRect, layout: TableBlockLayout) {
     if let Some(header) = table_cell_rect(block, layout, 0, 0) {
         output.push(ScreenRect::new(
             block.x,
