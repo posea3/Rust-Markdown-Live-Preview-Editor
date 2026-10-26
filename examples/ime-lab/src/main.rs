@@ -3250,6 +3250,48 @@ mod tests {
     }
 
     #[test]
+    fn checkbox_undo_restores_exact_manual_scroll_after_relayout() {
+        let mut session = EditorSession::new("- [ ] task\n").unwrap();
+        session.set_caret(Anchor::new(TextSize::ZERO, Affinity::Before));
+        let marker = TextRange::new(TextSize::new(2), TextSize::new(5)).unwrap();
+
+        session
+            .handle(EditorInput::WidgetReplace {
+                range: marker,
+                text: "[x]".to_owned(),
+            })
+            .unwrap();
+        let before_undo = session.selections().clone();
+        session.handle(EditorInput::Undo).unwrap();
+        assert_eq!(session.document().text(), "- [ ] task\n");
+        assert_eq!(session.selections(), &before_undo);
+
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(420.0), Some(LINE_HEIGHT * 4.0));
+        let attrs = Attrs::new().family(Family::SansSerif);
+        let text = (0..100)
+            .map(|index| format!("line {index:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        buffer.set_text(&text, &attrs, Shaping::Advanced, None);
+
+        buffer.set_scroll(Scroll::new(64, 21.0, 0.0));
+        buffer.shape_until_scroll(&mut font_system, false);
+        let stable = buffer.scroll();
+        assert!(stable.line > 0);
+
+        let anchor =
+            history_viewport_anchor(&before_undo, session.selections(), stable).expect("preserve");
+        buffer.set_scroll(Scroll::new(0, 0.0, 0.0));
+        buffer.shape_until_scroll(&mut font_system, false);
+        assert_ne!(buffer.scroll(), stable);
+
+        restore_viewport_anchor(&mut buffer, &mut font_system, anchor);
+        assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
     fn history_with_unchanged_selection_preserves_manual_viewport() {
         let selection = SelectionSet::caret(Anchor::new(TextSize::ZERO, Affinity::Before));
 
