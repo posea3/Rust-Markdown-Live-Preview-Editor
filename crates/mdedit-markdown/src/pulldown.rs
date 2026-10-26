@@ -455,6 +455,93 @@ mod tests {
     }
 
     #[test]
+    fn math_nodes_keep_exact_source_ranges_and_content() {
+        let source = concat!("inline $x^2$\n\n", "$", "$", "\\frac{a}{b}", "$", "$", "\n");
+        let snapshot = parse(source, MarkdownDialect::obsidian());
+
+        let inline = find_first(snapshot.root(), &|kind| kind == SyntaxKind::InlineMath)
+            .expect("inline math");
+        assert_eq!(&source[inline.range().as_usize_range()], "$x^2$");
+        assert!(matches!(
+            inline.metadata(),
+            SyntaxMetadata::InlineMath { content } if content == "x^2"
+        ));
+
+        let display = find_first(snapshot.root(), &|kind| kind == SyntaxKind::DisplayMath)
+            .expect("display math");
+        assert_eq!(
+            &source[display.range().as_usize_range()],
+            concat!("$", "$", "\\frac{a}{b}", "$", "$")
+        );
+        assert!(matches!(
+            display.metadata(),
+            SyntaxMetadata::DisplayMath { content } if content == "\\frac{a}{b}"
+        ));
+    }
+
+    #[test]
+    fn image_nodes_keep_exact_source_and_link_metadata() {
+        let source = "![blue square](fixtures/phase-06-image.png \"fixture\")\n";
+        let snapshot = parse(source, MarkdownDialect::commonmark());
+
+        let image =
+            find_first(snapshot.root(), &|kind| kind == SyntaxKind::Image).expect("image node");
+
+        assert_eq!(
+            &source[image.range().as_usize_range()],
+            "![blue square](fixtures/phase-06-image.png \"fixture\")"
+        );
+        assert!(matches!(
+            image.metadata(),
+            SyntaxMetadata::Image(metadata)
+                if metadata.destination() == "fixtures/phase-06-image.png"
+                    && metadata.title() == "fixture"
+        ));
+        let alt = image
+            .children()
+            .iter()
+            .find(|child| child.kind() == SyntaxKind::Text)
+            .expect("image alt text");
+        assert_eq!(&source[alt.range().as_usize_range()], "blue square");
+    }
+
+    #[test]
+    fn task_list_markers_keep_exact_source_ranges_and_checked_state() {
+        let source = "- [ ] todo\n- [x] done\n";
+        let snapshot = parse(source, MarkdownDialect::gfm());
+
+        let mut markers = Vec::new();
+        fn collect(node: &SyntaxNode, output: &mut Vec<(bool, TextRange)>) {
+            if let SyntaxKind::TaskListMarker { checked } = node.kind() {
+                output.push((checked, node.range()));
+            }
+            for child in node.children() {
+                collect(child, output);
+            }
+        }
+        collect(snapshot.root(), &mut markers);
+
+        assert_eq!(markers.len(), 2);
+        assert_eq!(&source[markers[0].1.as_usize_range()], "[ ]");
+        assert!(!markers[0].0);
+        assert_eq!(&source[markers[1].1.as_usize_range()], "[x]");
+        assert!(markers[1].0);
+    }
+
+    #[test]
+    fn horizontal_rule_keeps_an_exact_source_mapped_leaf() {
+        let source = "above\n\n---\n\nbelow\n";
+        let snapshot = parse(source, MarkdownDialect::commonmark());
+
+        let rule =
+            find_first(snapshot.root(), &|kind| kind == SyntaxKind::Rule).expect("horizontal rule");
+        let raw = &source[rule.range().as_usize_range()];
+
+        assert_eq!(raw.trim_end_matches(&['\r', '\n'][..]), "---");
+        assert_ranges_are_valid(snapshot.root(), source);
+    }
+
+    #[test]
     fn malformed_markdown_remains_safe_and_source_mapped() {
         let source = "**unterminated [link](\n한글 👨‍👩‍👧‍👦";
         let snapshot = parse(source, MarkdownDialect::extended());

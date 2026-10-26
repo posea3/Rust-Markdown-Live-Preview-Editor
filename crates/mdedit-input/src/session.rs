@@ -67,6 +67,7 @@ impl EditorSession {
     pub fn handle(&mut self, input: EditorInput) -> Result<bool, SessionError> {
         match input {
             EditorInput::InsertText(text) => self.insert_text(&text),
+            EditorInput::WidgetReplace { range, text } => self.replace_widget_range(range, &text),
             EditorInput::ImeEnabled => {
                 self.ime_enabled = true;
                 Ok(true)
@@ -138,6 +139,46 @@ impl EditorSession {
         {
             self.selections = selection;
         }
+        Ok(true)
+    }
+
+    pub fn replace_widget_range(
+        &mut self,
+        range: TextRange,
+        text: &str,
+    ) -> Result<bool, SessionError> {
+        self.cancel_composition();
+
+        let changes = ChangeSet::single(Change::new(range, text));
+        let change_map = ChangeMap::from_change_set(&changes)?;
+        let mapped_ranges = self
+            .selections
+            .ranges()
+            .iter()
+            .map(|selection| {
+                let anchor = change_map
+                    .map_old_to_new(selection.anchor.offset, selection.anchor.affinity)?;
+                let head =
+                    change_map.map_old_to_new(selection.head.offset, selection.head.affinity)?;
+                Ok(SelectionRange {
+                    anchor: Anchor::new(anchor.offset, anchor.affinity),
+                    head: Anchor::new(head.offset, head.affinity),
+                })
+            })
+            .collect::<Result<Vec<_>, SessionError>>()?;
+        let selection_after = SelectionSet::new(mapped_ranges, self.selections.primary_index())?;
+
+        let transaction =
+            Transaction::new(self.document.revision(), changes, TransactionKind::Widget)
+                .with_selection(selection_after);
+        let before = self.selections.clone();
+        if let Some(selection) =
+            self.history
+                .apply_and_record(&mut self.document, transaction, before)?
+        {
+            self.selections = selection;
+        }
+
         Ok(true)
     }
 
@@ -446,6 +487,31 @@ mod tests {
 
         assert_eq!(session.document().text(), "aXd");
         assert_eq!(session.selections().primary().head.offset, TextSize::new(2));
+    }
+
+    #[test]
+    fn widget_replace_is_undoable_and_preserves_unrelated_caret() {
+        let mut session = EditorSession::new("- [ ] task").unwrap();
+        session.set_caret(Anchor::new(TextSize::new(10), Affinity::After));
+        let marker = TextRange::new(TextSize::new(2), TextSize::new(5)).unwrap();
+
+        session
+            .handle(EditorInput::WidgetReplace {
+                range: marker,
+                text: "[x]".to_owned(),
+            })
+            .unwrap();
+
+        assert_eq!(session.document().text(), "- [x] task");
+        assert_eq!(
+            session.selections().primary().head,
+            Anchor::new(TextSize::new(10), Affinity::After)
+        );
+
+        session.undo().unwrap();
+        assert_eq!(session.document().text(), "- [ ] task");
+        session.redo().unwrap();
+        assert_eq!(session.document().text(), "- [x] task");
     }
 
     #[test]
