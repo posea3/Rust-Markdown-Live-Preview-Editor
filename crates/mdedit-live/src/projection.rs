@@ -1962,6 +1962,69 @@ mod tests {
     }
 
     #[test]
+    fn inactive_table_becomes_block_widget_with_alignment_and_cell_data() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "| Bob | 7 |\n",
+            "\nafter\n",
+        );
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let widget = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("table widget");
+        assert!(widget.projected_range().is_empty());
+        assert!(!projection.text().contains("| Name | Score |"));
+
+        let table = widget.table().expect("table payload");
+        assert_eq!(
+            table.alignments(),
+            &[
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+            ]
+        );
+        assert_eq!(table.header(), &["Name", "Score"]);
+        assert_eq!(table.rows(), &[vec!["Ada", "42"], vec!["Bob", "7"]]);
+    }
+
+    #[test]
+    fn table_source_reveals_when_caret_enters_table_range() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| --- | ---: |\n",
+            "| Ada | 42 |\n",
+            "\nafter\n",
+        );
+        let marker = source.find("Ada").unwrap();
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Table)
+        );
+    }
+
+    #[test]
     fn inactive_display_math_becomes_block_widget_with_tex_payload() {
         let source = concat!(
             "before\n\n",
