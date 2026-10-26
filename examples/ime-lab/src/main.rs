@@ -33,7 +33,8 @@ use mdedit_core::{
 };
 use mdedit_input::{EditorInput, EditorSession};
 use mdedit_live::{
-    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, WidgetAction, WidgetKind,
+    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, TableWidgetData,
+    WidgetAction, WidgetKind,
 };
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
@@ -83,6 +84,9 @@ const MATH_PLACEHOLDER_WIDTH: f32 = 112.0;
 const MATH_LOADING_COLOR: [f32; 4] = [0.54, 0.58, 0.72, 0.78];
 const MATH_FAILED_COLOR: [f32; 4] = [0.82, 0.40, 0.40, 0.94];
 const TABLE_BLOCK_MAX_WIDTH: f32 = 720.0;
+const TABLE_GRID_THICKNESS: f32 = 1.0;
+const TABLE_GRID_COLOR: [f32; 4] = [0.36, 0.39, 0.46, 0.92];
+const TABLE_HEADER_COLOR: [f32; 4] = [0.12, 0.14, 0.18, 0.96];
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -1440,7 +1444,17 @@ impl WindowState {
                         }
                     }
                 }
-                WidgetKind::Table => {}
+                WidgetKind::Table => {
+                    let Some(table) = widget.table() else {
+                        continue;
+                    };
+                    let (columns, visual_rows) = table_dimensions(table);
+                    let layout =
+                        table_block_layout(columns, visual_rows, available_width, line_height);
+                    let block =
+                        table_block_rect(line_top, line_height, available_width, layout);
+                    append_table_rects(&mut rects, block, layout);
+                }
             }
         }
 
@@ -1569,12 +1583,15 @@ impl WindowState {
                 let rows = if let Some(image) = widget.image() {
                     let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
                     image_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else {
-                    let math = widget.display_math()?;
+                } else if let Some(math) = widget.display_math() {
                     let (width, height) = self
                         .math_widgets
                         .intrinsic_size(math.tex(), &self.image_widgets)?;
                     math_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                } else {
+                    let table = widget.table()?;
+                    let (columns, visual_rows) = table_dimensions(table);
+                    table_block_layout(columns, visual_rows, available_width, LINE_HEIGHT).rows
                 };
 
                 let extra_lines = rows.saturating_sub(1);
@@ -2539,6 +2556,82 @@ fn table_cell_rect(
     };
 
     Some(ScreenRect::new(x, y, width, height, [0.0; 4]))
+}
+
+fn table_dimensions(table: &TableWidgetData) -> (usize, usize) {
+    let columns = table
+        .rows()
+        .iter()
+        .map(Vec::len)
+        .chain(std::iter::once(table.header().len()))
+        .chain(std::iter::once(table.alignments().len()))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let visual_rows = usize::from(!table.header().is_empty()) + table.rows().len();
+    (columns, visual_rows.max(1))
+}
+
+fn append_table_rects(
+    output: &mut Vec<ScreenRect>,
+    block: ScreenRect,
+    layout: TableBlockLayout,
+) {
+    if let Some(header) = table_cell_rect(block, layout, 0, 0) {
+        output.push(ScreenRect::new(
+            block.x,
+            block.y,
+            block.width,
+            header.height,
+            TABLE_HEADER_COLOR,
+        ));
+    }
+
+    let b = TABLE_GRID_THICKNESS;
+    output.extend([
+        ScreenRect::new(block.x, block.y, block.width, b, TABLE_GRID_COLOR),
+        ScreenRect::new(
+            block.x,
+            block.y + block.height - b,
+            block.width,
+            b,
+            TABLE_GRID_COLOR,
+        ),
+        ScreenRect::new(block.x, block.y, b, block.height, TABLE_GRID_COLOR),
+        ScreenRect::new(
+            block.x + block.width - b,
+            block.y,
+            b,
+            block.height,
+            TABLE_GRID_COLOR,
+        ),
+    ]);
+
+    for column in 1..layout.columns {
+        let Some(cell) = table_cell_rect(block, layout, 0, column) else {
+            continue;
+        };
+        output.push(ScreenRect::new(
+            cell.x,
+            block.y,
+            b,
+            block.height,
+            TABLE_GRID_COLOR,
+        ));
+    }
+
+    for row in 1..layout.visual_rows {
+        let Some(cell) = table_cell_rect(block, layout, row, 0) else {
+            continue;
+        };
+        output.push(ScreenRect::new(
+            block.x,
+            cell.y,
+            block.width,
+            b,
+            TABLE_GRID_COLOR,
+        ));
+    }
 }
 
 fn math_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
