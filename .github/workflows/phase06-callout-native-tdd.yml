@@ -83,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/phase06_callout_native_patch.py green-text
+          python3 .github/scripts/phase06_callout_native_lint_fix.py
           cargo fmt --all
           git add examples/ime-lab/src/main.rs examples/ime-lab/src/callout_embed_widget.rs
           git commit -m "feat(ime-lab): render callout embed native text"
