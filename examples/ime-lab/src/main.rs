@@ -1583,21 +1583,26 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| {
-                let rows = if let Some(image) = widget.image() {
+                let extra_lines = if let Some(image) = widget.image() {
                     let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
-                    image_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                    image_block_layout(width, height, available_width, LINE_HEIGHT)
+                        .rows
+                        .saturating_sub(1)
                 } else if let Some(math) = widget.display_math() {
                     let (width, height) = self
                         .math_widgets
                         .intrinsic_size(math.tex(), &self.image_widgets)?;
-                    math_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                    math_block_layout(width, height, available_width, LINE_HEIGHT)
+                        .rows
+                        .saturating_sub(1)
                 } else {
-                    let table = widget.table()?;
-                    let (columns, visual_rows) = table_dimensions(table);
-                    table_block_layout(columns, visual_rows, available_width, LINE_HEIGHT).rows
+                    widget.table()?;
+                    table_reservation_extra_lines(
+                        self.session.document().text(),
+                        widget.source_range(),
+                    )?
                 };
 
-                let extra_lines = rows.saturating_sub(1);
                 (extra_lines > 0).then(|| {
                     WidgetBlockReservation::new(
                         widget.source_range(),
@@ -2587,6 +2592,12 @@ struct TableTextSpec {
     bounds: ScreenRect,
     alignment: SyntaxTableAlignment,
     header: bool,
+}
+
+fn table_reservation_extra_lines(source: &str, range: TextRange) -> Option<usize> {
+    source
+        .get(range.as_usize_range())
+        .map(|table_source| table_source.bytes().filter(|byte| *byte == b'\n').count())
 }
 
 fn table_block_layout(
