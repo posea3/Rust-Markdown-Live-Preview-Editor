@@ -316,7 +316,7 @@ Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **S
 
 ## Slice 05 - table
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; first macOS manual acceptance failed on table block reservation/reflow; focused macOS retest pending after the reservation fix; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; first macOS acceptance overlap was fixed, second focused macOS retest still found a two-line reveal/conceal footprint drift; source-footprint fix has 3-OS CI PASS and another focused macOS retest is pending; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
 
 ### Table contract
 
@@ -436,3 +436,50 @@ Focused macOS retest should verify:
 - no wgpu validation error, panic, or crash appears
 
 Keep PR #11 draft until this focused macOS retest passes.
+
+
+### macOS focused retest — overlap PASS, two-line reveal footprint drift remained
+
+Focused macOS retest at `98427c32fac9cc8d4491fe47825ea579397848dd`:
+
+- **PASS**: both native tables showed all rows without overlapping explanatory text
+- **PASS**: `Name` Left, `Score` Right, `State` Center
+- **PASS**: inactive inline-Markdown cell displayed only `strong link code`
+- **PASS**: canonical Markdown structure revealed inside the table; placing the caret in `strong` revealed the `**` markers
+- **PASS**: Image and Math smoke
+- **PASS**: Korean preedit/commit and `**한글**` with stable `scroll=41:5`
+- **NOT RETESTED**: Checkbox click toggle, workspace fmt/check/clippy/test, narrow-window resize
+- **FAIL**: first table reveal/conceal repeatedly moved `scroll=76:21 <-> 78:21`
+- **FAIL**: second table also moved around `78:21 -> 80:21 -> 77:21`
+- no wgpu validation error, panic, or crash; one macOS IMK system warning was observed
+
+Second root cause:
+
+- the first reservation fix made Table reservations actually participate in layout, removing overlap and reducing the previous four-line movement
+- however Table reservation size was still derived from **native visual rows**: header + body rows
+- canonical Markdown additionally contains the GFM alignment separator row and the Table source range conceals its newline bytes
+- for the first fixture table, native rendering has 3 visual rows while the canonical source range conceals 4 newline bytes
+- using `visual_rows - 1 == 2` synthetic lines therefore did not preserve the same vertical source footprint across conceal/reveal
+
+TDD:
+
+- RED commit `bbe31b632f75a9c0361cab658dbee505340b5e09`
+- the new test requires the first fixture table's reservation to equal the **4 concealed source newline bytes**, independently of the 3 native visual rows
+- macOS CI failed as expected because `table_reservation_extra_lines` did not exist
+- GREEN implementation began at `c0b2782`; CI then caught a borrow/type error before behavior verification
+- corrected GREEN commit: `a6bfe889e7162df546d43f95f1e07e3dcc449f79`
+- Table now counts `\n` inside its canonical `source_range` and uses that exact count for reservation
+- Image and DisplayMath keep their existing `rows.saturating_sub(1)` policy unchanged
+- CI run `40483731958`: Windows, macOS, and Ubuntu all PASS for fmt/check/clippy/test
+
+Next focused macOS retest:
+
+- confirm both tables still have no text/grid overlap
+- repeat first-table reveal/conceal at least five times and confirm the previous `76:21 <-> 78:21` two-line movement is gone
+- repeat the second table and confirm it no longer walks among `78:21 / 80:21 / 77:21`
+- confirm canonical source reveal/restore and `strong` marker reveal still work
+- smoke Image/Math/Checkbox and Korean IME
+- narrow-window resize remains separately open if edge drag is still unavailable
+- no wgpu validation error, panic, or crash
+
+Keep PR #11 draft until the reveal/conceal viewport retest passes.
