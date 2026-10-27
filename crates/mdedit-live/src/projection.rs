@@ -2456,6 +2456,29 @@ mod tests {
     }
 
     #[test]
+    fn callout_source_reveal_restores_nested_markers_and_widgets() {
+        let source = concat!("> [!note] Title\n", "> - [ ] **Task**\n",);
+        let marker = source.find("Title").unwrap();
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(
+            projection.text(),
+            source,
+            "activating the callout must reveal nested delimiter, quote, list, and task markers across the owned source range",
+        );
+        assert!(projection.widgets().iter().all(|widget| {
+            !matches!(
+                widget.kind(),
+                WidgetKind::Callout | WidgetKind::TaskCheckbox
+            )
+        }));
+    }
+
+    #[test]
     fn inactive_obsidian_embed_becomes_custom_embed_widget() {
         let source = concat!(
             "before\n\n",
