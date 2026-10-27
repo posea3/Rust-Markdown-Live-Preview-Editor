@@ -1866,11 +1866,7 @@ fn extend_range_to_line_ending(
     })
 }
 
-fn callout_body_visible_text(
-    source: &str,
-    blockquote: &SyntaxNode,
-    range: TextRange,
-) -> String {
+fn callout_body_visible_text(source: &str, blockquote: &SyntaxNode, range: TextRange) -> String {
     let source_range = range.as_usize_range();
     let Some(block_source) = source.get(source_range.clone()) else {
         return String::new();
