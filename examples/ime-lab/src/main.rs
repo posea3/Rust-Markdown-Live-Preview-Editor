@@ -3632,6 +3632,52 @@ mod tests {
     }
 
     #[test]
+    fn task_checkbox_click_padding_toggles_and_round_trips_history() {
+        let source = "- [ ] unchecked task\n";
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        ));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let widget = live_preview
+            .widgets(&session)
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::TaskCheckbox)
+            .expect("task checkbox widget")
+            .clone();
+
+        let visual = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
+        let hit = task_checkbox_hit_rect(visual);
+        let click_x = visual.x - 3.0;
+        let click_y = visual.y + visual.height * 0.5;
+
+        assert!(!point_in_rect(click_x, click_y, visual));
+        assert!(point_in_rect(click_x, click_y, hit));
+        let action = widget_action_at_pointer(vec![(widget, hit)], click_x, click_y)
+            .expect("padded checkbox target must resolve a widget action");
+        let WidgetAction::SetTaskChecked {
+            marker_range,
+            checked,
+        } = action;
+        assert!(checked);
+
+        session
+            .handle(EditorInput::WidgetReplace {
+                range: marker_range,
+                text: action.replacement_text().to_owned(),
+            })
+            .unwrap();
+        assert_eq!(session.document().text(), "- [x] unchecked task\n");
+
+        session.handle(EditorInput::Undo).unwrap();
+        assert_eq!(session.document().text(), source);
+        session.handle(EditorInput::Redo).unwrap();
+        assert_eq!(session.document().text(), "- [x] unchecked task\n");
+    }
+
+    #[test]
     fn task_checkbox_geometry_stays_in_the_left_gutter_and_is_hittable() {
         let rect = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
 
