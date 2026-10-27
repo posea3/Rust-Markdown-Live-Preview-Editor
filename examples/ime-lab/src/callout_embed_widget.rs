@@ -311,6 +311,73 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn callout_text_specs_preserve_title_fold_and_body_order() {
+        let palette = callout_palette("warning");
+        let layout = callout_block_layout(4, 640.0, 31.0);
+        let geometry = callout_geometry(24.0, 24.0, 0.0, 31.0, 640.0, layout);
+        let specs = callout_text_specs(
+            "warning",
+            "Custom title",
+            Some('-'),
+            "Strong body\nSecond line",
+            geometry,
+            palette,
+        );
+
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].text, "Custom title");
+        assert_eq!(specs[0].role, CardTextRole::CalloutTitle);
+        assert_eq!(specs[1].text, "-");
+        assert_eq!(specs[1].role, CardTextRole::CalloutFold);
+        assert_eq!(specs[2].text, "Strong body\nSecond line");
+        assert_eq!(specs[2].role, CardTextRole::CalloutBody);
+        assert!(specs[2].wrap);
+    }
+
+    #[test]
+    fn callout_title_falls_back_to_humanized_type() {
+        assert_eq!(callout_display_title("custom-warning", ""), "Custom Warning");
+        assert_eq!(callout_display_title("", ""), "Note");
+    }
+
+    #[test]
+    fn custom_embed_label_prefers_display_then_path_then_target() {
+        assert_eq!(
+            custom_embed_label(
+                "diagram.svg#Overview",
+                "diagram.svg",
+                Some("Overview"),
+                Some("Architecture"),
+            ),
+            "Architecture  ·  #Overview",
+        );
+        assert_eq!(
+            custom_embed_label("diagram.svg", "diagram.svg", None, None),
+            "diagram.svg",
+        );
+        assert_eq!(custom_embed_label("Note#Heading", "", None, None), "Note#Heading");
+        assert_eq!(custom_embed_label("", "", None, None), "Embed");
+    }
+
+    #[test]
+    fn custom_embed_text_spec_is_clipped_to_card_text_bounds() {
+        let geometry = custom_embed_geometry(24.0, 24.0, 0.0, 31.0, 640.0);
+        let spec = custom_embed_text_spec(
+            "diagram.svg#Overview",
+            "diagram.svg",
+            Some("Overview"),
+            Some("Architecture"),
+            geometry,
+        );
+
+        assert_eq!(spec.role, CardTextRole::EmbedLabel);
+        assert!(spec.bounds.x >= geometry.text.x);
+        assert!(spec.bounds.x + spec.bounds.width <= geometry.block.x + geometry.block.width + 0.01);
+        assert!(!spec.wrap);
+    }
+
     #[test]
     fn source_range_newline_count_uses_canonical_bytes() {
         let source = "> [!note] Title\n> First\n> Second\n";
