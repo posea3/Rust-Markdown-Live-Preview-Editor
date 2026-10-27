@@ -2,8 +2,9 @@ use std::{collections::BTreeMap, error::Error, fmt};
 
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
-    BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ParseStatus,
-    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
+    BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ExtensionSnapshot,
+    OBSIDIAN_CALLOUT, OBSIDIAN_EMBED, ParseStatus, SyntaxKind, SyntaxMetadata, SyntaxNode,
+    SyntaxSnapshot, SyntaxTableAlignment,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -325,6 +326,8 @@ pub enum WidgetKind {
     Image,
     DisplayMath,
     Table,
+    Callout,
+    CustomEmbed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -388,12 +391,74 @@ impl TableWidgetData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CalloutWidgetData {
+    callout_type: String,
+    title: String,
+    fold: Option<char>,
+    body: String,
+}
+
+impl CalloutWidgetData {
+    #[must_use]
+    pub fn callout_type(&self) -> &str {
+        &self.callout_type
+    }
+
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    #[must_use]
+    pub const fn fold(&self) -> Option<char> {
+        self.fold
+    }
+
+    #[must_use]
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomEmbedWidgetData {
+    target: String,
+    path: String,
+    fragment: Option<String>,
+    display: Option<String>,
+}
+
+impl CustomEmbedWidgetData {
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    #[must_use]
+    pub fn fragment(&self) -> Option<&str> {
+        self.fragment.as_deref()
+    }
+
+    #[must_use]
+    pub fn display(&self) -> Option<&str> {
+        self.display.as_deref()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WidgetPayload {
     None,
     TaskCheckbox { checked: bool },
     Image(ImageWidgetData),
     DisplayMath(MathWidgetData),
     Table(TableWidgetData),
+    Callout(CalloutWidgetData),
+    CustomEmbed(CustomEmbedWidgetData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -450,7 +515,9 @@ impl ProjectedWidget {
             WidgetPayload::None
             | WidgetPayload::Image(_)
             | WidgetPayload::DisplayMath(_)
-            | WidgetPayload::Table(_) => None,
+            | WidgetPayload::Table(_)
+            | WidgetPayload::Callout(_)
+            | WidgetPayload::CustomEmbed(_) => None,
         }
     }
 
@@ -461,7 +528,9 @@ impl ProjectedWidget {
             WidgetPayload::None
             | WidgetPayload::TaskCheckbox { .. }
             | WidgetPayload::DisplayMath(_)
-            | WidgetPayload::Table(_) => None,
+            | WidgetPayload::Table(_)
+            | WidgetPayload::Callout(_)
+            | WidgetPayload::CustomEmbed(_) => None,
         }
     }
 
@@ -472,7 +541,9 @@ impl ProjectedWidget {
             WidgetPayload::None
             | WidgetPayload::TaskCheckbox { .. }
             | WidgetPayload::Image(_)
-            | WidgetPayload::Table(_) => None,
+            | WidgetPayload::Table(_)
+            | WidgetPayload::Callout(_)
+            | WidgetPayload::CustomEmbed(_) => None,
         }
     }
 
@@ -483,7 +554,35 @@ impl ProjectedWidget {
             WidgetPayload::None
             | WidgetPayload::TaskCheckbox { .. }
             | WidgetPayload::Image(_)
-            | WidgetPayload::DisplayMath(_) => None,
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Callout(_)
+            | WidgetPayload::CustomEmbed(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn callout(&self) -> Option<&CalloutWidgetData> {
+        match &self.payload {
+            WidgetPayload::Callout(callout) => Some(callout),
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_)
+            | WidgetPayload::CustomEmbed(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn custom_embed(&self) -> Option<&CustomEmbedWidgetData> {
+        match &self.payload {
+            WidgetPayload::CustomEmbed(embed) => Some(embed),
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_)
+            | WidgetPayload::Callout(_) => None,
         }
     }
 
@@ -497,7 +596,9 @@ impl ProjectedWidget {
             WidgetPayload::None
             | WidgetPayload::Image(_)
             | WidgetPayload::DisplayMath(_)
-            | WidgetPayload::Table(_) => None,
+            | WidgetPayload::Table(_)
+            | WidgetPayload::Callout(_)
+            | WidgetPayload::CustomEmbed(_) => None,
         }
     }
 }
@@ -718,7 +819,50 @@ impl Projection {
         policy: RevealPolicy,
         context: &RevealContext,
     ) -> Result<Self, ProjectionBuildError> {
+        Self::build_internal(
+            document,
+            syntax,
+            blocks,
+            delimiters,
+            None,
+            policy,
+            context,
+        )
+    }
+
+    pub fn build_with_extensions(
+        document: &DocumentSnapshot,
+        syntax: &SyntaxSnapshot,
+        blocks: &BlockSnapshot,
+        delimiters: &DelimiterSnapshot,
+        extensions: &ExtensionSnapshot,
+        policy: RevealPolicy,
+        context: &RevealContext,
+    ) -> Result<Self, ProjectionBuildError> {
+        Self::build_internal(
+            document,
+            syntax,
+            blocks,
+            delimiters,
+            Some(extensions),
+            policy,
+            context,
+        )
+    }
+
+    fn build_internal(
+        document: &DocumentSnapshot,
+        syntax: &SyntaxSnapshot,
+        blocks: &BlockSnapshot,
+        delimiters: &DelimiterSnapshot,
+        extensions: Option<&ExtensionSnapshot>,
+        policy: RevealPolicy,
+        context: &RevealContext,
+    ) -> Result<Self, ProjectionBuildError> {
         validate_inputs(document, syntax, blocks, delimiters)?;
+        if let Some(extensions) = extensions {
+            validate_extension_input(document, extensions)?;
+        }
         let source = document.text();
 
         if matches!(syntax.status(), ParseStatus::RawFallback(_)) {
@@ -769,7 +913,18 @@ impl Projection {
             .collect::<Vec<_>>();
 
         let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
-        let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
+        let mut widget_candidates =
+            build_widget_candidates(&source, syntax.root(), policy, context)?;
+        if let Some(extensions) = extensions {
+            widget_candidates.extend(build_extension_widget_candidates(
+                &source,
+                syntax.root(),
+                extensions,
+                policy,
+                context,
+            )?);
+            widget_candidates = normalize_widget_candidate_ownership(widget_candidates);
+        }
         concealed
             .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
         structural_padding
@@ -899,6 +1054,31 @@ impl Projection {
     pub fn structural_padding_spans(&self) -> &[StructuralPaddingSpan] {
         &self.structural_padding
     }
+}
+
+fn validate_extension_input(
+    document: &DocumentSnapshot,
+    extensions: &ExtensionSnapshot,
+) -> Result<(), ProjectionBuildError> {
+    let revision = document.revision();
+    if extensions.revision() != revision {
+        return Err(ProjectionBuildError::RevisionMismatch {
+            input: "extensions",
+            document: revision,
+            other: extensions.revision(),
+        });
+    }
+    let document_len = document
+        .len()
+        .map_err(|_| ProjectionBuildError::DocumentTooLarge)?;
+    if extensions.source_len() != document_len {
+        return Err(ProjectionBuildError::SourceLengthMismatch {
+            input: "extensions",
+            document: document_len,
+            other: extensions.source_len(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_inputs(
@@ -1530,6 +1710,194 @@ fn collect_widget_candidates(
         collect_widget_candidates(source, child, policy, context, output)?;
     }
     Ok(())
+}
+
+fn build_extension_widget_candidates(
+    source: &str,
+    root: &SyntaxNode,
+    extensions: &ExtensionSnapshot,
+    policy: RevealPolicy,
+    context: &RevealContext,
+) -> Result<Vec<WidgetCandidate>, ProjectionBuildError> {
+    let mut widgets = Vec::new();
+
+    for extension in extensions.matches() {
+        match extension.kind().name() {
+            OBSIDIAN_CALLOUT => {
+                let marker_range = extension.range();
+                let Some(blockquote) =
+                    smallest_containing_node(root, marker_range, SyntaxKind::BlockQuote)
+                else {
+                    continue;
+                };
+                let source_range = extend_range_to_line_ending(source, blockquote.range())?;
+                let active = policy == RevealPolicy::SourceVisible
+                    || context_touches_range(context, source_range);
+                let callout_type = extension.attribute("type").unwrap_or("note").to_owned();
+                let title = extension.attribute("title").unwrap_or("").to_owned();
+                let fold = extension
+                    .attribute("fold")
+                    .and_then(|value| value.chars().next());
+                let body = callout_body_text(source, source_range);
+
+                widgets.push(WidgetCandidate {
+                    kind: WidgetKind::Callout,
+                    payload: WidgetPayload::Callout(CalloutWidgetData {
+                        callout_type,
+                        title,
+                        fold,
+                        body,
+                    }),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+            }
+            OBSIDIAN_EMBED if image_is_standalone(source, extension.range()) => {
+                let source_range = extension.range();
+                let active = policy == RevealPolicy::SourceVisible
+                    || context_touches_range(context, source_range);
+                widgets.push(WidgetCandidate {
+                    kind: WidgetKind::CustomEmbed,
+                    payload: WidgetPayload::CustomEmbed(CustomEmbedWidgetData {
+                        target: extension.attribute("target").unwrap_or("").to_owned(),
+                        path: extension.attribute("path").unwrap_or("").to_owned(),
+                        fragment: extension.attribute("fragment").map(str::to_owned),
+                        display: extension.attribute("display").map(str::to_owned),
+                    }),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    widgets.sort_by_key(|widget| {
+        (
+            widget.source_range.start().get(),
+            widget.source_range.end().get(),
+        )
+    });
+    Ok(widgets)
+}
+
+fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Vec<WidgetCandidate> {
+    let inactive_callouts = widgets
+        .iter()
+        .filter(|widget| widget.kind == WidgetKind::Callout && !widget.active)
+        .map(|widget| widget.source_range)
+        .collect::<Vec<_>>();
+
+    widgets.retain(|widget| {
+        widget.kind == WidgetKind::Callout
+            || !inactive_callouts.iter().any(|range| {
+                *range != widget.source_range && range_contains(*range, widget.source_range)
+            })
+    });
+    widgets.sort_by_key(|widget| {
+        (
+            widget.source_range.start().get(),
+            widget.source_range.end().get(),
+        )
+    });
+    widgets
+}
+
+fn smallest_containing_node(
+    node: &SyntaxNode,
+    range: TextRange,
+    kind: SyntaxKind,
+) -> Option<&SyntaxNode> {
+    let mut best = None;
+    if node.kind() == kind && range_contains(node.range(), range) {
+        best = Some(node);
+    }
+
+    for child in node.children() {
+        if !range_contains(child.range(), range) {
+            continue;
+        }
+        if let Some(candidate) = smallest_containing_node(child, range, kind) {
+            best = match best {
+                Some(existing) if existing.range().len() <= candidate.range().len() => Some(existing),
+                _ => Some(candidate),
+            };
+        }
+    }
+    best
+}
+
+fn extend_range_to_line_ending(
+    source: &str,
+    range: TextRange,
+) -> Result<TextRange, ProjectionBuildError> {
+    let bytes = range.as_usize_range();
+    if bytes.end > source.len()
+        || !source.is_char_boundary(bytes.start)
+        || !source.is_char_boundary(bytes.end)
+    {
+        return Err(ProjectionBuildError::InvalidWidgetBounds {
+            start: bytes.start,
+            end: bytes.end,
+        });
+    }
+
+    let mut end = bytes.end;
+    if end < source.len() {
+        if source.as_bytes()[end] == b'\r' {
+            end += 1;
+        }
+        if end < source.len() && source.as_bytes()[end] == b'\n' {
+            end += 1;
+        }
+    }
+
+    TextRange::new(
+        TextSize::try_from_usize(bytes.start)
+            .map_err(|_| ProjectionBuildError::DocumentTooLarge)?,
+        TextSize::try_from_usize(end)
+            .map_err(|_| ProjectionBuildError::DocumentTooLarge)?,
+    )
+    .map_err(|_| ProjectionBuildError::InvalidWidgetBounds {
+        start: bytes.start,
+        end,
+    })
+}
+
+fn callout_body_text(source: &str, range: TextRange) -> String {
+    let Some(block) = source_text(source, range) else {
+        return String::new();
+    };
+
+    block
+        .lines()
+        .skip(1)
+        .map(strip_blockquote_prefix)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+fn strip_blockquote_prefix(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() && cursor < 3 && bytes[cursor] == b' ' {
+        cursor += 1;
+    }
+
+    let mut saw_quote = false;
+    while bytes.get(cursor) == Some(&b'>') {
+        saw_quote = true;
+        cursor += 1;
+        if matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+            cursor += 1;
+        }
+    }
+
+    if saw_quote { &line[cursor..] } else { line }
 }
 
 fn table_widget_data(source: &str, node: &SyntaxNode) -> Option<TableWidgetData> {
