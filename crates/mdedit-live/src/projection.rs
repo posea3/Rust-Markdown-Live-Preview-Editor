@@ -1779,8 +1779,7 @@ fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Ve
     let inactive_extension_owners = widgets
         .iter()
         .filter(|widget| {
-            !widget.active
-                && matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
+            !widget.active && matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
         })
         .map(|widget| (widget.kind, widget.source_range))
         .collect::<Vec<_>>();
