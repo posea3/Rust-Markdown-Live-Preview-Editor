@@ -25,85 +25,42 @@ jobs:
           toolchain: 1.90.0
           components: rustfmt, clippy
 
-      - name: RED geometry and reservation
+      - name: RED single-line callout footprint
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          python3 .github/scripts/phase06_callout_native_patch.py red-geometry
-          git add examples/ime-lab/src/main.rs examples/ime-lab/src/live_preview.rs examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "test(ime-lab): define callout embed native geometry"
-
-          set +e
-          cargo test -p mdedit-ime-lab callout --no-run > /tmp/callout-red-geometry.log 2>&1
-          status=$?
-          set -e
-          tail -n 80 /tmp/callout-red-geometry.log
-          if [[ $status -eq 0 ]]; then
-            echo "Expected geometry RED, but the test target compiled successfully" >&2
-            exit 1
-          fi
-          grep -E "callout_block_layout|callout_geometry|custom_embed_geometry|source_range_newline_count" /tmp/callout-red-geometry.log >/dev/null
-
-      - name: GREEN geometry and reservation
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/phase06_callout_native_patch.py green-geometry
+          python3 .github/scripts/phase06_callout_single_line_fix.py red
           cargo fmt --all
-          git add examples/ime-lab/src/main.rs examples/ime-lab/src/live_preview.rs examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "feat(ime-lab): add callout embed native geometry"
-
-          cargo test -p mdedit-ime-lab callout -- --nocapture
-          cargo test -p mdedit-ime-lab custom_embed -- --nocapture
-
-      - name: RED native card text
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/phase06_callout_native_patch.py red-text
           git add examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "test(ime-lab): define callout embed native text contract"
+          git commit -m "test(ime-lab): reproduce single-line callout overflow"
 
           set +e
-          cargo test -p mdedit-ime-lab callout_text_specs --no-run > /tmp/callout-red-text.log 2>&1
+          cargo test -p mdedit-ime-lab single_line_callout_without_trailing_newline_fits_one_layout_row -- --nocapture > /tmp/callout-single-red.log 2>&1
           status=$?
           set -e
-          tail -n 80 /tmp/callout-red-text.log
+          cat /tmp/callout-single-red.log
           if [[ $status -eq 0 ]]; then
-            echo "Expected card-text RED, but the test target compiled successfully" >&2
+            echo "Expected single-line callout RED, but the regression test passed" >&2
             exit 1
           fi
-          grep -E "callout_text_specs|CardTextRole|custom_embed_label|custom_embed_text_spec" /tmp/callout-red-text.log >/dev/null
+          grep -F "left: 2" /tmp/callout-single-red.log >/dev/null
 
-      - name: GREEN native card text
+      - name: GREEN single-line callout footprint
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase06_callout_native_patch.py green-text
-          python3 .github/scripts/phase06_callout_native_lint_fix.py
+          python3 .github/scripts/phase06_callout_single_line_fix.py green
           cargo fmt --all
-          git add examples/ime-lab/src/main.rs examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "feat(ime-lab): render callout embed native text"
+          git add examples/ime-lab/src/callout_embed_widget.rs
+          git commit -m "fix(ime-lab): fit single-line callout in one row"
 
-          cargo test -p mdedit-ime-lab callout -- --nocapture
-          cargo test -p mdedit-ime-lab custom_embed -- --nocapture
+          cargo test -p mdedit-ime-lab single_line_callout_without_trailing_newline_fits_one_layout_row -- --nocapture
           cargo check --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
-
-      - name: Acceptance fixture and documentation
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/phase06_callout_native_patch.py docs
-          cargo fmt --all -- --check
-          git add examples/ime-lab/fixtures/live-preview-acceptance.md docs/phase-06-widgets.md README.md docs/roadmap.md docs/superpowers/plans/2026-10-28-phase-06-callout-custom-embed-native.md
-          git commit -m "docs(phase-06): add callout embed acceptance gate"
-
-          git status --short
           git push origin HEAD:feature/widgets-phase-06-callout-embed
 
   verify:
