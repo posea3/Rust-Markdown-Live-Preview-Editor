@@ -303,6 +303,7 @@ struct WindowState {
     live_preview_trace_enabled: bool,
     pending_ime_viewport_anchor: Option<ImeViewportAnchor>,
     pending_history_viewport_anchor: Option<ImeViewportAnchor>,
+    pending_widget_viewport_anchor: Option<ImeViewportAnchor>,
     #[cfg(target_os = "macos")]
     deferred_composition_text: DeferredCompositionText,
 
@@ -471,6 +472,7 @@ impl WindowState {
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
             pending_ime_viewport_anchor: None,
             pending_history_viewport_anchor: None,
+            pending_widget_viewport_anchor: None,
             #[cfg(target_os = "macos")]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
@@ -1101,7 +1103,10 @@ impl WindowState {
         let scroll_before = self.text_buffer.scroll();
         let ime_viewport_anchor = self.pending_ime_viewport_anchor.take();
         let history_viewport_anchor = self.pending_history_viewport_anchor.take();
-        let viewport_anchor = ime_viewport_anchor.or(history_viewport_anchor);
+        let widget_viewport_anchor = self.pending_widget_viewport_anchor.take();
+        let viewport_anchor = ime_viewport_anchor
+            .or(history_viewport_anchor)
+            .or(widget_viewport_anchor);
         let next_preedit_text = self
             .session
             .composition()
@@ -1922,10 +1927,15 @@ impl WindowState {
         self.image_widgets.drain_ready(&self.device, &self.queue);
         self.math_widgets
             .drain_ready(&mut self.image_widgets, &self.device, &self.queue);
+        let widget_scroll_before = self.text_buffer.scroll();
         self.refresh_layout();
         self.sync_image_widgets();
         self.sync_math_widgets();
-        if self.update_block_widget_reservations() {
+        let reservations_changed = self.update_block_widget_reservations();
+        if let Some(anchor) =
+            widget_reservation_viewport_anchor(widget_scroll_before, reservations_changed)
+        {
+            self.pending_widget_viewport_anchor = Some(anchor);
             self.refresh_layout();
         }
         self.update_accessibility_tree();
@@ -2479,6 +2489,13 @@ fn history_viewport_anchor(
     scroll: Scroll,
 ) -> Option<ImeViewportAnchor> {
     (!history_action_should_follow_caret(before, after)).then_some(ImeViewportAnchor { scroll })
+}
+
+fn widget_reservation_viewport_anchor(
+    scroll: Scroll,
+    reservations_changed: bool,
+) -> Option<ImeViewportAnchor> {
+    reservations_changed.then_some(ImeViewportAnchor { scroll })
 }
 
 fn restore_viewport_anchor(
