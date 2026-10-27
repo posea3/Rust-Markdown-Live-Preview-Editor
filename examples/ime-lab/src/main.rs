@@ -21,8 +21,9 @@ use accesskit_winit::{
 };
 use arboard::Clipboard;
 use callout_embed_widget::{
-    append_callout_rects, append_custom_embed_rects, callout_block_layout, callout_geometry,
-    callout_palette, custom_embed_geometry, source_range_newline_count,
+    CardTextRole, CardTextSpec, append_callout_rects, append_custom_embed_rects,
+    callout_block_layout, callout_geometry, callout_palette, callout_text_specs,
+    custom_embed_geometry, custom_embed_text_spec, source_range_newline_count,
 };
 use cosmic_text::{Align, AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
@@ -1736,6 +1737,69 @@ impl WindowState {
         specs
     }
 
+    fn card_text_specs(&self) -> Vec<CardTextSpec> {
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let source = self.session.document().text();
+        let mut specs = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            let Some((_, line_top, line_height)) = self.widget_anchor_geometry(widget) else {
+                continue;
+            };
+
+            match widget.kind() {
+                WidgetKind::Callout => {
+                    let Some(callout) = widget.callout() else {
+                        continue;
+                    };
+                    let reserved_rows = source_range_newline_count(&source, widget.source_range())
+                        .unwrap_or(1)
+                        .saturating_add(1);
+                    let layout = callout_block_layout(reserved_rows, available_width, line_height);
+                    let geometry = callout_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                        layout,
+                    );
+                    let palette = callout_palette(callout.callout_type());
+                    specs.extend(callout_text_specs(
+                        callout.callout_type(),
+                        callout.title(),
+                        callout.fold(),
+                        callout.body(),
+                        geometry,
+                        palette,
+                    ));
+                }
+                WidgetKind::CustomEmbed => {
+                    let Some(embed) = widget.custom_embed() else {
+                        continue;
+                    };
+                    let geometry = custom_embed_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                    );
+                    specs.push(custom_embed_text_spec(
+                        embed.target(),
+                        embed.path(),
+                        embed.fragment(),
+                        embed.display(),
+                        geometry,
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        specs
+    }
+
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
         let show_caret = self.session.focused()
             && (self.session.composition().is_some()
@@ -1909,7 +1973,31 @@ impl WindowState {
                 table_buffers.push(buffer);
             }
 
-            let mut text_areas = Vec::with_capacity(1 + table_buffers.len());
+            let card_specs = self.card_text_specs();
+            let mut card_buffers = Vec::with_capacity(card_specs.len());
+            for spec in &card_specs {
+                let mut buffer = Buffer::new(
+                    &mut self.font_system,
+                    Metrics::new(spec.font_size, spec.line_height),
+                );
+                buffer.set_size(
+                    Some(spec.bounds.width.max(1.0)),
+                    Some(spec.bounds.height.max(1.0)),
+                );
+                buffer.set_wrap(if spec.wrap { Wrap::Word } else { Wrap::None });
+                let attrs = Attrs::new().family(Family::SansSerif);
+                let alignment = match spec.role {
+                    CardTextRole::CalloutFold => Align::Center,
+                    CardTextRole::CalloutTitle
+                    | CardTextRole::CalloutBody
+                    | CardTextRole::EmbedLabel => Align::Left,
+                };
+                buffer.set_text(&spec.text, &attrs, Shaping::Advanced, Some(alignment));
+                buffer.shape_until_scroll(&mut self.font_system, false);
+                card_buffers.push(buffer);
+            }
+
+            let mut text_areas = Vec::with_capacity(1 + table_buffers.len() + card_buffers.len());
             text_areas.push(TextArea {
                 buffer: &self.text_buffer,
                 left: TEXT_LEFT,
@@ -1934,6 +2022,17 @@ impl WindowState {
                     } else {
                         Color::rgb(210, 214, 220)
                     },
+                    custom_glyphs: &[],
+                });
+            }
+            for (buffer, spec) in card_buffers.iter().zip(&card_specs) {
+                text_areas.push(TextArea {
+                    buffer,
+                    left: spec.bounds.x,
+                    top: spec.bounds.y,
+                    scale: 1.0,
+                    bounds: card_text_bounds(spec.bounds),
+                    default_color: Color::rgb(spec.color[0], spec.color[1], spec.color[2]),
                     custom_glyphs: &[],
                 });
             }
@@ -2776,6 +2875,15 @@ fn table_text_bounds(bounds: ScreenRect) -> TextBounds {
         left: (bounds.x + TABLE_CELL_PADDING).floor() as i32,
         top: bounds.y.floor() as i32,
         right: (bounds.x + bounds.width - TABLE_CELL_PADDING).ceil() as i32,
+        bottom: (bounds.y + bounds.height).ceil() as i32,
+    }
+}
+
+fn card_text_bounds(bounds: ScreenRect) -> TextBounds {
+    TextBounds {
+        left: bounds.x.floor() as i32,
+        top: bounds.y.floor() as i32,
+        right: (bounds.x + bounds.width).ceil() as i32,
         bottom: (bounds.y + bounds.height).ceil() as i32,
     }
 }

@@ -269,6 +269,157 @@ pub fn append_custom_embed_rects(output: &mut Vec<ScreenRect>, geometry: CustomE
     ));
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardTextRole {
+    CalloutTitle,
+    CalloutFold,
+    CalloutBody,
+    EmbedLabel,
+}
+
+#[derive(Clone, Debug)]
+pub struct CardTextSpec {
+    pub text: String,
+    pub bounds: ScreenRect,
+    pub role: CardTextRole,
+    pub color: [u8; 3],
+    pub font_size: f32,
+    pub line_height: f32,
+    pub wrap: bool,
+}
+
+#[must_use]
+pub fn callout_display_title(callout_type: &str, title: &str) -> String {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title.to_owned();
+    }
+
+    let mut output = String::new();
+    for word in callout_type
+        .split(['-', '_', ' '])
+        .filter(|word| !word.is_empty())
+    {
+        if !output.is_empty() {
+            output.push(' ');
+        }
+        let mut characters = word.chars();
+        if let Some(first) = characters.next() {
+            output.extend(first.to_uppercase());
+            output.extend(characters.flat_map(char::to_lowercase));
+        }
+    }
+    if output.is_empty() {
+        "Note".to_owned()
+    } else {
+        output
+    }
+}
+
+#[must_use]
+pub fn callout_text_specs(
+    callout_type: &str,
+    title: &str,
+    fold: Option<char>,
+    body: &str,
+    geometry: CalloutGeometry,
+    palette: CalloutPalette,
+) -> Vec<CardTextSpec> {
+    let mut specs = vec![CardTextSpec {
+        text: callout_display_title(callout_type, title),
+        bounds: inset_text_rect(geometry.header, 0.0, 4.0),
+        role: CardTextRole::CalloutTitle,
+        color: palette.title_text,
+        font_size: 17.0,
+        line_height: 22.0,
+        wrap: false,
+    }];
+
+    if let Some(fold) = fold {
+        specs.push(CardTextSpec {
+            text: fold.to_string(),
+            bounds: inset_text_rect(geometry.fold, 0.0, 4.0),
+            role: CardTextRole::CalloutFold,
+            color: palette.title_text,
+            font_size: 17.0,
+            line_height: 22.0,
+            wrap: false,
+        });
+    }
+
+    if !body.trim().is_empty() {
+        specs.push(CardTextSpec {
+            text: body.trim().to_owned(),
+            bounds: inset_text_rect(geometry.body, 0.0, 5.0),
+            role: CardTextRole::CalloutBody,
+            color: palette.body_text,
+            font_size: 16.0,
+            line_height: 22.0,
+            wrap: true,
+        });
+    }
+
+    specs
+}
+
+#[must_use]
+pub fn custom_embed_label(
+    target: &str,
+    path: &str,
+    fragment: Option<&str>,
+    display: Option<&str>,
+) -> String {
+    let display = display.map(str::trim).filter(|value| !value.is_empty());
+    let path = path.trim();
+    let target = target.trim();
+    let primary = display
+        .or_else(|| (!path.is_empty()).then_some(path))
+        .or_else(|| (!target.is_empty()).then_some(target))
+        .unwrap_or("Embed");
+
+    let detail = fragment
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("#{value}"))
+        .or_else(|| {
+            (display.is_some() && !path.is_empty() && path != primary).then(|| path.to_owned())
+        });
+
+    detail.map_or_else(
+        || primary.to_owned(),
+        |detail| format!("{primary}  ·  {detail}"),
+    )
+}
+
+#[must_use]
+pub fn custom_embed_text_spec(
+    target: &str,
+    path: &str,
+    fragment: Option<&str>,
+    display: Option<&str>,
+    geometry: CustomEmbedGeometry,
+) -> CardTextSpec {
+    CardTextSpec {
+        text: custom_embed_label(target, path, fragment, display),
+        bounds: inset_text_rect(geometry.text, 0.0, 3.0),
+        role: CardTextRole::EmbedLabel,
+        color: [216, 225, 238],
+        font_size: 16.0,
+        line_height: 22.0,
+        wrap: false,
+    }
+}
+
+fn inset_text_rect(bounds: ScreenRect, horizontal: f32, vertical: f32) -> ScreenRect {
+    ScreenRect::new(
+        bounds.x + horizontal,
+        bounds.y + vertical,
+        (bounds.width - horizontal * 2.0).max(1.0),
+        (bounds.height - vertical * 2.0).max(1.0),
+        [0.0; 4],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,7 +462,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn callout_text_specs_preserve_title_fold_and_body_order() {
         let palette = callout_palette("warning");
@@ -338,7 +488,10 @@ mod tests {
 
     #[test]
     fn callout_title_falls_back_to_humanized_type() {
-        assert_eq!(callout_display_title("custom-warning", ""), "Custom Warning");
+        assert_eq!(
+            callout_display_title("custom-warning", ""),
+            "Custom Warning"
+        );
         assert_eq!(callout_display_title("", ""), "Note");
     }
 
@@ -357,7 +510,10 @@ mod tests {
             custom_embed_label("diagram.svg", "diagram.svg", None, None),
             "diagram.svg",
         );
-        assert_eq!(custom_embed_label("Note#Heading", "", None, None), "Note#Heading");
+        assert_eq!(
+            custom_embed_label("Note#Heading", "", None, None),
+            "Note#Heading"
+        );
         assert_eq!(custom_embed_label("", "", None, None), "Embed");
     }
 
@@ -374,7 +530,9 @@ mod tests {
 
         assert_eq!(spec.role, CardTextRole::EmbedLabel);
         assert!(spec.bounds.x >= geometry.text.x);
-        assert!(spec.bounds.x + spec.bounds.width <= geometry.block.x + geometry.block.width + 0.01);
+        assert!(
+            spec.bounds.x + spec.bounds.width <= geometry.block.x + geometry.block.width + 0.01
+        );
         assert!(!spec.wrap);
     }
 
