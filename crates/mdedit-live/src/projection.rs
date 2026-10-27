@@ -1730,7 +1730,7 @@ fn build_extension_widget_candidates(
                 let fold = extension
                     .attribute("fold")
                     .and_then(|value| value.chars().next());
-                let body = callout_body_text(source, source_range);
+                let body = callout_body_visible_text(source, blockquote, source_range);
 
                 widgets.push(WidgetCandidate {
                     kind: WidgetKind::Callout,
@@ -1866,38 +1866,73 @@ fn extend_range_to_line_ending(
     })
 }
 
-fn callout_body_text(source: &str, range: TextRange) -> String {
-    let Some(block) = source_text(source, range) else {
+fn callout_body_visible_text(
+    source: &str,
+    blockquote: &SyntaxNode,
+    range: TextRange,
+) -> String {
+    let source_range = range.as_usize_range();
+    let Some(block_source) = source.get(source_range.clone()) else {
+        return String::new();
+    };
+    let Some(first_line_break) = block_source.find('\n') else {
+        return String::new();
+    };
+    let body_start = source_range.start + first_line_break + 1;
+    let Ok(body_start) = TextSize::try_from_usize(body_start) else {
         return String::new();
     };
 
-    block
-        .lines()
-        .skip(1)
-        .map(strip_blockquote_prefix)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_owned()
+    let mut body = String::new();
+    collect_visible_callout_text(source, blockquote, body_start, &mut body);
+    body.trim().to_owned()
 }
 
-fn strip_blockquote_prefix(line: &str) -> &str {
-    let bytes = line.as_bytes();
-    let mut cursor = 0;
-    while cursor < bytes.len() && cursor < 3 && bytes[cursor] == b' ' {
-        cursor += 1;
+fn collect_visible_callout_text(
+    source: &str,
+    node: &SyntaxNode,
+    body_start: TextSize,
+    output: &mut String,
+) {
+    if node.range().end() <= body_start {
+        return;
     }
 
-    let mut saw_quote = false;
-    while bytes.get(cursor) == Some(&b'>') {
-        saw_quote = true;
-        cursor += 1;
-        if matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
-            cursor += 1;
+    match node.kind() {
+        SyntaxKind::Text | SyntaxKind::Html | SyntaxKind::InlineHtml => {
+            if let Some(text) = source_text(source, node.range()) {
+                output.push_str(text);
+            }
+            return;
         }
+        SyntaxKind::InlineCode => {
+            if let SyntaxMetadata::InlineCode { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::InlineMath => {
+            if let SyntaxMetadata::InlineMath { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::FootnoteReference => {
+            if let SyntaxMetadata::FootnoteReference { label } = node.metadata() {
+                output.push_str(label);
+            }
+            return;
+        }
+        SyntaxKind::SoftBreak | SyntaxKind::HardBreak => {
+            output.push('\n');
+            return;
+        }
+        _ => {}
     }
 
-    if saw_quote { &line[cursor..] } else { line }
+    for child in node.children() {
+        collect_visible_callout_text(source, child, body_start, output);
+    }
 }
 
 fn table_widget_data(source: &str, node: &SyntaxNode) -> Option<TableWidgetData> {
