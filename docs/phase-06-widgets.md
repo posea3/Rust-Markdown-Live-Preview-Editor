@@ -515,3 +515,47 @@ The final reservation contract is:
 - inactive and revealed Table states therefore retain the same vertical source footprint while source remains canonical
 
 Slice 05 — Table is **macOS PASS** and can be merged. Narrow-window edge-drag acceptance was not required to close this regression because the widget remained bounded in the exercised window states and the IME lab window is configured as resizable by default. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+
+## Slice 06 - callout / custom embed
+
+Status: **projection/data and native rendering implemented; Windows/macOS/Ubuntu CI PASS required on the final branch head; macOS manual acceptance pending; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+
+### Contract
+
+- Obsidian extension scanning remains opt-in and feeds an `ExtensionSnapshot` into Live Preview projection
+- an inactive callout owns its complete containing blockquote source range
+- Callout payload preserves type, custom title, fold marker, and visible body text
+- nested Markdown markers in the inactive body collapse to visible text while canonical source remains unchanged
+- the native host draws a type-colored background, accent bar, divider, title/fold text, and wrapped body text
+- Callout reservation counts canonical newline bytes in the owned source range so reveal/conceal preserves the vertical footprint
+- an inactive standalone `![[...]]` becomes a native one-row Custom Embed card
+- Custom Embed payload preserves target, path, fragment, and display text
+- inline embeds remain source-visible until an inline-width reservation contract exists
+- entering either owned range reveals exact canonical Markdown; leaving restores the native widget
+- callout/embed text is clipped to widget bounds and never paints over following text
+
+### macOS acceptance
+
+Run:
+
+```bash
+MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
+```
+
+In **Callout and custom embed widget scratch**, verify:
+
+- warning callout renders as a native card with a distinct accent and the custom title
+- body displays `Strong body with link and code` plus the Korean line without Markdown marker bytes
+- callout never overlaps the text before or after it
+- clicking or arrow-navigating into title/body reveals the full canonical blockquote and callout marker
+- leaving restores the card; repeat five times with no viewport jump
+- `Architecture · #Overview` and `missing-note` appear as native one-row embed cards
+- entering each standalone embed reveals exact `![[...]]` source and leaving restores the card
+- the inline embed remains source-visible
+- resize wider/narrower keeps cards bounded and text clipped
+- Rule, Checkbox + Undo/Redo, Image, Math, and Table remain regression-free
+- Korean `한글` and `**한글**` keep the viewport stable
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #12 Draft until this macOS acceptance passes.
+

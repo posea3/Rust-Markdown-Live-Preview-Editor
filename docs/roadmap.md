@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — horizontal rule, task checkbox, standalone image, Display Math, and Table macOS integration PASS; Slice 06 Callout / custom embed next; Windows native manual acceptance deferred to the final integration pass**
+Status: **in progress — horizontal rule, task checkbox, standalone image, Display Math, and Table macOS integration PASS; Callout / custom embed implemented with 3-OS CI verification and macOS manual acceptance pending; Windows native manual acceptance deferred to the final integration pass**
 
 Rules:
 

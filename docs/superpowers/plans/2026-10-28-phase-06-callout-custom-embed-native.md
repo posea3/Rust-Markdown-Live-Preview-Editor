@@ -1,6 +1,6 @@
 # Phase 6 Callout / Custom Embed Native Rendering Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Complete Phase 6 Slice 06 by rendering Obsidian callouts and standalone custom embeds as source-mapped native widgets with stable block reservation and reveal/conceal behavior.
 
@@ -39,12 +39,12 @@
 - Consumes: `ProjectedWidget::callout()`, `ProjectedWidget::custom_embed()`, `WidgetBlockReservation::new`.
 - Produces: `CalloutBlockLayout`, `callout_block_layout`, `callout_block_rect`, `custom_embed_rect`, and canonical-source-footprint reservations.
 
-- [ ] Write failing geometry and reservation tests for callout and custom embed.
-- [ ] Verify RED in CI: missing geometry/reservation helpers or wrong display-line offsets.
-- [ ] Implement minimal layout helpers and extend `ReservationOverlay` eligibility to Callout/CustomEmbed.
-- [ ] Use canonical source newline counts for Callout reservation; keep CustomEmbed to one visual row unless the card contract requires more.
-- [ ] Verify fmt/check/clippy/workspace tests on Windows, macOS, and Ubuntu.
-- [ ] Commit the GREEN implementation.
+- [x] Write failing geometry and reservation tests for callout and custom embed.
+- [x] Verify RED in CI: missing geometry/reservation helpers or wrong display-line offsets.
+- [x] Implement minimal layout helpers and extend `ReservationOverlay` eligibility to Callout/CustomEmbed.
+- [x] Use canonical source newline counts for Callout reservation; keep CustomEmbed to one visual row unless the card contract requires more.
+- [x] Verify fmt/check/clippy/workspace tests on Windows, macOS, and Ubuntu.
+- [x] Commit the GREEN implementation.
 
 ### Task 2: Native Callout card and text
 
@@ -55,12 +55,12 @@
 - Consumes: `CalloutWidgetData`, Task 1 geometry.
 - Produces: `CalloutTextSpec`, `callout_text_specs`, type palette, background/accent/title/body rendering.
 
-- [ ] Write failing tests for palette fallback, title/body geometry, clipping, and visible text order.
-- [ ] Verify RED.
-- [ ] Draw native background, accent bar, header separator/icon marker, and fold indicator through `RectRenderer`.
-- [ ] Render title and body through auxiliary cosmic-text/glyphon buffers, clipped to the callout card.
-- [ ] Verify all tests and existing widget regressions.
-- [ ] Commit.
+- [x] Write failing tests for palette fallback, title/body geometry, clipping, and visible text order.
+- [x] Verify RED.
+- [x] Draw native background, accent bar, header separator/icon marker, and fold indicator through `RectRenderer`.
+- [x] Render title and body through auxiliary cosmic-text/glyphon buffers, clipped to the callout card.
+- [x] Verify all tests and existing widget regressions.
+- [x] Commit.
 
 ### Task 3: Native standalone Custom Embed card
 
@@ -71,12 +71,12 @@
 - Consumes: `CustomEmbedWidgetData`, Task 1 geometry.
 - Produces: display-label fallback and a native one-row card/placeholder.
 
-- [ ] Write failing tests for display/path/target label fallback and card bounds.
-- [ ] Verify RED.
-- [ ] Draw a native embed card with icon marker, primary label, and optional fragment/path detail.
-- [ ] Keep inline embeds source-visible and preserve canonical source reveal.
-- [ ] Verify all tests and existing widget regressions.
-- [ ] Commit.
+- [x] Write failing tests for display/path/target label fallback and card bounds.
+- [x] Verify RED.
+- [x] Draw a native embed card with icon marker, primary label, and optional fragment/path detail.
+- [x] Keep inline embeds source-visible and preserve canonical source reveal.
+- [x] Verify all tests and existing widget regressions.
+- [x] Commit.
 
 ### Task 4: Acceptance fixture, documentation, and PR gate
 
@@ -91,7 +91,7 @@
 - Consumes: completed native Callout and Custom Embed rendering.
 - Produces: reproducible macOS acceptance instructions and an accurate branch status.
 
-- [ ] Add callout fixtures covering type/title/fold/body/nested Markdown and standalone embeds with/without display text.
-- [ ] Add reveal/conceal, overlap, viewport, IME, and prior-widget acceptance checks.
-- [ ] Run final 3OS CI and record the run.
-- [ ] Keep PR #12 Draft until macOS manual acceptance passes.
+- [x] Add callout fixtures covering type/title/fold/body/nested Markdown and standalone embeds with/without display text.
+- [x] Add reveal/conceal, overlap, viewport, IME, and prior-widget acceptance checks.
+- [x] Run final 3OS CI and record the run.
+- [x] Keep PR #12 Draft until macOS manual acceptance passes.

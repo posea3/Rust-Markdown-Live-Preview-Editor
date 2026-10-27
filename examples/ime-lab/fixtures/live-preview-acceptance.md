@@ -120,3 +120,22 @@ Inline Markdown inside a cell should show visible text without exposing source m
 | markup | **strong** [link](https://example.com) `code` |
 
 Entering either table should reveal its exact canonical Markdown source for editing. Leaving the table source range should restore the native table block.
+
+### Callout and custom embed widget scratch
+
+The callout below should render as a native card while inactive. Its title, fold marker, body, and surrounding text must remain source-safe.
+
+> [!warning]- Native warning
+> **Strong body** with [link](https://example.com) and `code`.
+> 한글 본문도 같은 카드 안에 표시됩니다.
+
+The following standalone embeds should render as native one-row cards. Inline embeds must remain editable source text.
+
+![[diagram.svg#Overview|Architecture]]
+
+![[missing-note]]
+
+Inline embed remains source-visible: prefix ![[Note#Heading]] suffix.
+
+Entering a callout body or standalone embed reveals the exact canonical Markdown source. Leaving the owned source range restores the native widget.
+
