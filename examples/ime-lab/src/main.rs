@@ -3324,6 +3324,36 @@ mod tests {
     }
 
     #[test]
+    fn table_reservation_matches_concealed_source_line_breaks() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "| Bob | 7 |\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        ));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let widget = live_preview
+            .widgets(&session)
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("inactive table widget");
+
+        assert_eq!(
+            table_reservation_extra_lines(source, widget.source_range()),
+            Some(4),
+            "inactive table must reserve every concealed source newline so reveal/conceal keeps the same vertical footprint",
+        );
+    }
+
+    #[test]
     fn table_block_layout_reserves_one_visual_row_per_table_row() {
         let layout = table_block_layout(3, 4, 640.0, LINE_HEIGHT);
 
