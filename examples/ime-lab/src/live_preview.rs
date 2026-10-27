@@ -747,7 +747,9 @@ mod tests {
 
         let widgets = state.widgets(&session);
         assert!(
-            widgets.iter().any(|widget| widget.kind() == WidgetKind::Callout),
+            widgets
+                .iter()
+                .any(|widget| widget.kind() == WidgetKind::Callout),
             "LivePreviewState must scan Obsidian callouts before building the projection",
         );
         assert!(
