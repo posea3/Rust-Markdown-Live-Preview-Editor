@@ -2037,7 +2037,11 @@ mod tests {
 
     #[test]
     fn inactive_obsidian_embed_becomes_custom_embed_widget() {
-        let source = "before ![[diagram.svg#Overview|Architecture]] after";
+        let source = concat!(
+            "before\n\n",
+            "![[diagram.svg#Overview|Architecture]]\n",
+            "\nafter\n",
+        );
         let projection = build_with_obsidian_extensions(
             source,
             RevealPolicy::ConcealInactive,
@@ -2061,6 +2065,24 @@ mod tests {
         );
         assert!(widget.projected_range().is_empty());
         assert!(!projection.text().contains("diagram.svg"));
+    }
+
+    #[test]
+    fn inline_obsidian_embed_remains_source_visible_without_inline_width_reservation() {
+        let source = "before ![[diagram.svg|Architecture]] after";
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::CustomEmbed)
+        );
     }
 
     #[test]
