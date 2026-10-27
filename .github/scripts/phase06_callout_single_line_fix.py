@@ -31,13 +31,21 @@ def green() -> None:
     text = read()
     old_rows = "    let rows = reserved_rows.max(2);"
     new_rows = "    let rows = reserved_rows.max(1);"
+    old_height = (
+        "    let height = (reserved_height - CALLOUT_VERTICAL_INSET * 2.0).max(line_height);"
+    )
+    new_height = (
+        "    let height = (reserved_height - CALLOUT_VERTICAL_INSET * 2.0).max(1.0);"
+    )
     old_body = "        (y + layout.height - body_y).max(1.0),"
     new_body = "        (y + layout.height - body_y).max(0.0),"
     if old_rows in text:
         text = text.replace(old_rows, new_rows, 1)
+    if old_height in text:
+        text = text.replace(old_height, new_height, 1)
     if old_body in text:
         text = text.replace(old_body, new_body, 1)
-    if new_rows not in text or new_body not in text:
+    if new_rows not in text or new_height not in text or new_body not in text:
         raise RuntimeError("single-line callout production markers missing")
     write(text)
 
