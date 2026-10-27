@@ -8,6 +8,7 @@ use mdedit_live::{
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
+    obsidian_extension_set,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,6 +253,9 @@ impl LivePreviewFrame {
     ) -> Result<Self, String> {
         let document = session.document().snapshot();
         let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::obsidian());
+        let extensions = obsidian_extension_set()
+            .scan(&document, &syntax)
+            .map_err(|error| format!("extension scan failed: {error}"))?;
         let blocks = block_cache
             .reconcile(&document, &syntax)
             .map_err(|error| format!("block reconciliation failed: {error}"))?;
@@ -273,11 +277,12 @@ impl LivePreviewFrame {
         // Composition is a temporary display overlay. It must not change the
         // reveal/conceal projection itself; rebuilding the projection on every
         // preedit update can remap the caret and reflow the viewport on Windows.
-        let projection = Projection::build(
+        let projection = Projection::build_with_extensions(
             &document,
             &syntax,
             &blocks,
             &delimiters,
+            &extensions,
             RevealPolicy::ConcealInactive,
             &context,
         )
