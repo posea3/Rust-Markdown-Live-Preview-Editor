@@ -1776,17 +1776,23 @@ fn build_extension_widget_candidates(
 }
 
 fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Vec<WidgetCandidate> {
-    let inactive_callouts = widgets
+    let inactive_extension_owners = widgets
         .iter()
-        .filter(|widget| widget.kind == WidgetKind::Callout && !widget.active)
-        .map(|widget| widget.source_range)
+        .filter(|widget| {
+            !widget.active
+                && matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
+        })
+        .map(|widget| (widget.kind, widget.source_range))
         .collect::<Vec<_>>();
 
     widgets.retain(|widget| {
-        widget.kind == WidgetKind::Callout
-            || !inactive_callouts.iter().any(|range| {
-                *range != widget.source_range && range_contains(*range, widget.source_range)
-            })
+        if matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed) {
+            return true;
+        }
+
+        !inactive_extension_owners
+            .iter()
+            .any(|(_, range)| range_contains(*range, widget.source_range))
     });
     widgets.sort_by_key(|widget| {
         (
@@ -1839,7 +1845,9 @@ fn extend_range_to_line_ending(
     }
 
     let mut end = bytes.end;
-    if end < source.len() {
+    let already_has_line_ending =
+        end > bytes.start && matches!(source.as_bytes()[end - 1], b'\r' | b'\n');
+    if !already_has_line_ending && end < source.len() {
         if source.as_bytes()[end] == b'\r' {
             end += 1;
         }
