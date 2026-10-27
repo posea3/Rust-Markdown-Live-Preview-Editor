@@ -3656,6 +3656,19 @@ mod tests {
     }
 
     #[test]
+    fn first_widget_reservation_transition_restores_pre_transition_scroll() {
+        let before = Scroll::new(101, 21.0, 0.0);
+        let transient = Scroll::new(98, 21.0, 0.0);
+
+        let anchor = widget_reservation_viewport_anchor(before, true)
+            .expect("reservation transition must preserve the pre-transition viewport");
+
+        assert_ne!(transient, before);
+        assert_eq!(anchor.scroll, before);
+        assert!(widget_reservation_viewport_anchor(before, false).is_none());
+    }
+
+    #[test]
     fn ime_viewport_anchor_keeps_exact_scroll_across_temporary_relayout() {
         let anchor = ImeViewportAnchor {
             scroll: Scroll::new(12, 4.0, 0.0),
