@@ -14,10 +14,10 @@ pub use caret::{CaretDirection, ProjectedCaretStop, ProjectedCaretStops};
 pub use hit::{HitBias, ProjectedHit, ProjectedSelection, ProjectedSelectionEndpoint};
 pub use projection::{
     CalloutWidgetData, ConcealSpan, CustomEmbedWidgetData, ImageWidgetData, MathWidgetData,
-    ProjectedBlock, ProjectedRange, ProjectedSize,
-    ProjectedSpan, ProjectedWidget, Projection, ProjectionBias, ProjectionBuildError,
-    ProjectionFallbackReason, ProjectionMap, ProjectionStatus, RevealContext, RevealGroup,
-    RevealGroupId, RevealPolicy, StructuralPaddingKind, StructuralPaddingSpan, StyleKind,
-    StyleSpan, TableWidgetData, WidgetAction, WidgetKind, WidgetPayload,
+    ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, ProjectedWidget, Projection,
+    ProjectionBias, ProjectionBuildError, ProjectionFallbackReason, ProjectionMap,
+    ProjectionStatus, RevealContext, RevealGroup, RevealGroupId, RevealPolicy,
+    StructuralPaddingKind, StructuralPaddingSpan, StyleKind, StyleSpan, TableWidgetData,
+    WidgetAction, WidgetKind, WidgetPayload,
 };
 pub use reflow::{LayoutPosition, ReflowAnchor, ReflowMeasurement, ScrollAdjustment};
