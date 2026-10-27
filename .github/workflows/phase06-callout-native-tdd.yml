@@ -1,5 +1,6 @@
 name: Phase 6 Callout Native TDD
 
+# Retry after correcting the one-row card height, not only its row count.
 on:
   push:
     branches:
