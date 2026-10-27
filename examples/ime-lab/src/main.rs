@@ -73,6 +73,7 @@ const HORIZONTAL_RULE_THICKNESS: f32 = 1.5;
 const HORIZONTAL_RULE_INSET: f32 = 8.0;
 const TASK_CHECKBOX_SIZE: f32 = 14.0;
 const TASK_CHECKBOX_GAP: f32 = 5.0;
+const TASK_CHECKBOX_HIT_PADDING: f32 = 5.0;
 const TASK_CHECKBOX_BORDER: f32 = 1.5;
 const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
 const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
@@ -1542,10 +1543,8 @@ impl WindowState {
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
-                            (
-                                widget.clone(),
-                                task_checkbox_rect(anchor_x, line_top, line_height),
-                            )
+                            let visual = task_checkbox_rect(anchor_x, line_top, line_height);
+                            (widget.clone(), task_checkbox_hit_rect(visual))
                         })
                 }
             })
@@ -1556,11 +1555,7 @@ impl WindowState {
         self.refresh_layout();
         let pointer_x = self.cursor_position.x as f32;
         let pointer_y = self.cursor_position.y as f32;
-        let action = self
-            .widget_hit_regions()
-            .into_iter()
-            .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
-            .and_then(|(widget, _)| widget.primary_action());
+        let action = widget_action_at_pointer(self.widget_hit_regions(), pointer_x, pointer_y);
 
         let Some(action) = action else {
             return false;
@@ -3044,6 +3039,20 @@ fn task_checkbox_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenR
     )
 }
 
+fn task_checkbox_hit_rect(visual: ScreenRect) -> ScreenRect {
+    let left = (visual.x - TASK_CHECKBOX_HIT_PADDING).max(0.0);
+    let top = (visual.y - TASK_CHECKBOX_HIT_PADDING).max(0.0);
+    let right = visual.x + visual.width + TASK_CHECKBOX_HIT_PADDING;
+    let bottom = visual.y + visual.height + TASK_CHECKBOX_HIT_PADDING;
+    ScreenRect::new(
+        left,
+        top,
+        (right - left).max(visual.width),
+        (bottom - top).max(visual.height),
+        [0.0; 4],
+    )
+}
+
 fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, checked: bool) {
     let b = TASK_CHECKBOX_BORDER;
     output.extend([
@@ -3079,6 +3088,17 @@ fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, 
 
 fn point_in_rect(x: f32, y: f32, rect: ScreenRect) -> bool {
     x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
+}
+
+fn widget_action_at_pointer(
+    regions: impl IntoIterator<Item = (ProjectedWidget, ScreenRect)>,
+    pointer_x: f32,
+    pointer_y: f32,
+) -> Option<WidgetAction> {
+    regions
+        .into_iter()
+        .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
+        .and_then(|(widget, _)| widget.primary_action())
 }
 
 fn visual_horizontal_target(
