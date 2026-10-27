@@ -1,6 +1,6 @@
 name: Phase 6 Callout Native TDD
 
-# Retry after correcting the one-row card height, not only its row count.
+# Final projection ownership regression: active callouts reveal every nested marker.
 on:
   push:
     branches:
@@ -26,39 +26,39 @@ jobs:
           toolchain: 1.90.0
           components: rustfmt, clippy
 
-      - name: RED single-line callout footprint
+      - name: RED exact callout source reveal
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          python3 .github/scripts/phase06_callout_single_line_fix.py red
+          python3 .github/scripts/phase06_callout_exact_reveal_fix.py red
           cargo fmt --all
-          git add examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "test(ime-lab): reproduce single-line callout overflow"
+          git add crates/mdedit-live/src/projection.rs
+          git commit -m "test(live): reproduce partial nested callout reveal"
 
           set +e
-          cargo test -p mdedit-ime-lab single_line_callout_without_trailing_newline_fits_one_layout_row -- --nocapture > /tmp/callout-single-red.log 2>&1
+          cargo test -p mdedit-live callout_source_reveal_restores_nested_markers_and_widgets -- --nocapture > /tmp/callout-reveal-red.log 2>&1
           status=$?
           set -e
-          cat /tmp/callout-single-red.log
+          cat /tmp/callout-reveal-red.log
           if [[ $status -eq 0 ]]; then
-            echo "Expected single-line callout RED, but the regression test passed" >&2
+            echo "Expected exact-reveal RED, but the regression test passed" >&2
             exit 1
           fi
-          grep -F "left: 2" /tmp/callout-single-red.log >/dev/null
+          grep -F "callout_source_reveal_restores_nested_markers_and_widgets" /tmp/callout-reveal-red.log >/dev/null
 
-      - name: GREEN single-line callout footprint
+      - name: GREEN exact callout source reveal
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/phase06_callout_single_line_fix.py green
+          python3 .github/scripts/phase06_callout_exact_reveal_fix.py green
           cargo fmt --all
-          git add examples/ime-lab/src/callout_embed_widget.rs
-          git commit -m "fix(ime-lab): fit single-line callout in one row"
+          git add crates/mdedit-live/src/projection.rs
+          git commit -m "fix(live): reveal nested markers with active callouts"
 
-          cargo test -p mdedit-ime-lab single_line_callout_without_trailing_newline_fits_one_layout_row -- --nocapture
+          cargo test -p mdedit-live callout_source_reveal_restores_nested_markers_and_widgets -- --nocapture
           cargo check --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
