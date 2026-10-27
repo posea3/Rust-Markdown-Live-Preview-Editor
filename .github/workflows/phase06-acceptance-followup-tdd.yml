@@ -1,0 +1,126 @@
+name: Phase 6 Acceptance Follow-up TDD
+
+on:
+  push:
+    branches:
+      - feature/widgets-phase-06-callout-embed
+    paths:
+      - .github/workflows/phase06-acceptance-followup-tdd.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/widgets-phase-06-callout-embed
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+
+      - name: RED first Callout conceal viewport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python3 .github/scripts/phase06_acceptance_followup.py red-callout
+          cargo fmt --all
+          git add examples/ime-lab/src/main.rs
+          git commit -m "test(ime-lab): reproduce first callout conceal viewport shift"
+
+          set +e
+          cargo test -p mdedit-ime-lab first_widget_reservation_transition_restores_pre_transition_scroll -- --nocapture > /tmp/callout-viewport-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/callout-viewport-red.log
+          if [[ $status -eq 0 ]]; then
+            echo "Expected Callout viewport RED, but the regression test passed" >&2
+            exit 1
+          fi
+          grep -F "widget_reservation_viewport_anchor" /tmp/callout-viewport-red.log >/dev/null
+
+      - name: GREEN first Callout conceal viewport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase06_acceptance_followup.py green-callout
+          cargo fmt --all
+          git add examples/ime-lab/src/main.rs
+          git commit -m "fix(ime-lab): preserve viewport across widget reservation transition"
+
+          cargo test -p mdedit-ime-lab first_widget_reservation_transition_restores_pre_transition_scroll -- --nocapture
+
+      - name: RED Checkbox padded click target
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase06_acceptance_followup.py red-checkbox
+          cargo fmt --all
+          git add examples/ime-lab/src/main.rs
+          git commit -m "test(ime-lab): reproduce checkbox click miss near visual edge"
+
+          set +e
+          cargo test -p mdedit-ime-lab task_checkbox_click_padding_toggles_and_round_trips_history -- --nocapture > /tmp/checkbox-hit-red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/checkbox-hit-red.log
+          if [[ $status -eq 0 ]]; then
+            echo "Expected Checkbox hit-target RED, but the regression test passed" >&2
+            exit 1
+          fi
+          grep -E "task_checkbox_hit_rect|widget_action_at_pointer" /tmp/checkbox-hit-red.log >/dev/null
+
+      - name: GREEN Checkbox padded click target
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/phase06_acceptance_followup.py green-checkbox
+          cargo fmt --all
+          git add examples/ime-lab/src/main.rs
+          git commit -m "fix(ime-lab): expand checkbox hit target and verify history"
+
+          cargo test -p mdedit-ime-lab task_checkbox_click_padding_toggles_and_round_trips_history -- --nocapture
+          cargo check --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          git push origin HEAD:feature/widgets-phase-06-callout-embed
+
+  verify:
+    needs: implement
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/widgets-phase-06-callout-embed
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+
+      - name: Format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --workspace --all-targets
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace

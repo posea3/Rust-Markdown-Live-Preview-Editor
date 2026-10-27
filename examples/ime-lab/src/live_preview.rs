@@ -8,6 +8,7 @@ use mdedit_live::{
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
+    obsidian_extension_set,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,6 +253,9 @@ impl LivePreviewFrame {
     ) -> Result<Self, String> {
         let document = session.document().snapshot();
         let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::obsidian());
+        let extensions = obsidian_extension_set()
+            .scan(&document, &syntax)
+            .map_err(|error| format!("extension scan failed: {error}"))?;
         let blocks = block_cache
             .reconcile(&document, &syntax)
             .map_err(|error| format!("block reconciliation failed: {error}"))?;
@@ -273,11 +277,12 @@ impl LivePreviewFrame {
         // Composition is a temporary display overlay. It must not change the
         // reveal/conceal projection itself; rebuilding the projection on every
         // preedit update can remap the caret and reflow the viewport on Windows.
-        let projection = Projection::build(
+        let projection = Projection::build_with_extensions(
             &document,
             &syntax,
             &blocks,
             &delimiters,
+            &extensions,
             RevealPolicy::ConcealInactive,
             &context,
         )
@@ -533,7 +538,10 @@ impl ReservationOverlay {
             let Some(widget) = projection.widgets().iter().find(|widget| {
                 matches!(
                     widget.kind(),
-                    WidgetKind::Image | WidgetKind::DisplayMath | WidgetKind::Table
+                    WidgetKind::Image
+                        | WidgetKind::DisplayMath
+                        | WidgetKind::Table
+                        | WidgetKind::Callout
                 ) && widget.source_range() == reservation.source_range
             }) else {
                 continue;
@@ -725,6 +733,106 @@ mod tests {
         assert!(
             hit.offset == range.start() || hit.offset == range.end(),
             "synthetic image rows must map back to the collapsed image source"
+        );
+    }
+
+    #[test]
+    fn obsidian_extension_widgets_reach_live_preview_frame() {
+        let source = concat!(
+            "> [!tip] Native callout\n",
+            "> Body text.\n",
+            "\n",
+            "![[diagram.svg|Architecture]]\n",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+
+        let widgets = state.widgets(&session);
+        assert!(
+            widgets
+                .iter()
+                .any(|widget| widget.kind() == WidgetKind::Callout),
+            "LivePreviewState must scan Obsidian callouts before building the projection",
+        );
+        assert!(
+            widgets
+                .iter()
+                .any(|widget| widget.kind() == WidgetKind::CustomEmbed),
+            "LivePreviewState must scan standalone Obsidian embeds before building the projection",
+        );
+    }
+
+    #[test]
+    fn callout_block_reservation_adds_layout_rows_without_changing_source_mapping() {
+        let source = concat!(
+            "before\n\n",
+            "> [!warning]- Custom title\n",
+            "> Be careful.\n",
+            "> Second line.\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let range = state
+            .frame()
+            .unwrap()
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Callout)
+            .expect("inactive callout widget")
+            .source_range();
+
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 3)]));
+        state.refresh(&session).unwrap();
+
+        let frame = state.frame().unwrap();
+        assert_eq!(
+            frame.display_text().matches('\n').count(),
+            frame.projection().text().matches('\n').count() + 3,
+            "native callout rows must reserve real layout lines so following text cannot overlap the card",
+        );
+
+        let source_after = Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        );
+        let projected_after =
+            ProjectedSelectionEndpoint::from_source(frame.projection(), &frame.stops, source_after)
+                .unwrap()
+                .projected()
+                .to_usize();
+        assert_eq!(
+            frame.source_anchor_to_display(source_after),
+            Some(projected_after + 3),
+            "source positions after the callout must include the reserved native rows",
+        );
+
+        let widget = frame
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Callout)
+            .unwrap();
+        let reservation_start = widget.projected_range().start().to_usize();
+        let hit = frame
+            .display_to_source_anchor(reservation_start + 1, Affinity::After)
+            .unwrap();
+        assert!(
+            hit.offset == range.start() || hit.offset == range.end(),
+            "synthetic callout rows must map back to the collapsed callout source",
         );
     }
 
