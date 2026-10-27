@@ -316,7 +316,7 @@ Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **S
 
 ## Slice 05 - table
 
-Status: **implemented; Windows/macOS/Ubuntu CI PASS; first macOS acceptance overlap was fixed, second focused macOS retest still found a two-line reveal/conceal footprint drift; source-footprint fix has 3-OS CI PASS and another focused macOS retest is pending; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS Table acceptance PASS including non-overlapping block reservation and stable reveal/conceal viewport; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
 
 ### Table contract
 
@@ -483,3 +483,35 @@ Next focused macOS retest:
 - no wgpu validation error, panic, or crash
 
 Keep PR #11 draft until the reveal/conceal viewport retest passes.
+
+
+### macOS final focused retest — PASS
+
+Final macOS focused retest at `e433b27fc0bc45b4a49ebb63c6abe6f3e29a12a8`:
+
+- **PASS**: first table canonical source reveal and native-grid restore
+- **PASS**: after reaching the stable baseline `scroll=78:21`, five reveal/conceal cycles remained `78:21 -> 78:21`
+- **PASS**: second table canonical source revealed `**strong**`, link, and code markers correctly
+- **PASS**: second table returned to native grid after leaving the source range
+- **PASS**: five second-table reveal/conceal cycles remained `79:21 -> 79:21`
+- **PASS**: both tables remained separated from surrounding explanatory text
+- **PASS**: no abnormal blank vertical space appeared around either table
+- **PASS**: Image preview and following text remained separated
+- **PASS**: Math block and following text remained separated
+- **PASS**: Checkbox state could be toggled and restored during smoke verification
+- **PASS**: Korean preedit/commit and `**한글**` kept `scroll=45:21`
+- test input was undone back to the fixture baseline `source=3443 bytes`
+- logs showed Metal initialization and the expected invalid-Math fallback only; no wgpu validation error, panic, or crash was observed
+
+The two Table regressions are therefore closed:
+
+1. missing Table reservation application caused grid/text overlap and the original multi-line reflow jump
+2. native visual-row-based reservation did not preserve the concealed canonical source footprint, causing the remaining two-line reveal/conceal drift
+
+The final reservation contract is:
+
+- Image and DisplayMath keep their existing render-height-derived reservation policy
+- Table reserves exactly the newline count concealed by its canonical source range
+- inactive and revealed Table states therefore retain the same vertical source footprint while source remains canonical
+
+Slice 05 — Table is **macOS PASS** and can be merged. Narrow-window edge-drag acceptance was not required to close this regression because the widget remained bounded in the exercised window states and the IME lab window is configured as resizable by default. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
