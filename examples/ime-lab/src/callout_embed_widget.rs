@@ -441,6 +441,16 @@ mod tests {
     }
 
     #[test]
+    fn single_line_callout_without_trailing_newline_fits_one_layout_row() {
+        let layout = callout_block_layout(1, 640.0, 31.0);
+        let geometry = callout_geometry(24.0, 24.0, 0.0, 31.0, 640.0, layout);
+
+        assert_eq!(layout.rows, 1);
+        assert!(geometry.block.y + geometry.block.height <= 24.0 + 31.0 + 0.01);
+        assert!(geometry.body.height <= 0.01);
+    }
+
+    #[test]
     fn callout_palette_distinguishes_warning_from_note() {
         let note = callout_palette("note");
         let warning = callout_palette("warning");
