@@ -729,6 +729,36 @@ mod tests {
     }
 
     #[test]
+    fn obsidian_extension_widgets_reach_live_preview_frame() {
+        let source = concat!(
+            "> [!tip] Native callout\n",
+            "> Body text.\n",
+            "\n",
+            "![[diagram.svg|Architecture]]\n",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+
+        let widgets = state.widgets(&session);
+        assert!(
+            widgets.iter().any(|widget| widget.kind() == WidgetKind::Callout),
+            "LivePreviewState must scan Obsidian callouts before building the projection",
+        );
+        assert!(
+            widgets
+                .iter()
+                .any(|widget| widget.kind() == WidgetKind::CustomEmbed),
+            "LivePreviewState must scan standalone Obsidian embeds before building the projection",
+        );
+    }
+
+    #[test]
     fn table_block_reservation_adds_layout_rows_without_changing_source_mapping() {
         let source = concat!(
             "before\n\n",
