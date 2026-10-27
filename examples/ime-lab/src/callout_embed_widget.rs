@@ -106,10 +106,10 @@ pub fn callout_block_layout(
     line_height: f32,
 ) -> CalloutBlockLayout {
     let line_height = line_height.max(1.0);
-    let rows = reserved_rows.max(2);
+    let rows = reserved_rows.max(1);
     let reserved_height = rows as f32 * line_height;
     let width = available_width.min(CALLOUT_MAX_WIDTH).max(line_height);
-    let height = (reserved_height - CALLOUT_VERTICAL_INSET * 2.0).max(line_height);
+    let height = (reserved_height - CALLOUT_VERTICAL_INSET * 2.0).max(1.0);
     let header_height = line_height.min(height);
 
     CalloutBlockLayout {
@@ -161,7 +161,7 @@ pub fn callout_geometry(
         header_x,
         body_y,
         (layout.width - CALLOUT_ACCENT_WIDTH - CALLOUT_HORIZONTAL_PADDING * 2.0).max(1.0),
-        (y + layout.height - body_y).max(1.0),
+        (y + layout.height - body_y).max(0.0),
         [0.0; 4],
     );
 
