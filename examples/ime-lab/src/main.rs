@@ -20,6 +20,10 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
+use callout_embed_widget::{
+    append_callout_rects, append_custom_embed_rects, callout_block_layout, callout_geometry,
+    callout_palette, custom_embed_geometry, source_range_newline_count,
+};
 use cosmic_text::{Align, AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
@@ -1379,6 +1383,7 @@ impl WindowState {
     fn widget_rectangles(&self) -> Vec<ScreenRect> {
         let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
         let line_width = (available_width - HORIZONTAL_RULE_INSET * 2.0).max(1.0);
+        let source = self.session.document().text();
         let mut rects = Vec::new();
 
         for widget in self.live_preview.widgets(&self.session) {
@@ -1459,7 +1464,41 @@ impl WindowState {
                     let block = table_block_rect(line_top, line_height, available_width, layout);
                     append_table_rects(&mut rects, block, layout);
                 }
-                WidgetKind::Callout | WidgetKind::CustomEmbed => {}
+                WidgetKind::Callout => {
+                    let Some(callout) = widget.callout() else {
+                        continue;
+                    };
+                    let reserved_rows = source_range_newline_count(&source, widget.source_range())
+                        .unwrap_or(1)
+                        .saturating_add(1);
+                    let layout = callout_block_layout(reserved_rows, available_width, line_height);
+                    let geometry = callout_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                        layout,
+                    );
+                    append_callout_rects(
+                        &mut rects,
+                        geometry,
+                        callout_palette(callout.callout_type()),
+                    );
+                }
+                WidgetKind::CustomEmbed => {
+                    if widget.custom_embed().is_none() {
+                        continue;
+                    }
+                    let geometry = custom_embed_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                    );
+                    append_custom_embed_rects(&mut rects, geometry);
+                }
             }
         }
 
@@ -1599,12 +1638,19 @@ impl WindowState {
                     math_block_layout(width, height, available_width, LINE_HEIGHT)
                         .rows
                         .saturating_sub(1)
-                } else {
-                    widget.table()?;
+                } else if widget.table().is_some() {
                     table_reservation_extra_lines(
                         &self.session.document().text(),
                         widget.source_range(),
                     )?
+                } else if widget.callout().is_some() {
+                    source_range_newline_count(
+                        &self.session.document().text(),
+                        widget.source_range(),
+                    )?
+                } else {
+                    widget.custom_embed()?;
+                    0
                 };
 
                 (extra_lines > 0).then(|| {

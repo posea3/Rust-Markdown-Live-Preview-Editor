@@ -538,7 +538,10 @@ impl ReservationOverlay {
             let Some(widget) = projection.widgets().iter().find(|widget| {
                 matches!(
                     widget.kind(),
-                    WidgetKind::Image | WidgetKind::DisplayMath | WidgetKind::Table
+                    WidgetKind::Image
+                        | WidgetKind::DisplayMath
+                        | WidgetKind::Table
+                        | WidgetKind::Callout
                 ) && widget.source_range() == reservation.source_range
             }) else {
                 continue;
