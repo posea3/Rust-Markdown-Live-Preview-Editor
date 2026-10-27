@@ -2385,6 +2385,27 @@ mod tests {
     }
 
     #[test]
+    fn callout_payload_uses_visible_body_text_without_inline_markdown_markers() {
+        let source = concat!(
+            "> [!note] Rendered body\n",
+            "> **bold** [link](https://example.com) `code`\n",
+        );
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        let callout = projection
+            .widgets()
+            .iter()
+            .find_map(ProjectedWidget::callout)
+            .expect("callout payload");
+
+        assert_eq!(callout.body(), "bold link code");
+    }
+
+    #[test]
     fn callout_source_reveals_when_caret_enters_callout_body() {
         let source = "> [!note] Title\n> Body text.\n";
         let marker = source.find("Body").unwrap();
