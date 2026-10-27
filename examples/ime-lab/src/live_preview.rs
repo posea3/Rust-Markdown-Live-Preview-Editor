@@ -766,6 +766,74 @@ mod tests {
     }
 
     #[test]
+    fn callout_block_reservation_adds_layout_rows_without_changing_source_mapping() {
+        let source = concat!(
+            "before\n\n",
+            "> [!warning]- Custom title\n",
+            "> Be careful.\n",
+            "> Second line.\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let range = state
+            .frame()
+            .unwrap()
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Callout)
+            .expect("inactive callout widget")
+            .source_range();
+
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 3)]));
+        state.refresh(&session).unwrap();
+
+        let frame = state.frame().unwrap();
+        assert_eq!(
+            frame.display_text().matches('\n').count(),
+            frame.projection().text().matches('\n').count() + 3,
+            "native callout rows must reserve real layout lines so following text cannot overlap the card",
+        );
+
+        let source_after = Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        );
+        let projected_after =
+            ProjectedSelectionEndpoint::from_source(frame.projection(), &frame.stops, source_after)
+                .unwrap()
+                .projected()
+                .to_usize();
+        assert_eq!(
+            frame.source_anchor_to_display(source_after),
+            Some(projected_after + 3),
+            "source positions after the callout must include the reserved native rows",
+        );
+
+        let widget = frame
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Callout)
+            .unwrap();
+        let reservation_start = widget.projected_range().start().to_usize();
+        let hit = frame
+            .display_to_source_anchor(reservation_start + 1, Affinity::After)
+            .unwrap();
+        assert!(
+            hit.offset == range.start() || hit.offset == range.end(),
+            "synthetic callout rows must map back to the collapsed callout source",
+        );
+    }
+
+    #[test]
     fn table_block_reservation_adds_layout_rows_without_changing_source_mapping() {
         let source = concat!(
             "before\n\n",

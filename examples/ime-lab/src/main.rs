@@ -1,4 +1,5 @@
 mod accessibility;
+mod callout_embed_widget;
 mod geometry;
 mod image_widget;
 mod live_preview;
