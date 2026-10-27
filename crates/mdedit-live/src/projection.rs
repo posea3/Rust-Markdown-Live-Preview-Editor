@@ -819,15 +819,7 @@ impl Projection {
         policy: RevealPolicy,
         context: &RevealContext,
     ) -> Result<Self, ProjectionBuildError> {
-        Self::build_internal(
-            document,
-            syntax,
-            blocks,
-            delimiters,
-            None,
-            policy,
-            context,
-        )
+        Self::build_internal(document, syntax, blocks, delimiters, None, policy, context)
     }
 
     pub fn build_with_extensions(
@@ -1821,7 +1813,9 @@ fn smallest_containing_node(
         }
         if let Some(candidate) = smallest_containing_node(child, range, kind) {
             best = match best {
-                Some(existing) if existing.range().len() <= candidate.range().len() => Some(existing),
+                Some(existing) if existing.range().len() <= candidate.range().len() => {
+                    Some(existing)
+                }
                 _ => Some(candidate),
             };
         }
@@ -1857,8 +1851,7 @@ fn extend_range_to_line_ending(
     TextRange::new(
         TextSize::try_from_usize(bytes.start)
             .map_err(|_| ProjectionBuildError::DocumentTooLarge)?,
-        TextSize::try_from_usize(end)
-            .map_err(|_| ProjectionBuildError::DocumentTooLarge)?,
+        TextSize::try_from_usize(end).map_err(|_| ProjectionBuildError::DocumentTooLarge)?,
     )
     .map_err(|_| ProjectionBuildError::InvalidWidgetBounds {
         start: bytes.start,
