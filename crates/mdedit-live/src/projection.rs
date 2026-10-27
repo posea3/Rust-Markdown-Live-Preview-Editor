@@ -917,10 +917,9 @@ impl Projection {
             )?);
             widget_candidates = normalize_widget_candidate_ownership(widget_candidates);
         }
-        concealed
-            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
+        concealed.retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
         structural_padding
-            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
+            .retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
 
         if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
@@ -1509,10 +1508,12 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
     }
 }
 
-fn shadowed_by_inactive_widget(widgets: &[WidgetCandidate], range: TextRange) -> bool {
-    widgets
-        .iter()
-        .any(|widget| !widget.active && range_contains(widget.conceal_range, range))
+fn shadowed_by_widget_owner(widgets: &[WidgetCandidate], range: TextRange) -> bool {
+    widgets.iter().any(|widget| {
+        (!widget.active && range_contains(widget.conceal_range, range))
+            || (matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
+                && range_contains(widget.source_range, range))
+    })
 }
 
 fn has_overlapping_projection_ranges(
@@ -1776,12 +1777,10 @@ fn build_extension_widget_candidates(
 }
 
 fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Vec<WidgetCandidate> {
-    let inactive_extension_owners = widgets
+    let extension_owner_ranges = widgets
         .iter()
-        .filter(|widget| {
-            !widget.active && matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
-        })
-        .map(|widget| (widget.kind, widget.source_range))
+        .filter(|widget| matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed))
+        .map(|widget| widget.source_range)
         .collect::<Vec<_>>();
 
     widgets.retain(|widget| {
@@ -1789,9 +1788,9 @@ fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Ve
             return true;
         }
 
-        !inactive_extension_owners
+        !extension_owner_ranges
             .iter()
-            .any(|(_, range)| range_contains(*range, widget.source_range))
+            .any(|range| range_contains(*range, widget.source_range))
     });
     widgets.sort_by_key(|widget| {
         (
