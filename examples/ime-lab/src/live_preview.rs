@@ -531,8 +531,10 @@ impl ReservationOverlay {
 
         for reservation in reservations {
             let Some(widget) = projection.widgets().iter().find(|widget| {
-                matches!(widget.kind(), WidgetKind::Image | WidgetKind::DisplayMath)
-                    && widget.source_range() == reservation.source_range
+                matches!(
+                    widget.kind(),
+                    WidgetKind::Image | WidgetKind::DisplayMath | WidgetKind::Table
+                ) && widget.source_range() == reservation.source_range
             }) else {
                 continue;
             };
@@ -723,6 +725,117 @@ mod tests {
         assert!(
             hit.offset == range.start() || hit.offset == range.end(),
             "synthetic image rows must map back to the collapsed image source"
+        );
+    }
+
+    #[test]
+    fn table_block_reservation_adds_layout_rows_without_changing_source_mapping() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "| Bob | 7 |\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let range = state
+            .frame()
+            .unwrap()
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("inactive table widget")
+            .source_range();
+
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 2)]));
+        state.refresh(&session).unwrap();
+
+        let frame = state.frame().unwrap();
+        assert_eq!(
+            frame.display_text().matches('\n').count(),
+            frame.projection().text().matches('\n').count() + 2,
+            "native table rows must reserve real layout lines so following text cannot overlap the grid",
+        );
+
+        let source_after = Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        );
+        let projected_after =
+            ProjectedSelectionEndpoint::from_source(frame.projection(), &frame.stops, source_after)
+                .unwrap()
+                .projected()
+                .to_usize();
+        assert_eq!(
+            frame.source_anchor_to_display(source_after),
+            Some(projected_after + 2),
+            "source positions after the table must include the reserved native rows",
+        );
+
+        let widget = frame
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .unwrap();
+        let reservation_start = widget.projected_range().start().to_usize();
+        let hit = frame
+            .display_to_source_anchor(reservation_start + 1, Affinity::After)
+            .unwrap();
+        assert!(
+            hit.offset == range.start() || hit.offset == range.end(),
+            "synthetic table rows must map back to the collapsed table source",
+        );
+    }
+
+    #[test]
+    fn adding_table_reservation_produces_reflow_offsets_for_same_source_anchor() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| --- | ---: |\n",
+            "| Ada | 42 |\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(anchor(
+            u32::try_from(source.len()).unwrap(),
+            Affinity::After,
+        ));
+
+        let mut state = LivePreviewState::new();
+        state.refresh(&session).unwrap();
+        let before = state
+            .display_caret_offset(&session)
+            .expect("caret before reservation");
+        let range = state
+            .frame()
+            .unwrap()
+            .projection()
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("inactive table widget")
+            .source_range();
+
+        assert!(state.set_widget_reservations(vec![WidgetBlockReservation::new(range, 2)]));
+        let refresh = state.refresh(&session).unwrap();
+        let reflow = refresh.reflow().expect("table reservation reflow");
+
+        assert_eq!(reflow.before_display_offset(), before);
+        assert_eq!(
+            reflow.after_display_offset(),
+            before + 2,
+            "table reservation must participate in reflow just like image/math block reservations",
         );
     }
 

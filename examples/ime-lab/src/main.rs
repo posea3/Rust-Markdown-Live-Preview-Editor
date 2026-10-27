@@ -19,7 +19,7 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
-use cosmic_text::{AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
+use cosmic_text::{Align, AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
     Attrs, Buffer, Cache, Color, Cursor as CosmicCursor, Family, FontSystem, Metrics, Resolution,
@@ -33,8 +33,10 @@ use mdedit_core::{
 };
 use mdedit_input::{EditorInput, EditorSession};
 use mdedit_live::{
-    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, WidgetAction, WidgetKind,
+    CaretDirection, LayoutPosition, ProjectedWidget, ReflowMeasurement, TableWidgetData,
+    WidgetAction, WidgetKind,
 };
+use mdedit_markdown::SyntaxTableAlignment;
 use trace_capture::TraceCapture;
 use unicode_segmentation::UnicodeSegmentation;
 use wgpu::{
@@ -82,6 +84,13 @@ const MATH_BLOCK_PADDING: f32 = 10.0;
 const MATH_PLACEHOLDER_WIDTH: f32 = 112.0;
 const MATH_LOADING_COLOR: [f32; 4] = [0.54, 0.58, 0.72, 0.78];
 const MATH_FAILED_COLOR: [f32; 4] = [0.82, 0.40, 0.40, 0.94];
+const TABLE_BLOCK_MAX_WIDTH: f32 = 720.0;
+const TABLE_GRID_THICKNESS: f32 = 1.0;
+const TABLE_GRID_COLOR: [f32; 4] = [0.36, 0.39, 0.46, 0.92];
+const TABLE_HEADER_COLOR: [f32; 4] = [0.12, 0.14, 0.18, 0.96];
+const TABLE_CELL_PADDING: f32 = 7.0;
+const TABLE_FONT_SIZE: f32 = 17.0;
+const TABLE_TEXT_LINE_HEIGHT: f32 = 24.0;
 const DEFAULT_IME_DOCUMENT: &str = "IME Lab\n\n한글 / 日本語 / 中文 / English / العربية\n\n여기에 입력해 보세요.\n\n스크롤 테스트 01\n스크롤 테스트 02\n스크롤 테스트 03\n스크롤 테스트 04\n스크롤 테스트 05\n스크롤 테스트 06\n스크롤 테스트 07\n스크롤 테스트 08\n스크롤 테스트 09\n스크롤 테스트 10\n스크롤 테스트 11\n스크롤 테스트 12\n스크롤 테스트 13\n스크롤 테스트 14\n스크롤 테스트 15\n스크롤 테스트 16\n스크롤 테스트 17\n스크롤 테스트 18\n스크롤 테스트 19\n스크롤 테스트 20\n스크롤 테스트 21\n스크롤 테스트 22\n스크롤 테스트 23\n스크롤 테스트 24";
 const LIVE_PREVIEW_ACCEPTANCE_DOCUMENT: &str =
     include_str!("../fixtures/live-preview-acceptance.md");
@@ -1439,6 +1448,16 @@ impl WindowState {
                         }
                     }
                 }
+                WidgetKind::Table => {
+                    let Some(table) = widget.table() else {
+                        continue;
+                    };
+                    let (columns, visual_rows) = table_dimensions(table);
+                    let layout =
+                        table_block_layout(columns, visual_rows, available_width, line_height);
+                    let block = table_block_rect(line_top, line_height, available_width, layout);
+                    append_table_rects(&mut rects, block, layout);
+                }
             }
         }
 
@@ -1467,7 +1486,10 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| match widget.kind() {
-                WidgetKind::HorizontalRule | WidgetKind::Image | WidgetKind::DisplayMath => None,
+                WidgetKind::HorizontalRule
+                | WidgetKind::Image
+                | WidgetKind::DisplayMath
+                | WidgetKind::Table => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
@@ -1561,18 +1583,26 @@ impl WindowState {
             .widgets(&self.session)
             .iter()
             .filter_map(|widget| {
-                let rows = if let Some(image) = widget.image() {
+                let extra_lines = if let Some(image) = widget.image() {
                     let (width, height) = self.image_widgets.intrinsic_size(image.destination())?;
-                    image_block_layout(width, height, available_width, LINE_HEIGHT).rows
-                } else {
-                    let math = widget.display_math()?;
+                    image_block_layout(width, height, available_width, LINE_HEIGHT)
+                        .rows
+                        .saturating_sub(1)
+                } else if let Some(math) = widget.display_math() {
                     let (width, height) = self
                         .math_widgets
                         .intrinsic_size(math.tex(), &self.image_widgets)?;
-                    math_block_layout(width, height, available_width, LINE_HEIGHT).rows
+                    math_block_layout(width, height, available_width, LINE_HEIGHT)
+                        .rows
+                        .saturating_sub(1)
+                } else {
+                    widget.table()?;
+                    table_reservation_extra_lines(
+                        &self.session.document().text(),
+                        widget.source_range(),
+                    )?
                 };
 
-                let extra_lines = rows.saturating_sub(1);
                 (extra_lines > 0).then(|| {
                     WidgetBlockReservation::new(
                         widget.source_range(),
@@ -1625,6 +1655,35 @@ impl WindowState {
                     .then(|| self.math_widgets.draw_request(math.tex(), rect))
             })
             .collect()
+    }
+
+    fn table_text_specs(&self) -> Vec<TableTextSpec> {
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let mut specs = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            let Some(table) = widget.table() else {
+                continue;
+            };
+            let Some((_, line_top, line_height)) = self.widget_anchor_geometry(widget) else {
+                continue;
+            };
+            let (columns, visual_rows) = table_dimensions(table);
+            let layout = table_block_layout(columns, visual_rows, available_width, line_height);
+            let block = table_block_rect(line_top, line_height, available_width, layout);
+            specs.extend(
+                table_cell_layouts(table, block, layout)
+                    .into_iter()
+                    .map(|cell| TableTextSpec {
+                        text: cell.text.to_owned(),
+                        bounds: cell.bounds,
+                        alignment: cell.alignment,
+                        header: cell.header,
+                    }),
+            );
+        }
+
+        specs
     }
 
     fn caret_rectangles(&self) -> Vec<ScreenRect> {
@@ -1777,21 +1836,65 @@ impl WindowState {
 
         let text_prepared = self.text_render_dirty;
         if text_prepared {
+            let table_specs = self.table_text_specs();
+            let mut table_buffers = Vec::with_capacity(table_specs.len());
+            for spec in &table_specs {
+                let mut buffer = Buffer::new(
+                    &mut self.font_system,
+                    Metrics::new(TABLE_FONT_SIZE, TABLE_TEXT_LINE_HEIGHT),
+                );
+                buffer.set_size(
+                    Some((spec.bounds.width - TABLE_CELL_PADDING * 2.0).max(1.0)),
+                    Some(spec.bounds.height.max(1.0)),
+                );
+                buffer.set_wrap(Wrap::None);
+                let attrs = Attrs::new().family(Family::SansSerif);
+                buffer.set_text(
+                    &spec.text,
+                    &attrs,
+                    Shaping::Advanced,
+                    Some(table_text_alignment(spec.alignment)),
+                );
+                buffer.shape_until_scroll(&mut self.font_system, false);
+                table_buffers.push(buffer);
+            }
+
+            let mut text_areas = Vec::with_capacity(1 + table_buffers.len());
+            text_areas.push(TextArea {
+                buffer: &self.text_buffer,
+                left: TEXT_LEFT,
+                top: TEXT_TOP,
+                scale: 1.0,
+                bounds: text_bounds,
+                default_color: Color::rgb(210, 214, 220),
+                custom_glyphs: &[],
+            });
+            for (buffer, spec) in table_buffers.iter().zip(&table_specs) {
+                let left = spec.bounds.x + TABLE_CELL_PADDING;
+                let top =
+                    spec.bounds.y + ((spec.bounds.height - TABLE_TEXT_LINE_HEIGHT) * 0.5).max(0.0);
+                text_areas.push(TextArea {
+                    buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: table_text_bounds(spec.bounds),
+                    default_color: if spec.header {
+                        Color::rgb(232, 234, 240)
+                    } else {
+                        Color::rgb(210, 214, 220)
+                    },
+                    custom_glyphs: &[],
+                });
+            }
+
             self.text_renderer.prepare(
                 &self.device,
                 &self.queue,
                 &mut self.font_system,
                 &mut self.atlas,
                 &self.viewport,
-                [TextArea {
-                    buffer: &self.text_buffer,
-                    left: TEXT_LEFT,
-                    top: TEXT_TOP,
-                    scale: 1.0,
-                    bounds: text_bounds,
-                    default_color: Color::rgb(210, 214, 220),
-                    custom_glyphs: &[],
-                }],
+                text_areas,
                 &mut self.swash_cache,
             )?;
             self.text_render_dirty = false;
@@ -2466,6 +2569,239 @@ fn math_block_rect(
     ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TableBlockLayout {
+    width: f32,
+    height: f32,
+    rows: usize,
+    columns: usize,
+    visual_rows: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TableCellLayout<'a> {
+    text: &'a str,
+    bounds: ScreenRect,
+    alignment: SyntaxTableAlignment,
+    header: bool,
+}
+
+#[derive(Clone, Debug)]
+struct TableTextSpec {
+    text: String,
+    bounds: ScreenRect,
+    alignment: SyntaxTableAlignment,
+    header: bool,
+}
+
+fn table_reservation_extra_lines(source: &str, range: TextRange) -> Option<usize> {
+    source
+        .get(range.as_usize_range())
+        .map(|table_source| table_source.bytes().filter(|byte| *byte == b'\n').count())
+}
+
+fn table_block_layout(
+    columns: usize,
+    visual_rows: usize,
+    available_width: f32,
+    line_height: f32,
+) -> TableBlockLayout {
+    let columns = columns.max(1);
+    let visual_rows = visual_rows.max(1);
+    let line_height = line_height.max(1.0);
+    let width = available_width.min(TABLE_BLOCK_MAX_WIDTH).max(line_height);
+    let height = line_height * visual_rows as f32;
+
+    TableBlockLayout {
+        width,
+        height,
+        rows: visual_rows,
+        columns,
+        visual_rows,
+    }
+}
+
+fn table_block_rect(
+    line_top: f32,
+    line_height: f32,
+    available_width: f32,
+    layout: TableBlockLayout,
+) -> ScreenRect {
+    let reserved_height = layout.rows as f32 * line_height.max(1.0);
+    let x = TEXT_LEFT + ((available_width - layout.width) * 0.5).max(0.0);
+    let y = TEXT_TOP + line_top + (reserved_height - layout.height) * 0.5;
+    ScreenRect::new(x, y, layout.width, layout.height, [1.0; 4])
+}
+
+fn table_cell_rect(
+    block: ScreenRect,
+    layout: TableBlockLayout,
+    row: usize,
+    column: usize,
+) -> Option<ScreenRect> {
+    if row >= layout.visual_rows || column >= layout.columns {
+        return None;
+    }
+
+    let cell_width = block.width / layout.columns as f32;
+    let cell_height = block.height / layout.visual_rows as f32;
+    let x = block.x + cell_width * column as f32;
+    let y = block.y + cell_height * row as f32;
+    let width = if column + 1 == layout.columns {
+        block.x + block.width - x
+    } else {
+        cell_width
+    };
+    let height = if row + 1 == layout.visual_rows {
+        block.y + block.height - y
+    } else {
+        cell_height
+    };
+
+    Some(ScreenRect::new(x, y, width, height, [0.0; 4]))
+}
+
+fn table_cell_layouts<'a>(
+    table: &'a TableWidgetData,
+    block: ScreenRect,
+    layout: TableBlockLayout,
+) -> Vec<TableCellLayout<'a>> {
+    let mut cells = Vec::new();
+    let mut visual_row = 0;
+
+    if !table.header().is_empty() {
+        for (column, text) in table.header().iter().enumerate().take(layout.columns) {
+            let Some(bounds) = table_cell_rect(block, layout, visual_row, column) else {
+                continue;
+            };
+            cells.push(TableCellLayout {
+                text,
+                bounds,
+                alignment: table
+                    .alignments()
+                    .get(column)
+                    .copied()
+                    .unwrap_or(SyntaxTableAlignment::None),
+                header: true,
+            });
+        }
+        visual_row += 1;
+    }
+
+    for row in table.rows() {
+        if visual_row >= layout.visual_rows {
+            break;
+        }
+        for (column, text) in row.iter().enumerate().take(layout.columns) {
+            let Some(bounds) = table_cell_rect(block, layout, visual_row, column) else {
+                continue;
+            };
+            cells.push(TableCellLayout {
+                text,
+                bounds,
+                alignment: table
+                    .alignments()
+                    .get(column)
+                    .copied()
+                    .unwrap_or(SyntaxTableAlignment::None),
+                header: false,
+            });
+        }
+        visual_row += 1;
+    }
+
+    cells
+}
+
+const fn table_text_alignment(alignment: SyntaxTableAlignment) -> Align {
+    match alignment {
+        SyntaxTableAlignment::None | SyntaxTableAlignment::Left => Align::Left,
+        SyntaxTableAlignment::Center => Align::Center,
+        SyntaxTableAlignment::Right => Align::Right,
+    }
+}
+
+fn table_text_bounds(bounds: ScreenRect) -> TextBounds {
+    TextBounds {
+        left: (bounds.x + TABLE_CELL_PADDING).floor() as i32,
+        top: bounds.y.floor() as i32,
+        right: (bounds.x + bounds.width - TABLE_CELL_PADDING).ceil() as i32,
+        bottom: (bounds.y + bounds.height).ceil() as i32,
+    }
+}
+
+fn table_dimensions(table: &TableWidgetData) -> (usize, usize) {
+    let columns = table
+        .rows()
+        .iter()
+        .map(Vec::len)
+        .chain(std::iter::once(table.header().len()))
+        .chain(std::iter::once(table.alignments().len()))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let visual_rows = usize::from(!table.header().is_empty()) + table.rows().len();
+    (columns, visual_rows.max(1))
+}
+
+fn append_table_rects(output: &mut Vec<ScreenRect>, block: ScreenRect, layout: TableBlockLayout) {
+    if let Some(header) = table_cell_rect(block, layout, 0, 0) {
+        output.push(ScreenRect::new(
+            block.x,
+            block.y,
+            block.width,
+            header.height,
+            TABLE_HEADER_COLOR,
+        ));
+    }
+
+    let b = TABLE_GRID_THICKNESS;
+    output.extend([
+        ScreenRect::new(block.x, block.y, block.width, b, TABLE_GRID_COLOR),
+        ScreenRect::new(
+            block.x,
+            block.y + block.height - b,
+            block.width,
+            b,
+            TABLE_GRID_COLOR,
+        ),
+        ScreenRect::new(block.x, block.y, b, block.height, TABLE_GRID_COLOR),
+        ScreenRect::new(
+            block.x + block.width - b,
+            block.y,
+            b,
+            block.height,
+            TABLE_GRID_COLOR,
+        ),
+    ]);
+
+    for column in 1..layout.columns {
+        let Some(cell) = table_cell_rect(block, layout, 0, column) else {
+            continue;
+        };
+        output.push(ScreenRect::new(
+            cell.x,
+            block.y,
+            b,
+            block.height,
+            TABLE_GRID_COLOR,
+        ));
+    }
+
+    for row in 1..layout.visual_rows {
+        let Some(cell) = table_cell_rect(block, layout, row, 0) else {
+            continue;
+        };
+        output.push(ScreenRect::new(
+            block.x,
+            cell.y,
+            block.width,
+            b,
+            TABLE_GRID_COLOR,
+        ));
+    }
+}
+
 fn math_placeholder_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenRect {
     let height = (line_height - 6.0).clamp(8.0, line_height.max(8.0));
     ScreenRect::new(
@@ -2953,6 +3289,107 @@ mod tests {
 
         assert_eq!(target.line, 1);
         assert_eq!(target.index, 0);
+    }
+
+    #[test]
+    fn table_cell_layouts_keep_payload_text_alignment_and_header_role() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "\nafter\n",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(TextSize::ZERO, Affinity::Before));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let table = live_preview
+            .widgets(&session)
+            .iter()
+            .find_map(ProjectedWidget::table)
+            .expect("table payload");
+
+        let layout = table_block_layout(2, 2, 600.0, LINE_HEIGHT);
+        let block = table_block_rect(0.0, LINE_HEIGHT, 600.0, layout);
+        let cells = table_cell_layouts(table, block, layout);
+
+        assert_eq!(cells.len(), 4);
+        assert_eq!(
+            cells.iter().map(|cell| cell.text).collect::<Vec<_>>(),
+            vec!["Name", "Score", "Ada", "42"]
+        );
+        assert_eq!(
+            cells.iter().map(|cell| cell.alignment).collect::<Vec<_>>(),
+            vec![
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+            ]
+        );
+        assert!(cells[0].header);
+        assert!(cells[1].header);
+        assert!(!cells[2].header);
+        assert!(cells[2].bounds.y > cells[0].bounds.y);
+    }
+
+    #[test]
+    fn table_reservation_matches_concealed_source_line_breaks() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "| Bob | 7 |\n",
+            "\nafter",
+        );
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        ));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let widget = live_preview
+            .widgets(&session)
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("inactive table widget");
+
+        assert_eq!(
+            table_reservation_extra_lines(source, widget.source_range()),
+            Some(4),
+            "inactive table must reserve every concealed source newline so reveal/conceal keeps the same vertical footprint",
+        );
+    }
+
+    #[test]
+    fn table_block_layout_reserves_one_visual_row_per_table_row() {
+        let layout = table_block_layout(3, 4, 640.0, LINE_HEIGHT);
+
+        assert_eq!(layout.columns, 3);
+        assert_eq!(layout.visual_rows, 4);
+        assert_eq!(layout.rows, 4);
+        assert!((layout.height - LINE_HEIGHT * 4.0).abs() < 0.01);
+        assert!(layout.width <= 640.0);
+        assert!(layout.width <= TABLE_BLOCK_MAX_WIDTH);
+    }
+
+    #[test]
+    fn table_cell_geometry_partitions_block_without_overlap() {
+        let layout = table_block_layout(3, 3, 600.0, LINE_HEIGHT);
+        let block = table_block_rect(0.0, LINE_HEIGHT, 600.0, layout);
+        let first = table_cell_rect(block, layout, 0, 0).expect("first cell");
+        let second = table_cell_rect(block, layout, 0, 1).expect("second cell");
+        let last = table_cell_rect(block, layout, 2, 2).expect("last cell");
+
+        assert!((first.x + first.width - second.x).abs() < 0.01);
+        assert!((first.width - second.width).abs() < 0.01);
+        assert!(last.x + last.width <= block.x + block.width + 0.01);
+        assert!(last.y + last.height <= block.y + block.height + 0.01);
+        assert!(table_cell_rect(block, layout, 3, 0).is_none());
+        assert!(table_cell_rect(block, layout, 0, 3).is_none());
     }
 
     #[test]

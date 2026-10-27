@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
     BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ParseStatus,
-    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot,
+    SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -324,6 +324,7 @@ pub enum WidgetKind {
     TaskCheckbox,
     Image,
     DisplayMath,
+    Table,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -363,11 +364,36 @@ impl MathWidgetData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableWidgetData {
+    alignments: Vec<SyntaxTableAlignment>,
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
+
+impl TableWidgetData {
+    #[must_use]
+    pub fn alignments(&self) -> &[SyntaxTableAlignment] {
+        &self.alignments
+    }
+
+    #[must_use]
+    pub fn header(&self) -> &[String] {
+        &self.header
+    }
+
+    #[must_use]
+    pub fn rows(&self) -> &[Vec<String>] {
+        &self.rows
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WidgetPayload {
     None,
     TaskCheckbox { checked: bool },
     Image(ImageWidgetData),
     DisplayMath(MathWidgetData),
+    Table(TableWidgetData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -421,7 +447,10 @@ impl ProjectedWidget {
     pub const fn task_checked(&self) -> Option<bool> {
         match &self.payload {
             WidgetPayload::TaskCheckbox { checked } => Some(*checked),
-            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
+            WidgetPayload::None
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 
@@ -431,7 +460,8 @@ impl ProjectedWidget {
             WidgetPayload::Image(image) => Some(image),
             WidgetPayload::None
             | WidgetPayload::TaskCheckbox { .. }
-            | WidgetPayload::DisplayMath(_) => None,
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 
@@ -439,9 +469,21 @@ impl ProjectedWidget {
     pub fn display_math(&self) -> Option<&MathWidgetData> {
         match &self.payload {
             WidgetPayload::DisplayMath(math) => Some(math),
-            WidgetPayload::None | WidgetPayload::TaskCheckbox { .. } | WidgetPayload::Image(_) => {
-                None
-            }
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::Table(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn table(&self) -> Option<&TableWidgetData> {
+        match &self.payload {
+            WidgetPayload::Table(table) => Some(table),
+            WidgetPayload::None
+            | WidgetPayload::TaskCheckbox { .. }
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_) => None,
         }
     }
 
@@ -452,7 +494,10 @@ impl ProjectedWidget {
                 marker_range: self.source_range,
                 checked: !*checked,
             }),
-            WidgetPayload::None | WidgetPayload::Image(_) | WidgetPayload::DisplayMath(_) => None,
+            WidgetPayload::None
+            | WidgetPayload::Image(_)
+            | WidgetPayload::DisplayMath(_)
+            | WidgetPayload::Table(_) => None,
         }
     }
 }
@@ -711,7 +756,7 @@ impl Projection {
             }
         };
 
-        let concealed = reveal_groups
+        let mut concealed = reveal_groups
             .iter()
             .filter(|group| !group.revealed)
             .flat_map(|group| {
@@ -723,8 +768,12 @@ impl Projection {
             })
             .collect::<Vec<_>>();
 
-        let structural_padding = build_structural_padding(&source, &reveal_groups)?;
+        let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
         let widget_candidates = build_widget_candidates(&source, syntax.root(), policy, context)?;
+        concealed
+            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
+        structural_padding
+            .retain(|span| !shadowed_by_inactive_widget(&widget_candidates, span.source_range));
 
         if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
             return Self::raw(
@@ -1288,6 +1337,12 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
     }
 }
 
+fn shadowed_by_inactive_widget(widgets: &[WidgetCandidate], range: TextRange) -> bool {
+    widgets
+        .iter()
+        .any(|widget| !widget.active && range_contains(widget.conceal_range, range))
+}
+
 fn has_overlapping_projection_ranges(
     concealed: &[ConcealSpan],
     structural_padding: &[StructuralPaddingSpan],
@@ -1421,6 +1476,23 @@ fn collect_widget_candidates(
                 active,
             });
         }
+        SyntaxKind::Table => {
+            let source_range = node.range();
+            let active = policy == RevealPolicy::SourceVisible
+                || context_touches_range(context, source_range);
+            if let Some(table) = table_widget_data(source, node) {
+                output.push(WidgetCandidate {
+                    kind: WidgetKind::Table,
+                    payload: WidgetPayload::Table(table),
+                    source_range,
+                    conceal_range: source_range,
+                    active,
+                });
+                if !active {
+                    return Ok(());
+                }
+            }
+        }
         SyntaxKind::Image if image_is_standalone(source, node.range()) => {
             let source_range = node.range();
             let active = policy == RevealPolicy::SourceVisible
@@ -1458,6 +1530,92 @@ fn collect_widget_candidates(
         collect_widget_candidates(source, child, policy, context, output)?;
     }
     Ok(())
+}
+
+fn table_widget_data(source: &str, node: &SyntaxNode) -> Option<TableWidgetData> {
+    let SyntaxMetadata::Table { alignments } = node.metadata() else {
+        return None;
+    };
+
+    let header = node
+        .children()
+        .iter()
+        .find(|child| child.kind() == SyntaxKind::TableHead)
+        .map_or_else(Vec::new, |head| table_cells(source, head));
+    let rows = node
+        .children()
+        .iter()
+        .filter(|child| child.kind() == SyntaxKind::TableRow)
+        .map(|row| table_cells(source, row))
+        .collect::<Vec<_>>();
+
+    if header.is_empty() && rows.is_empty() {
+        return None;
+    }
+
+    Some(TableWidgetData {
+        alignments: alignments.clone(),
+        header,
+        rows,
+    })
+}
+
+fn table_cells(source: &str, row: &SyntaxNode) -> Vec<String> {
+    row.children()
+        .iter()
+        .filter(|child| child.kind() == SyntaxKind::TableCell)
+        .map(|cell| {
+            let mut text = String::new();
+            collect_table_cell_visible_text(source, cell, &mut text);
+            text.trim().to_owned()
+        })
+        .collect()
+}
+
+fn collect_table_cell_visible_text(source: &str, node: &SyntaxNode, output: &mut String) {
+    match node.kind() {
+        SyntaxKind::Text | SyntaxKind::Html | SyntaxKind::InlineHtml => {
+            if let Some(text) = source_text(source, node.range()) {
+                output.push_str(text);
+            }
+            return;
+        }
+        SyntaxKind::InlineCode => {
+            if let SyntaxMetadata::InlineCode { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::InlineMath => {
+            if let SyntaxMetadata::InlineMath { content } = node.metadata() {
+                output.push_str(content);
+            }
+            return;
+        }
+        SyntaxKind::FootnoteReference => {
+            if let SyntaxMetadata::FootnoteReference { label } = node.metadata() {
+                output.push_str(label);
+            }
+            return;
+        }
+        SyntaxKind::SoftBreak | SyntaxKind::HardBreak => {
+            output.push(' ');
+            return;
+        }
+        _ => {}
+    }
+
+    for child in node.children() {
+        collect_table_cell_visible_text(source, child, output);
+    }
+}
+
+fn source_text(source: &str, range: TextRange) -> Option<&str> {
+    let range = range.as_usize_range();
+    (range.end <= source.len()
+        && source.is_char_boundary(range.start)
+        && source.is_char_boundary(range.end))
+    .then(|| &source[range])
 }
 
 fn image_widget_data(source: &str, node: &SyntaxNode) -> Option<ImageWidgetData> {
@@ -1958,6 +2116,93 @@ mod tests {
                 .widgets()
                 .iter()
                 .all(|widget| widget.kind() != WidgetKind::Image)
+        );
+    }
+
+    #[test]
+    fn inactive_table_becomes_block_widget_with_alignment_and_cell_data() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| :--- | ---: |\n",
+            "| Ada | 42 |\n",
+            "| Bob | 7 |\n",
+            "\nafter\n",
+        );
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let widget = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Table)
+            .expect("table widget");
+        assert!(widget.projected_range().is_empty());
+        assert!(!projection.text().contains("| Name | Score |"));
+
+        let table = widget.table().expect("table payload");
+        assert_eq!(
+            table.alignments(),
+            &[
+                mdedit_markdown::SyntaxTableAlignment::Left,
+                mdedit_markdown::SyntaxTableAlignment::Right,
+            ]
+        );
+        assert_eq!(table.header(), &["Name", "Score"]);
+        assert_eq!(table.rows(), &[vec!["Ada", "42"], vec!["Bob", "7"]]);
+    }
+
+    #[test]
+    fn table_payload_uses_visible_cell_text_without_inline_markdown_markers() {
+        let source = concat!(
+            "| Name | Detail |\n",
+            "| --- | --- |\n",
+            "| **Ada** | [site](https://example.com) and `code` |\n",
+        );
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new(),
+        );
+
+        let table = projection
+            .widgets()
+            .iter()
+            .find_map(ProjectedWidget::table)
+            .expect("table payload");
+
+        assert_eq!(table.header(), &["Name", "Detail"]);
+        assert_eq!(table.rows(), &[vec!["Ada", "site and code"]]);
+    }
+
+    #[test]
+    fn table_source_reveals_when_caret_enters_table_range() {
+        let source = concat!(
+            "before\n\n",
+            "| Name | Score |\n",
+            "| --- | ---: |\n",
+            "| Ada | 42 |\n",
+            "\nafter\n",
+        );
+        let marker = source.find("Ada").unwrap();
+        let projection = build_with_dialect(
+            source,
+            MarkdownDialect::obsidian(),
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Table)
         );
     }
 

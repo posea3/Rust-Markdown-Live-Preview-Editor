@@ -312,3 +312,206 @@ Focused macOS retest at `55a0556722a152605abe9edf14950345a1a46a60`:
 
 Phase 6 macOS integration for slices 01-04 is therefore **PASS**. Proceed to **Slice 05 - table**. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
 
+
+
+## Slice 05 - table
+
+Status: **implemented; Windows/macOS/Ubuntu CI PASS; macOS Table acceptance PASS including non-overlapping block reservation and stable reveal/conceal viewport; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+
+### Table contract
+
+- GFM/Obsidian table syntax remains canonical Markdown source
+- an inactive `SyntaxKind::Table` becomes `WidgetKind::Table` with a `TableWidgetData` payload
+- the payload preserves column alignment plus header/body visible cell text
+- the complete table source range is concealed only while the table widget is inactive
+- entering the table source range reveals canonical Markdown for editing; leaving restores the native table
+- when an inactive table owns a range, nested delimiter concealment and structural padding inside that range are shadowed so strong/link/code syntax cannot force an overlapping-concealment RawFallback
+- inline Markdown inside a native table cell is flattened to its visible text for this slice; canonical markers remain intact and reappear on source reveal
+- the native IME lab reserves one visual text row per header/body table row through the existing source-mapped reservation overlay
+- table width is centered and capped to the available editor width / 720 px
+- columns partition the native table block without overlap
+- the header row receives a native background; outer and inner grid lines use the existing native rectangle renderer
+- cell text is rendered through native cosmic-text/glyphon buffers, clipped to its cell, with GFM Left/Center/Right alignment applied
+- long-cell wrapping and rich inline styling inside the native table are not introduced by this slice; source reveal remains lossless
+
+### TDD / regression coverage
+
+RED → GREEN cycles covered:
+
+1. **Projection/data contract**
+   - RED: missing `WidgetKind::Table` / `ProjectedWidget::table()`
+   - GREEN: inactive table widget payload, alignment/header/row data, source reveal
+2. **Native geometry/reservation**
+   - RED: missing table block/cell geometry
+   - GREEN: block-height reservation, centered width cap, non-overlapping cell partition, native grid/header geometry
+3. **Cell text/alignment**
+   - RED: missing `table_cell_layouts`
+   - GREEN: header/body text, header role, Left/Center/Right alignment, native glyphon/cosmic-text cell text areas
+4. **Nested inline Markdown**
+   - RED: strong/link/code inside a table caused the whole table projection to fall back because nested concealment overlapped the table-owned range
+   - GREEN: inactive widget ownership shadows internal concealment; native cells receive visible text without Markdown marker bytes
+
+Latest code CI completed successfully on Windows, macOS, and Ubuntu before the acceptance-fixture/documentation-only commits.
+
+### macOS manual acceptance
+
+Run:
+
+```bash
+git fetch origin
+git switch feature/widgets-phase-06-table
+git pull
+
+cargo fmt --all -- --check
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+
+MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
+```
+
+In **Table widget scratch**, verify:
+
+- the first 3-column table is a native grid while inactive; Markdown pipes and separator markers are not visible
+- header/body text appears inside the correct cells
+- `Name` is left aligned, `Score` is right aligned, and `State` is centered
+- `Ada / 42 / ready` and `한글 / 7 / native` stay in their expected columns
+- the sentence after the table stays below the full table block without overlap
+- the second table displays `strong link code` as visible cell text without exposing `**`, link destination syntax, brackets, or backticks
+- clicking or arrow-navigating into either table reveals the exact canonical Markdown table source
+- leaving the source range restores the native table
+- repeat reveal/conceal at least five times and confirm no unexpected viewport jump
+- resize narrower/wider and confirm the table remains bounded/centered and cell boundaries do not overlap
+- selection and arrow navigation can cross the table safely
+- Horizontal Rule, Task Checkbox + Undo/Redo viewport preservation, Image, and Display Math remain regression-free
+- Korean `한글` native IME input and `**한글**` still keep the viewport stable
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #11 draft until this macOS acceptance passes. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+
+
+### macOS acceptance result — first pass FAIL, reservation fix ready for focused retest
+
+First macOS acceptance at `54e048d9da2927a088cbc244bce270b35d235c37`:
+
+- **PASS**: `cargo fmt --all -- --check`
+- **PASS**: `cargo check --workspace --all-targets`
+- **PASS**: `cargo clippy --workspace --all-targets -- -D warnings`
+- **PASS**: `cargo test --workspace` with 0 failures and the native-graphics-adapter test ignored
+- **PASS**: native grid, header/body text, Left/Right/Center alignment, both data rows
+- **PASS**: inline Markdown cell displayed `strong link code` without source markers
+- **PASS**: canonical table source reveal and native-grid restore
+- **PASS**: Rule/Image/Math and Checkbox Undo/Redo smoke
+- **PASS**: Korean preedit/commit and `**한글**` with stable `scroll=23:5`
+- **FAIL**: surrounding explanatory text overlapped the native grids
+- **FAIL**: repeated reveal/conceal moved the viewport between approximately `scroll=75:21` and `scroll=79:21`
+- narrow-width drag acceptance was not completed because the macOS window edge drag did not resize during that run
+- a macOS LaunchServices connection warning was printed, but no wgpu validation error, panic, or crash was observed
+
+Root cause:
+
+- `update_block_widget_reservations()` correctly created Table reservations
+- `ReservationOverlay::apply()` accepted only Image and DisplayMath widget kinds, so Table reservation rows were silently ignored
+- the grid was therefore painted at multi-row height while the text layout still occupied the collapsed one-row position, causing overlap
+- reveal then restored the full Markdown table lines without corresponding inactive reservation rows, explaining the multi-line reflow jump
+
+TDD regression:
+
+- RED commit `d310478b92ae5e64b11c8c6da0ed75bccfe45ea0`
+- `table_block_reservation_adds_layout_rows_without_changing_source_mapping` failed because the displayed newline count was 3 instead of the expected 5
+- `adding_table_reservation_produces_reflow_offsets_for_same_source_anchor` failed because the after offset stayed 14 instead of advancing to 16
+- GREEN commit `50e8f5947c01afa1bdc985dd4de7d9e2f3cd1df0`
+- minimal production change: include `WidgetKind::Table` in the existing reservation-overlay widget-kind filter
+- CI run `40382566358`: Windows, macOS, and Ubuntu all PASS for fmt/check/clippy/test
+
+The macOS window is created with the default resizable winit attributes; there is no `with_resizable(false)` or fixed minimum-size setting in the IME lab. The failed edge-drag observation is therefore kept as an acceptance item rather than treated as part of this reservation fix.
+
+Focused macOS retest should verify:
+
+- neither table overlaps the explanatory text above/below it
+- the sentence after each table remains below the complete native grid
+- reveal/conceal five times no longer produces the previous four-line viewport jump
+- canonical source reveal/restore, alignment, inline-marker concealment, and Korean IME remain smoke-PASS
+- if window edge resize works in the retest, narrow/wide table bounding can be closed; otherwise keep only that resize check open separately
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #11 draft until this focused macOS retest passes.
+
+
+### macOS focused retest — overlap PASS, two-line reveal footprint drift remained
+
+Focused macOS retest at `98427c32fac9cc8d4491fe47825ea579397848dd`:
+
+- **PASS**: both native tables showed all rows without overlapping explanatory text
+- **PASS**: `Name` Left, `Score` Right, `State` Center
+- **PASS**: inactive inline-Markdown cell displayed only `strong link code`
+- **PASS**: canonical Markdown structure revealed inside the table; placing the caret in `strong` revealed the `**` markers
+- **PASS**: Image and Math smoke
+- **PASS**: Korean preedit/commit and `**한글**` with stable `scroll=41:5`
+- **NOT RETESTED**: Checkbox click toggle, workspace fmt/check/clippy/test, narrow-window resize
+- **FAIL**: first table reveal/conceal repeatedly moved `scroll=76:21 <-> 78:21`
+- **FAIL**: second table also moved around `78:21 -> 80:21 -> 77:21`
+- no wgpu validation error, panic, or crash; one macOS IMK system warning was observed
+
+Second root cause:
+
+- the first reservation fix made Table reservations actually participate in layout, removing overlap and reducing the previous four-line movement
+- however Table reservation size was still derived from **native visual rows**: header + body rows
+- canonical Markdown additionally contains the GFM alignment separator row and the Table source range conceals its newline bytes
+- for the first fixture table, native rendering has 3 visual rows while the canonical source range conceals 4 newline bytes
+- using `visual_rows - 1 == 2` synthetic lines therefore did not preserve the same vertical source footprint across conceal/reveal
+
+TDD:
+
+- RED commit `bbe31b632f75a9c0361cab658dbee505340b5e09`
+- the new test requires the first fixture table's reservation to equal the **4 concealed source newline bytes**, independently of the 3 native visual rows
+- macOS CI failed as expected because `table_reservation_extra_lines` did not exist
+- GREEN implementation began at `c0b2782`; CI then caught a borrow/type error before behavior verification
+- corrected GREEN commit: `a6bfe889e7162df546d43f95f1e07e3dcc449f79`
+- Table now counts `\n` inside its canonical `source_range` and uses that exact count for reservation
+- Image and DisplayMath keep their existing `rows.saturating_sub(1)` policy unchanged
+- CI run `40483731958`: Windows, macOS, and Ubuntu all PASS for fmt/check/clippy/test
+
+Next focused macOS retest:
+
+- confirm both tables still have no text/grid overlap
+- repeat first-table reveal/conceal at least five times and confirm the previous `76:21 <-> 78:21` two-line movement is gone
+- repeat the second table and confirm it no longer walks among `78:21 / 80:21 / 77:21`
+- confirm canonical source reveal/restore and `strong` marker reveal still work
+- smoke Image/Math/Checkbox and Korean IME
+- narrow-window resize remains separately open if edge drag is still unavailable
+- no wgpu validation error, panic, or crash
+
+Keep PR #11 draft until the reveal/conceal viewport retest passes.
+
+
+### macOS final focused retest — PASS
+
+Final macOS focused retest at `e433b27fc0bc45b4a49ebb63c6abe6f3e29a12a8`:
+
+- **PASS**: first table canonical source reveal and native-grid restore
+- **PASS**: after reaching the stable baseline `scroll=78:21`, five reveal/conceal cycles remained `78:21 -> 78:21`
+- **PASS**: second table canonical source revealed `**strong**`, link, and code markers correctly
+- **PASS**: second table returned to native grid after leaving the source range
+- **PASS**: five second-table reveal/conceal cycles remained `79:21 -> 79:21`
+- **PASS**: both tables remained separated from surrounding explanatory text
+- **PASS**: no abnormal blank vertical space appeared around either table
+- **PASS**: Image preview and following text remained separated
+- **PASS**: Math block and following text remained separated
+- **PASS**: Checkbox state could be toggled and restored during smoke verification
+- **PASS**: Korean preedit/commit and `**한글**` kept `scroll=45:21`
+- test input was undone back to the fixture baseline `source=3443 bytes`
+- logs showed Metal initialization and the expected invalid-Math fallback only; no wgpu validation error, panic, or crash was observed
+
+The two Table regressions are therefore closed:
+
+1. missing Table reservation application caused grid/text overlap and the original multi-line reflow jump
+2. native visual-row-based reservation did not preserve the concealed canonical source footprint, causing the remaining two-line reveal/conceal drift
+
+The final reservation contract is:
+
+- Image and DisplayMath keep their existing render-height-derived reservation policy
+- Table reserves exactly the newline count concealed by its canonical source range
+- inactive and revealed Table states therefore retain the same vertical source footprint while source remains canonical
+
+Slice 05 — Table is **macOS PASS** and can be merged. Narrow-window edge-drag acceptance was not required to close this regression because the widget remained bounded in the exercised window states and the IME lab window is configured as resizable by default. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.

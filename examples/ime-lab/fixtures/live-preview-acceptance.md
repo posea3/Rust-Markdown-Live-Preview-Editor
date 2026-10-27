@@ -102,3 +102,21 @@ Inline math remains editable source for now: prefix $x^2 + y^2$ suffix
 Invalid display math should fall back safely without crashing:
 
 $$\definitely_unknown_command{x}$$
+
+
+### Table widget scratch
+
+The GFM table below should render as a native table block while inactive. Column alignment must follow the separator row, and the sentence after the table must remain below the reserved block.
+
+| Name | Score | State |
+| :--- | ---: | :---: |
+| Ada | 42 | ready |
+| 한글 | 7 | native |
+
+Inline Markdown inside a cell should show visible text without exposing source markers while the table is inactive:
+
+| Kind | Detail |
+| --- | --- |
+| markup | **strong** [link](https://example.com) `code` |
+
+Entering either table should reveal its exact canonical Markdown source for editing. Leaving the table source range should restore the native table block.
