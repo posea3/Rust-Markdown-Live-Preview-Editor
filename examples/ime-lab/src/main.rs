@@ -1598,7 +1598,7 @@ impl WindowState {
                 } else {
                     widget.table()?;
                     table_reservation_extra_lines(
-                        self.session.document().text(),
+                        &self.session.document().text(),
                         widget.source_range(),
                     )?
                 };
