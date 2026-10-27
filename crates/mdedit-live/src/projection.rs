@@ -1930,6 +1930,7 @@ mod tests {
     use mdedit_core::{Document, TextRange, TextSize};
     use mdedit_markdown::{
         BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
+        obsidian_extension_set,
     };
 
     use super::*;
@@ -1952,6 +1953,133 @@ mod tests {
         let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
 
         Projection::build(&snapshot, &syntax, &blocks, &delimiters, policy, context).unwrap()
+    }
+
+    fn build_with_obsidian_extensions(
+        source: &str,
+        policy: RevealPolicy,
+        context: &RevealContext,
+    ) -> Projection {
+        let document = Document::new(source).unwrap();
+        let snapshot = document.snapshot();
+        let dialect = MarkdownDialect::obsidian();
+        let syntax = PulldownCmarkParser.parse(&snapshot, &dialect);
+        let extensions = obsidian_extension_set().scan(&snapshot, &syntax).unwrap();
+        let mut block_cache = BlockCache::new();
+        let blocks = block_cache.reconcile(&snapshot, &syntax).unwrap();
+        let delimiters = DelimiterResolver.resolve(&snapshot, &syntax).unwrap();
+
+        Projection::build_with_extensions(
+            &snapshot,
+            &syntax,
+            &blocks,
+            &delimiters,
+            &extensions,
+            policy,
+            context,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn inactive_obsidian_callout_becomes_native_widget_with_full_block_payload() {
+        let source = concat!(
+            "before\n\n",
+            "> [!warning]- Custom title\n",
+            "> Be careful.\n",
+            "> Second line.\n",
+            "\nafter\n",
+        );
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let widget = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::Callout)
+            .expect("callout widget");
+        let callout = widget.callout().expect("callout payload");
+
+        assert_eq!(callout.callout_type(), "warning");
+        assert_eq!(callout.title(), "Custom title");
+        assert_eq!(callout.fold(), Some('-'));
+        assert_eq!(callout.body(), "Be careful.\nSecond line.");
+        assert_eq!(
+            &source[widget.source_range().as_usize_range()],
+            "> [!warning]- Custom title\n> Be careful.\n> Second line.\n"
+        );
+        assert!(widget.projected_range().is_empty());
+        assert!(!projection.text().contains("[!warning]"));
+        assert!(!projection.text().contains("Be careful."));
+    }
+
+    #[test]
+    fn callout_source_reveals_when_caret_enters_callout_body() {
+        let source = "> [!note] Title\n> Body text.\n";
+        let marker = source.find("Body").unwrap();
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::Callout)
+        );
+    }
+
+    #[test]
+    fn inactive_obsidian_embed_becomes_custom_embed_widget() {
+        let source = "before ![[diagram.svg#Overview|Architecture]] after";
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::ZERO),
+        );
+
+        let widget = projection
+            .widgets()
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::CustomEmbed)
+            .expect("custom embed widget");
+        let embed = widget.custom_embed().expect("embed payload");
+
+        assert_eq!(embed.target(), "diagram.svg#Overview");
+        assert_eq!(embed.path(), "diagram.svg");
+        assert_eq!(embed.fragment(), Some("Overview"));
+        assert_eq!(embed.display(), Some("Architecture"));
+        assert_eq!(
+            &source[widget.source_range().as_usize_range()],
+            "![[diagram.svg#Overview|Architecture]]"
+        );
+        assert!(widget.projected_range().is_empty());
+        assert!(!projection.text().contains("diagram.svg"));
+    }
+
+    #[test]
+    fn custom_embed_source_reveals_when_caret_enters_embed_range() {
+        let source = "prefix ![[Note#Heading]] suffix";
+        let marker = source.find("Note").unwrap();
+        let projection = build_with_obsidian_extensions(
+            source,
+            RevealPolicy::ConcealInactive,
+            &RevealContext::new().with_caret(TextSize::try_from_usize(marker).unwrap()),
+        );
+
+        assert_eq!(projection.text(), source);
+        assert!(
+            projection
+                .widgets()
+                .iter()
+                .all(|widget| widget.kind() != WidgetKind::CustomEmbed)
+        );
     }
 
     #[test]
