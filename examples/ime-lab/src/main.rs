@@ -1458,6 +1458,7 @@ impl WindowState {
                     let block = table_block_rect(line_top, line_height, available_width, layout);
                     append_table_rects(&mut rects, block, layout);
                 }
+                WidgetKind::Callout | WidgetKind::CustomEmbed => {}
             }
         }
 
@@ -1489,7 +1490,9 @@ impl WindowState {
                 WidgetKind::HorizontalRule
                 | WidgetKind::Image
                 | WidgetKind::DisplayMath
-                | WidgetKind::Table => None,
+                | WidgetKind::Table
+                | WidgetKind::Callout
+                | WidgetKind::CustomEmbed => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
