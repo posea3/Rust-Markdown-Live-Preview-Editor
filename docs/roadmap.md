@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **in progress — horizontal rule, task checkbox, standalone image, Display Math, and Table macOS integration PASS; Slice 06 Callout / custom embed next; Windows native manual acceptance deferred to the final integration pass**
+Status: **all six slices implemented — horizontal rule, task checkbox, standalone image, Display Math, and Table macOS integration PASS; Callout / custom embed macOS focused retest PASS at `d834fe8`; final branch-head CI and Windows native integration acceptance remain before Phase 6 is complete**
 
 Rules:
 
@@ -241,6 +241,13 @@ Order:
 6. callout/custom embed
 
 Widgets emit editor/host actions. They never mutate the buffer directly.
+
+Before closing Phase 6:
+
+- record the Callout / custom embed focused macOS results and long-label clipping check in `docs/phase-06-widgets.md`
+- pass Windows/macOS/Ubuntu CI on the final PR head and integrate PR #12
+- complete the Windows native widget/IME integration checklist in `docs/phase-06-widgets.md`
+- keep Narrator/VoiceOver manual acceptance explicitly deferred; do not infer it from CI or visual acceptance
 
 ## Phase 7 - Extension API hardening
 

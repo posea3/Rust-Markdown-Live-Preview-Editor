@@ -1,4 +1,5 @@
 mod accessibility;
+mod callout_embed_widget;
 mod geometry;
 mod image_widget;
 mod live_preview;
@@ -19,6 +20,11 @@ use accesskit_winit::{
     Adapter as AccessKitAdapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent,
 };
 use arboard::Clipboard;
+use callout_embed_widget::{
+    CardTextRole, CardTextSpec, append_callout_rects, append_custom_embed_rects,
+    callout_block_layout, callout_geometry, callout_palette, callout_text_specs,
+    custom_embed_geometry, custom_embed_text_spec, source_range_newline_count,
+};
 use cosmic_text::{Align, AttrsList, BufferLine, LineEnding, Motion as CosmicMotion, Scroll};
 use geometry::{RectRenderer, ScreenRect};
 use glyphon::{
@@ -67,6 +73,7 @@ const HORIZONTAL_RULE_THICKNESS: f32 = 1.5;
 const HORIZONTAL_RULE_INSET: f32 = 8.0;
 const TASK_CHECKBOX_SIZE: f32 = 14.0;
 const TASK_CHECKBOX_GAP: f32 = 5.0;
+const TASK_CHECKBOX_HIT_PADDING: f32 = 5.0;
 const TASK_CHECKBOX_BORDER: f32 = 1.5;
 const TASK_CHECKBOX_COLOR: [f32; 4] = [0.72, 0.74, 0.80, 0.96];
 const TASK_CHECKBOX_CHECKED_COLOR: [f32; 4] = [0.42, 0.72, 0.54, 0.98];
@@ -297,6 +304,7 @@ struct WindowState {
     live_preview_trace_enabled: bool,
     pending_ime_viewport_anchor: Option<ImeViewportAnchor>,
     pending_history_viewport_anchor: Option<ImeViewportAnchor>,
+    pending_widget_viewport_anchor: Option<ImeViewportAnchor>,
     #[cfg(target_os = "macos")]
     deferred_composition_text: DeferredCompositionText,
 
@@ -465,6 +473,7 @@ impl WindowState {
             live_preview_trace_enabled: env_flag("MDEDIT_LIVE_PREVIEW_TRACE"),
             pending_ime_viewport_anchor: None,
             pending_history_viewport_anchor: None,
+            pending_widget_viewport_anchor: None,
             #[cfg(target_os = "macos")]
             deferred_composition_text: DeferredCompositionText::default(),
             window,
@@ -1095,7 +1104,10 @@ impl WindowState {
         let scroll_before = self.text_buffer.scroll();
         let ime_viewport_anchor = self.pending_ime_viewport_anchor.take();
         let history_viewport_anchor = self.pending_history_viewport_anchor.take();
-        let viewport_anchor = ime_viewport_anchor.or(history_viewport_anchor);
+        let widget_viewport_anchor = self.pending_widget_viewport_anchor.take();
+        let viewport_anchor = ime_viewport_anchor
+            .or(history_viewport_anchor)
+            .or(widget_viewport_anchor);
         let next_preedit_text = self
             .session
             .composition()
@@ -1378,6 +1390,7 @@ impl WindowState {
     fn widget_rectangles(&self) -> Vec<ScreenRect> {
         let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
         let line_width = (available_width - HORIZONTAL_RULE_INSET * 2.0).max(1.0);
+        let source = self.session.document().text();
         let mut rects = Vec::new();
 
         for widget in self.live_preview.widgets(&self.session) {
@@ -1458,6 +1471,41 @@ impl WindowState {
                     let block = table_block_rect(line_top, line_height, available_width, layout);
                     append_table_rects(&mut rects, block, layout);
                 }
+                WidgetKind::Callout => {
+                    let Some(callout) = widget.callout() else {
+                        continue;
+                    };
+                    let reserved_rows = source_range_newline_count(&source, widget.source_range())
+                        .unwrap_or(1)
+                        .saturating_add(1);
+                    let layout = callout_block_layout(reserved_rows, available_width, line_height);
+                    let geometry = callout_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                        layout,
+                    );
+                    append_callout_rects(
+                        &mut rects,
+                        geometry,
+                        callout_palette(callout.callout_type()),
+                    );
+                }
+                WidgetKind::CustomEmbed => {
+                    if widget.custom_embed().is_none() {
+                        continue;
+                    }
+                    let geometry = custom_embed_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                    );
+                    append_custom_embed_rects(&mut rects, geometry);
+                }
             }
         }
 
@@ -1489,14 +1537,14 @@ impl WindowState {
                 WidgetKind::HorizontalRule
                 | WidgetKind::Image
                 | WidgetKind::DisplayMath
-                | WidgetKind::Table => None,
+                | WidgetKind::Table
+                | WidgetKind::Callout
+                | WidgetKind::CustomEmbed => None,
                 WidgetKind::TaskCheckbox => {
                     self.widget_anchor_geometry(widget)
                         .map(|(anchor_x, line_top, line_height)| {
-                            (
-                                widget.clone(),
-                                task_checkbox_rect(anchor_x, line_top, line_height),
-                            )
+                            let visual = task_checkbox_rect(anchor_x, line_top, line_height);
+                            (widget.clone(), task_checkbox_hit_rect(visual))
                         })
                 }
             })
@@ -1507,11 +1555,7 @@ impl WindowState {
         self.refresh_layout();
         let pointer_x = self.cursor_position.x as f32;
         let pointer_y = self.cursor_position.y as f32;
-        let action = self
-            .widget_hit_regions()
-            .into_iter()
-            .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
-            .and_then(|(widget, _)| widget.primary_action());
+        let action = widget_action_at_pointer(self.widget_hit_regions(), pointer_x, pointer_y);
 
         let Some(action) = action else {
             return false;
@@ -1595,12 +1639,19 @@ impl WindowState {
                     math_block_layout(width, height, available_width, LINE_HEIGHT)
                         .rows
                         .saturating_sub(1)
-                } else {
-                    widget.table()?;
+                } else if widget.table().is_some() {
                     table_reservation_extra_lines(
                         &self.session.document().text(),
                         widget.source_range(),
                     )?
+                } else if widget.callout().is_some() {
+                    source_range_newline_count(
+                        &self.session.document().text(),
+                        widget.source_range(),
+                    )?
+                } else {
+                    widget.custom_embed()?;
+                    0
                 };
 
                 (extra_lines > 0).then(|| {
@@ -1681,6 +1732,69 @@ impl WindowState {
                         header: cell.header,
                     }),
             );
+        }
+
+        specs
+    }
+
+    fn card_text_specs(&self) -> Vec<CardTextSpec> {
+        let available_width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(LINE_HEIGHT);
+        let source = self.session.document().text();
+        let mut specs = Vec::new();
+
+        for widget in self.live_preview.widgets(&self.session) {
+            let Some((_, line_top, line_height)) = self.widget_anchor_geometry(widget) else {
+                continue;
+            };
+
+            match widget.kind() {
+                WidgetKind::Callout => {
+                    let Some(callout) = widget.callout() else {
+                        continue;
+                    };
+                    let reserved_rows = source_range_newline_count(&source, widget.source_range())
+                        .unwrap_or(1)
+                        .saturating_add(1);
+                    let layout = callout_block_layout(reserved_rows, available_width, line_height);
+                    let geometry = callout_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                        layout,
+                    );
+                    let palette = callout_palette(callout.callout_type());
+                    specs.extend(callout_text_specs(
+                        callout.callout_type(),
+                        callout.title(),
+                        callout.fold(),
+                        callout.body(),
+                        geometry,
+                        palette,
+                    ));
+                }
+                WidgetKind::CustomEmbed => {
+                    let Some(embed) = widget.custom_embed() else {
+                        continue;
+                    };
+                    let geometry = custom_embed_geometry(
+                        TEXT_LEFT,
+                        TEXT_TOP,
+                        line_top,
+                        line_height,
+                        available_width,
+                    );
+                    specs.push(custom_embed_text_spec(
+                        embed.target(),
+                        embed.path(),
+                        embed.fragment(),
+                        embed.display(),
+                        geometry,
+                    ));
+                }
+                _ => {}
+            }
         }
 
         specs
@@ -1808,10 +1922,15 @@ impl WindowState {
         self.image_widgets.drain_ready(&self.device, &self.queue);
         self.math_widgets
             .drain_ready(&mut self.image_widgets, &self.device, &self.queue);
+        let widget_scroll_before = self.text_buffer.scroll();
         self.refresh_layout();
         self.sync_image_widgets();
         self.sync_math_widgets();
-        if self.update_block_widget_reservations() {
+        let reservations_changed = self.update_block_widget_reservations();
+        if let Some(anchor) =
+            widget_reservation_viewport_anchor(widget_scroll_before, reservations_changed)
+        {
+            self.pending_widget_viewport_anchor = Some(anchor);
             self.refresh_layout();
         }
         self.update_accessibility_tree();
@@ -1859,7 +1978,31 @@ impl WindowState {
                 table_buffers.push(buffer);
             }
 
-            let mut text_areas = Vec::with_capacity(1 + table_buffers.len());
+            let card_specs = self.card_text_specs();
+            let mut card_buffers = Vec::with_capacity(card_specs.len());
+            for spec in &card_specs {
+                let mut buffer = Buffer::new(
+                    &mut self.font_system,
+                    Metrics::new(spec.font_size, spec.line_height),
+                );
+                buffer.set_size(
+                    Some(spec.bounds.width.max(1.0)),
+                    Some(spec.bounds.height.max(1.0)),
+                );
+                buffer.set_wrap(if spec.wrap { Wrap::Word } else { Wrap::None });
+                let attrs = Attrs::new().family(Family::SansSerif);
+                let alignment = match spec.role {
+                    CardTextRole::CalloutFold => Align::Center,
+                    CardTextRole::CalloutTitle
+                    | CardTextRole::CalloutBody
+                    | CardTextRole::EmbedLabel => Align::Left,
+                };
+                buffer.set_text(&spec.text, &attrs, Shaping::Advanced, Some(alignment));
+                buffer.shape_until_scroll(&mut self.font_system, false);
+                card_buffers.push(buffer);
+            }
+
+            let mut text_areas = Vec::with_capacity(1 + table_buffers.len() + card_buffers.len());
             text_areas.push(TextArea {
                 buffer: &self.text_buffer,
                 left: TEXT_LEFT,
@@ -1884,6 +2027,17 @@ impl WindowState {
                     } else {
                         Color::rgb(210, 214, 220)
                     },
+                    custom_glyphs: &[],
+                });
+            }
+            for (buffer, spec) in card_buffers.iter().zip(&card_specs) {
+                text_areas.push(TextArea {
+                    buffer,
+                    left: spec.bounds.x,
+                    top: spec.bounds.y,
+                    scale: 1.0,
+                    bounds: card_text_bounds(spec.bounds),
+                    default_color: Color::rgb(spec.color[0], spec.color[1], spec.color[2]),
                     custom_glyphs: &[],
                 });
             }
@@ -2332,6 +2486,13 @@ fn history_viewport_anchor(
     (!history_action_should_follow_caret(before, after)).then_some(ImeViewportAnchor { scroll })
 }
 
+fn widget_reservation_viewport_anchor(
+    scroll: Scroll,
+    reservations_changed: bool,
+) -> Option<ImeViewportAnchor> {
+    reservations_changed.then_some(ImeViewportAnchor { scroll })
+}
+
 fn restore_viewport_anchor(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
@@ -2730,6 +2891,15 @@ fn table_text_bounds(bounds: ScreenRect) -> TextBounds {
     }
 }
 
+fn card_text_bounds(bounds: ScreenRect) -> TextBounds {
+    TextBounds {
+        left: bounds.x.floor() as i32,
+        top: bounds.y.floor() as i32,
+        right: (bounds.x + bounds.width).ceil() as i32,
+        bottom: (bounds.y + bounds.height).ceil() as i32,
+    }
+}
+
 fn table_dimensions(table: &TableWidgetData) -> (usize, usize) {
     let columns = table
         .rows()
@@ -2869,6 +3039,20 @@ fn task_checkbox_rect(anchor_x: f32, line_top: f32, line_height: f32) -> ScreenR
     )
 }
 
+fn task_checkbox_hit_rect(visual: ScreenRect) -> ScreenRect {
+    let left = (visual.x - TASK_CHECKBOX_HIT_PADDING).max(0.0);
+    let top = (visual.y - TASK_CHECKBOX_HIT_PADDING).max(0.0);
+    let right = visual.x + visual.width + TASK_CHECKBOX_HIT_PADDING;
+    let bottom = visual.y + visual.height + TASK_CHECKBOX_HIT_PADDING;
+    ScreenRect::new(
+        left,
+        top,
+        (right - left).max(visual.width),
+        (bottom - top).max(visual.height),
+        [0.0; 4],
+    )
+}
+
 fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, checked: bool) {
     let b = TASK_CHECKBOX_BORDER;
     output.extend([
@@ -2904,6 +3088,17 @@ fn append_task_checkbox_rects(output: &mut Vec<ScreenRect>, bounds: ScreenRect, 
 
 fn point_in_rect(x: f32, y: f32, rect: ScreenRect) -> bool {
     x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
+}
+
+fn widget_action_at_pointer(
+    regions: impl IntoIterator<Item = (ProjectedWidget, ScreenRect)>,
+    pointer_x: f32,
+    pointer_y: f32,
+) -> Option<WidgetAction> {
+    regions
+        .into_iter()
+        .find(|(_, rect)| point_in_rect(pointer_x, pointer_y, *rect))
+        .and_then(|(widget, _)| widget.primary_action())
 }
 
 fn visual_horizontal_target(
@@ -3457,6 +3652,52 @@ mod tests {
     }
 
     #[test]
+    fn task_checkbox_click_padding_toggles_and_round_trips_history() {
+        let source = "- [ ] unchecked task\n";
+        let mut session = EditorSession::new(source).unwrap();
+        session.set_caret(Anchor::new(
+            TextSize::try_from_usize(source.len()).unwrap(),
+            Affinity::After,
+        ));
+        let mut live_preview = LivePreviewState::new();
+        live_preview.refresh(&session).unwrap();
+        let widget = live_preview
+            .widgets(&session)
+            .iter()
+            .find(|widget| widget.kind() == WidgetKind::TaskCheckbox)
+            .expect("task checkbox widget")
+            .clone();
+
+        let visual = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
+        let hit = task_checkbox_hit_rect(visual);
+        let click_x = visual.x - 3.0;
+        let click_y = visual.y + visual.height * 0.5;
+
+        assert!(!point_in_rect(click_x, click_y, visual));
+        assert!(point_in_rect(click_x, click_y, hit));
+        let action = widget_action_at_pointer(vec![(widget, hit)], click_x, click_y)
+            .expect("padded checkbox target must resolve a widget action");
+        let WidgetAction::SetTaskChecked {
+            marker_range,
+            checked,
+        } = action;
+        assert!(checked);
+
+        session
+            .handle(EditorInput::WidgetReplace {
+                range: marker_range,
+                text: action.replacement_text().to_owned(),
+            })
+            .unwrap();
+        assert_eq!(session.document().text(), "- [x] unchecked task\n");
+
+        session.handle(EditorInput::Undo).unwrap();
+        assert_eq!(session.document().text(), source);
+        session.handle(EditorInput::Redo).unwrap();
+        assert_eq!(session.document().text(), "- [x] unchecked task\n");
+    }
+
+    #[test]
     fn task_checkbox_geometry_stays_in_the_left_gutter_and_is_hittable() {
         let rect = task_checkbox_rect(0.0, 0.0, LINE_HEIGHT);
 
@@ -3495,6 +3736,19 @@ mod tests {
             .expect("empty widget row should retain layout geometry");
 
         assert!(run.line_height > 0.0);
+    }
+
+    #[test]
+    fn first_widget_reservation_transition_restores_pre_transition_scroll() {
+        let before = Scroll::new(101, 21.0, 0.0);
+        let transient = Scroll::new(98, 21.0, 0.0);
+
+        let anchor = widget_reservation_viewport_anchor(before, true)
+            .expect("reservation transition must preserve the pre-transition viewport");
+
+        assert_ne!(transient, before);
+        assert_eq!(anchor.scroll, before);
+        assert!(widget_reservation_viewport_anchor(before, false).is_none());
     }
 
     #[test]

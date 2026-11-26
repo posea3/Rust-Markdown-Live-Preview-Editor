@@ -515,3 +515,104 @@ The final reservation contract is:
 - inactive and revealed Table states therefore retain the same vertical source footprint while source remains canonical
 
 Slice 05 — Table is **macOS PASS** and can be merged. Narrow-window edge-drag acceptance was not required to close this regression because the widget remained bounded in the exercised window states and the IME lab window is configured as resizable by default. Windows native GUI/IME/manual acceptance remains batched for the final Phase 6 integration pass.
+
+## Slice 06 - callout / custom embed
+
+Status: **projection/data and native rendering implemented; macOS focused retest PASS at `d834fe8`; Windows/macOS/Ubuntu CI PASS required on the final branch head; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+
+### Contract
+
+- Obsidian extension scanning remains opt-in and feeds an `ExtensionSnapshot` into Live Preview projection
+- an inactive callout owns its complete containing blockquote source range
+- Callout payload preserves type, custom title, fold marker, and visible body text
+- nested Markdown markers in the inactive body collapse to visible text while canonical source remains unchanged
+- the native host draws a type-colored background, accent bar, divider, title/fold text, and wrapped body text
+- Callout reservation counts canonical newline bytes in the owned source range so reveal/conceal preserves the vertical footprint
+- an inactive standalone `![[...]]` becomes a native one-row Custom Embed card
+- Custom Embed payload preserves target, path, fragment, and display text
+- inline embeds remain source-visible until an inline-width reservation contract exists
+- entering either owned range reveals exact canonical Markdown; leaving restores the native widget
+- callout/embed text is clipped to widget bounds and never paints over following text
+
+### macOS acceptance
+
+Run:
+
+```bash
+MDEDIT_LIVE_PREVIEW_ACCEPTANCE=1 cargo run -p mdedit-ime-lab --release
+```
+
+In **Callout and custom embed widget scratch**, verify:
+
+- warning callout renders as a native card with a distinct accent and the custom title
+- body displays `Strong body with link and code` plus the Korean line without Markdown marker bytes
+- callout never overlaps the text before or after it
+- clicking or arrow-navigating into title/body reveals the full canonical blockquote and callout marker
+- leaving restores the card; repeat five times with no viewport jump
+- `Architecture · #Overview` and `missing-note` appear as native one-row embed cards
+- the additional long-label embed remains clipped to its one-row card at narrow widths, with the following sentence below the card
+- entering each standalone embed reveals exact `![[...]]` source and leaving restores the card
+- the inline embed remains source-visible
+- resize wider/narrower keeps cards bounded and text clipped
+- Rule, Checkbox + Undo/Redo, Image, Math, and Table remain regression-free
+- Korean `한글` and `**한글**` keep the viewport stable
+- no wgpu validation error, panic, or crash appears
+
+Keep PR #12 Draft until this macOS acceptance passes.
+
+### Recorded macOS focused retest
+
+Code head: `d834fe8e44e422d3ea090b94fb5bcff2dd85f143`.
+These results were observed in the macOS GUI during the 2026-10-28 acceptance session; they are not new runs inferred from automated tests.
+
+| Check | Observed result |
+| --- | --- |
+| First Callout source → card transition | `scroll=91:11` → `scroll=91:11` |
+| Five subsequent Callout reveal/conceal cycles | `scroll=91:11` throughout |
+| Both checkboxes, center and near-border clicks | Native checked/unchecked state and canonical `[x]` / `[ ]` changed together |
+| Single-step checkbox Undo / Redo | State restored/reapplied; `scroll=68:16` throughout |
+| Resize wide → narrow → wide | Callout and both standalone embeds stayed within the editor; title, fold marker, body, and following text did not overlap |
+| Five Callout reveal/conceal cycles after resizing | `scroll=105:0` throughout |
+| Terminal diagnostics | No wgpu validation error, panic, or crash observed |
+
+The old fixture contained only `Architecture · #Overview` and `missing-note`, so this run did not establish long-label clipping. The acceptance fixture now includes a deliberately long English/Korean embed label and a following sentence to make that check reproducible.
+
+Local fmt/check/clippy/workspace tests passed in that session. The graphics-adapter-dependent regression remained ignored in the default workspace test run. Cross-platform CI is a separate gate: [run `40599668706`, attempt 2](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/40599668706/attempts/2) for `d834fe8` originally awaited maintainer approval rather than failing a test; after approval on 2026-11-26, Windows/macOS/Ubuntu checks all passed.
+
+### Long-label macOS closeout check — 2026-11-26
+
+The renderer code remains at `d834fe8`; only the acceptance fixture and documentation changed for this check. A new release build loaded the expanded fixture at `source=4560 bytes`.
+
+- **PASS**: at approximately 1920 px and 500 px window widths, the long embed label was clipped to its one-row card. No label text painted past the card or over the following sentence.
+- **PASS**: entering the long embed revealed its full canonical source, including the final `한글 레이블]]`; leaving restored the native card. Source length stayed at 4560 bytes.
+- **PASS**: Callout title/fold/body and the three embed cards remained within the editor during wide → narrow → wide resizing, with surrounding text below the owned blocks.
+- **PASS**: after resizing to approximately 900 px, the first observed Callout source → card transition and five additional reveal/conceal cycles all preserved `scroll=112:21`. Full Callout source markers were visible together.
+- **PASS**: the inline embed stayed source-visible.
+- Local fmt/check/clippy/workspace tests and release build passed: **230 passed, 0 failed, 1 ignored** in the default workspace suite.
+- The GUI used Apple M1 / Metal. Logs contained the expected invalid-Math fallback only, with no wgpu validation error, panic, or crash observed.
+
+The long embed's wrapped source has a different visual height from its one-row card. At approximately 500 px the measured reveal/conceal scroll sequence was `120:21 → 123:52 → 120:21`; the sentence below stayed separated from the source/card. This establishes clipping and source preservation, not an unchanged-scroll guarantee for soft-wrapped embed source. CJK IME and the full earlier widget acceptance suite were not rerun for this fixture/documentation-only change.
+
+## Final Windows native integration acceptance
+
+Status: **pending — macOS visual acceptance and CI do not establish Windows native GUI/IME behavior**.
+
+Use the final integrated Phase 6 revision and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result.
+
+```powershell
+git rev-parse HEAD
+$env:MDEDIT_LIVE_PREVIEW_ACCEPTANCE = "1"
+cargo run -p mdedit-ime-lab --release
+```
+
+- Verify native Rule, both Checkbox states, Image, Display Math, Table, Callout, and standalone Custom Embed rendering.
+- Enter and leave each widget through mouse and arrow navigation; verify canonical source reveal and native restoration without an unexpected viewport jump.
+- Check text above/below Image, Math, Table, and Callout for overlap; repeat reveal/conceal five times and record `scroll=` before/after.
+- With the caret at document start, scroll to each checkbox without moving the caret; test center/edge clicks plus one Undo and one Redo. Repeat with the caret near the checkbox and verify viewport preservation.
+- Resize wide → narrow → wide; verify card/grid bounds and long-label clipping, then repeat Callout reveal/conceal.
+- Check selection across widgets, navigation across logical lines and viewport boundaries, scrolling, clipboard, and ordinary text Undo/Redo.
+- Verify native Korean preedit/commit and `**한글**`, Japanese conversion/commit, Chinese candidate selection/commit, and focus loss/refocus. Record viewport stability during composition.
+- Confirm DX12 startup and absence of wgpu validation errors, panic, or crash. Record any `WGPU_BACKEND` override rather than treating an alternate backend as the default-path result.
+- Undo temporary acceptance edits and record the final source baseline.
+
+Close Phase 6 only after the final-head CI gate and this Windows checklist pass. Narrator/VoiceOver acceptance remains separately deferred; Phase 7 then hardens the extension API rather than adding an application-specific editor integration.
