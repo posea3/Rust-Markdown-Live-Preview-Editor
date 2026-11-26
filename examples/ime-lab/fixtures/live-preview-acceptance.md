@@ -135,6 +135,12 @@ The following standalone embeds should render as native one-row cards. Inline em
 
 ![[missing-note]]
 
+The long embed label below must stay inside its one-row card when the window is narrowed:
+
+![[diagram.svg#Overview|Architecture overview with a deliberately long label for checking native card clipping at narrow window widths and preserving the complete canonical source 한글 레이블]]
+
+This sentence must remain below the long-label embed card without any overlapping text.
+
 Inline embed remains source-visible: prefix ![[Note#Heading]] suffix.
 
 Entering a callout body or standalone embed reveals the exact canonical Markdown source. Leaving the owned source range restores the native widget.
