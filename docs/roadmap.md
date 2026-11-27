@@ -251,11 +251,13 @@ On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows nati
 
 ## Phase 7 - Extension API hardening
 
-Status: **in progress — Slices 01–02 merged through PRs #13 and #15; Slices 03–04 add configuration provenance, checked cached projection, and declared scanner failures with strict scan abort; renderer-boundary and final compatibility review remain**.
+Status: **in progress — Slices 01–02 merged through PRs #13 and #15; Slices 03–05 add configuration provenance, checked cached projection, declared scanner failures, and host-owned renderer dispatch with support preflight; final compatibility/integration review remains**.
 
 The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
 
 Ship additional sample extensions, compatibility tests, and API-stability guidance.
+
+The host renderer boundary routes immutable widget/qualified-extension metadata to application callbacks without a GPU/window dependency. Hosts own layout, hit testing, actions, renderer caches, and source-visible rebuild/reflow when a concealed widget lacks support. Registration does not create new native widget kinds or alter extension concealment rules. See `docs/phase-07-extension-api.md` and `cargo run -p mdedit-live --example host_renderers`.
 
 Target use cases:
 

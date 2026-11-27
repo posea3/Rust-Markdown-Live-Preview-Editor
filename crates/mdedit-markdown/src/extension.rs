@@ -366,7 +366,7 @@ impl ExtensionSet {
     }
 
     /// Register a fallible scanner under its current namespace. Successful
-    /// registration invalidates configuration identity, as with legacy scans.
+    /// registration invalidates configuration identity, as with legacy registration.
     ///
     /// # Errors
     ///

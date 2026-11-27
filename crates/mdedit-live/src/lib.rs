@@ -7,11 +7,16 @@
 
 mod caret;
 mod hit;
+mod host_renderer;
 mod projection;
 mod reflow;
 
 pub use caret::{CaretDirection, ProjectedCaretStop, ProjectedCaretStops};
 pub use hit::{HitBias, ProjectedHit, ProjectedSelection, ProjectedSelectionEndpoint};
+pub use host_renderer::{
+    HostRenderError, HostRenderInput, HostRenderKey, HostRendererRegistrationError,
+    HostRendererRegistry,
+};
 pub use projection::{
     CalloutWidgetData, ConcealSpan, CustomEmbedWidgetData, ImageWidgetData, MathWidgetData,
     ProjectedBlock, ProjectedRange, ProjectedSize, ProjectedSpan, ProjectedWidget, Projection,

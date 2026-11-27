@@ -1,8 +1,8 @@
 # Phase 7 Extension API Hardening
 
-Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Slice 03 is proposed in PR #16 (`bacd562`), based on integrated main `7d46db3`. Current branch: `feature/extension-api-phase-07-failures` (Slice 04), stacked above Slice 03.
+Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Slice 03 is proposed in PR #16 (`bacd562`), based on integrated main `7d46db3`; Slice 04 is proposed in PR #17 (`00de68e`). Current branch: `feature/extension-api-phase-07-renderers` (Slice 05), stacked above Slice 04.
 
-Status: **Slices 01–02 merged; Slices 03–04 implement configuration provenance, checked cached-snapshot projection, and declared scanner failures with strict scan abort. Current-head three-OS CI is tracked by their PR checks**.
+Status: **Slices 01–02 merged; Slices 03–05 implement configuration provenance, checked cached-snapshot projection, declared scanner failures, and host-owned renderer dispatch with support preflight. Current-head three-OS CI is tracked by their PR checks**.
 
 ## Entry decision
 
@@ -33,6 +33,9 @@ The first compatibility tests cover application/built-in coexistence, registrati
 | `ExtensionConfigId` | Use process-local configuration provenance when retaining scanner results in memory |
 | `Projection::build_with_extensions` | Combine validated scanner metadata with the core Markdown projection |
 | `Projection::build_with_current_extensions` | Reject cached metadata from an obsolete or unrelated extension configuration before building projection |
+| `HostRendererRegistry<C, O, E>` | Own view callbacks, graphics/resources, output/actions, and renderer/layout cache invalidation |
+| `HostRenderKey` / `HostRenderInput` | Distinguish built-in widget keys from qualified extension metadata; supply current immutable descriptors |
+| `HostRendererRegistry::check_widget_support` | Check concealed widget support before painting and rebuild/reflow source-visible fallback when needed |
 
 CommonMark/GFM applications may register no scanners. Obsidian syntax is opt-in through `ObsidianSyntaxExtension` or `obsidian_extension_set`; selecting a parser dialect does not register scanners by itself.
 
@@ -45,6 +48,8 @@ cargo run -p mdedit-markdown --example extension_scanners
 The complete consumer is in `crates/mdedit-markdown/examples/extension_scanners.rs`; the two reusable scanner implementations are in `examples/support/scanners.rs` within that crate.
 
 `cargo run -p mdedit-markdown --example fallible_scanners` demonstrates both complete success and a reported scanner failure. Its host policy prints the canonical source on failure, rather than treating earlier matches as a complete result.
+
+`cargo run -p mdedit-live --example host_renderers` captures host paint commands, exposes a checkbox action without applying it, decorates foreign metadata while keeping its source visible, and rebuilds a source-visible frame when a rule renderer is missing. It is a dispatch example, not a native graphics renderer.
 
 - `example.references::reference` recognizes `{{ref:설계 노트}}` and emits a `target` attribute. A target is trimmed, non-empty, and confined to one line.
 - `example.issues::issue` recognizes `#42` at the start of source or after whitespace and emits a `number` attribute. The number contains ASCII digits.
@@ -108,6 +113,20 @@ A reported error does not remove a scanner, poison the set, or change configurat
 
 Scans are synchronous. Rust panics in `id`, `scan_mode`, `scan`, or `try_scan` are not caught or converted into declared errors. There is no recovery from `panic=abort`, timeout enforcement, process isolation, asynchronous plugin runtime, or dynamic library loading. Hosts choose the scanner implementations they register.
 
+## Host renderer dispatch boundary
+
+Slice 05 adds `HostRendererRegistry<Context, Output, Error>` in `mdedit-live`. Each view owns its registry and callbacks; there is no global renderer registry. Register `FnMut(&mut Context, HostRenderInput<'_>) -> Result<Output, Error>` with `try_register`. Callbacks can capture view-thread-only state such as `Rc<RefCell<_>>`; they do not need `Send + Sync`. `Context` carries host view resources and `Output` can carry paint commands or available editor/host actions. Existing native views may keep direct dispatch; this API does not replace their renderer or add native widget kinds.
+
+Keys are `HostRenderKey::Widget(WidgetKind)` or `HostRenderKey::Extension { extension: ExtensionId, name: &'static str }`. `HostRenderInput::Widget(&ProjectedWidget)` and `Extension(&ExtensionMatch)` derive their own keys, so a caller cannot route an input under a different key. Built-in and extension keys do not alias, and equal local names from different scanners dispatch independently. Duplicate keys return `HostRendererRegistrationError::DuplicateKey` and preserve the original callback.
+
+`render` calls exactly one registered handler and returns its output. Missing handlers return `HostRenderError::Unregistered { key, source_range }`; callback errors return `RendererFailed { key, source_range, error }` with the typed cause available through `source()` when it implements `Error`. Ranges are canonical source bytes. Errors are explicit host decisions: choose retry, omit an optional decoration, or rebuild a source-visible frame as appropriate. Panics propagate. Callbacks already run may have changed host state; the registry provides no rollback or panic isolation. Build paint output offscreen or discard partial commands before retry/fallback.
+
+Before painting, call `check_widget_support(&projection)`. It checks every projected widget and returns the first missing key/range without invoking callbacks. Success establishes registration only, not successful resource loading, geometry, or paint execution. A missing widget may already conceal source. Rebuild/reflow with that source revealed, or rebuild the frame with `RevealPolicy::SourceVisible`; simply skipping the missing callback leaves concealed text blank. Runtime callback failures still need the host's fallback even after successful preflight.
+
+Foreign metadata handlers do not conceal extra source, create `ProjectedWidget`s, or opt into Obsidian interpretation. They can produce host-owned decorations/actions while existing core projection rules continue to apply. Choose which metadata to dispatch; avoid painting built-in extension matches twice when projected widgets already represent them. This is a callback dispatch boundary, not an arbitrary extension-to-widget conversion API.
+
+Supply metadata from the current validated document, syntax, extension configuration, and projection. The registry does not recheck snapshot freshness or carry document identity. Hosts own graphics/fonts, shaping, layout/reflow, clipping, hit testing, accessibility, and renderer/layout cache invalidation when view state or settings change. Source edits should travel through editor/host actions after rendering; the registry does not receive a mutable document or apply transactions.
+
 ## Compatibility guidance
 
 The workspace remains at `0.1.0`; this slice preserves existing public scanner method signatures and adds no dependency. It fixes the accidental interpretation of foreign `callout`/`embed` kinds as built-in widgets. Applications that relied on that implicit interpretation must explicitly choose the built-in Obsidian scanner or provide a host adapter.
@@ -117,6 +136,8 @@ Slice 02 adds a registration error type and `try_register` without changing exis
 Slice 03 preserves the const `ExtensionSet::new()` constructor and existing method signatures. Consumers that cache extension snapshots should adopt the configuration ID and checked projection builder. `ProjectionBuildError` has an additional mismatch variant; exhaustive matches must handle it. Snapshot equality now includes configuration provenance. This adds no native renderer or scanner panic isolation.
 
 Slice 04 adds the fallible trait, error type, and registration methods without changing existing trait requirements. `ExtensionError` gains `ScannerFailed`; exhaustive matches must handle it. Successful legacy scans keep their previous behavior. Error reporting and fallback are explicit host decisions; this is not a panic-catching layer or rollback mechanism.
+
+Slice 05 adds independent renderer types without changing existing scanner, projection, or native view method signatures. There is no graphics dependency or mandatory migration. Adopting hosts register the widget kinds they paint, preflight concealed frames, handle dispatch errors, and keep their own source edits and layout/cache lifecycle. Renderer callbacks intentionally have different thread requirements from `Send + Sync` scanners.
 
 Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-*` types, preserve canonical byte ranges, and exercise examples/consumer tests when upgrading. Parser-specific internals and native rendering types are not part of this scanner contract. Future breaking changes require explicit migration guidance before an API-stability milestone is declared.
 
@@ -130,8 +151,10 @@ cargo test -p mdedit-markdown --test extension_configuration
 cargo test -p mdedit-live --test extension_configuration
 cargo test -p mdedit-markdown --test extension_failures
 cargo test -p mdedit-live --test extension_failures
+cargo test -p mdedit-live --test host_renderers
 cargo run -p mdedit-markdown --example extension_scanners
 cargo run -p mdedit-markdown --example fallible_scanners
+cargo run -p mdedit-live --example host_renderers
 ```
 
 The namespace regression was observed before the fix: a foreign `embed` emitted an extra Custom Embed widget, and a foreign `callout` concealed the containing blockquote. The three regression cases passed after qualifying built-in dispatch by `OBSIDIAN_EXTENSION_ID`. Nine public-consumer contract tests exercise the merge/snapshot boundary.
@@ -144,6 +167,8 @@ Local Windows verification on 2026-11-27 for Slice 02: fmt/check/clippy `-D warn
 
 Slice 03 local Windows verification on 2026-11-27: **263 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and the public cache-aware scanner example passed. Ten public-consumer tests cover configuration identity and checked projection, and one isolated-counter unit test covers exhaustion without ID reuse. Removing the projection guard reproduced three stale/cross-set failures; replacing checked allocation with wrapping allocation reproduced the exhaustion failure. The correct implementations passed after restoration. Fresh CI for integrated main `7d46db3` passed on all three operating systems; the Slice 03 PR tracks its own current-head CI.
 
-Slice 04 local Windows verification on 2026-11-27: **276 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and both scanner examples passed. Twelve markdown consumer regressions cover successful mixed scanning, captured failure identity/cause, short-circuiting, prevalidation, protected/AllSource handling, malformed-candidate diagnostics, shared duplicate rejection, convenience APIs, panic propagation, and retry after invalidation. One Live Preview consumer regression verifies native widget mapping from successful fallible metadata. Suppressing reported errors reproduced three failures; correct propagation was restored before full verification. The fallible example reported two matches on success and the failing namespace plus unchanged canonical source on failure.
+Slice 04 local Windows verification on 2026-11-27: **276 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and both scanner examples passed. Twelve markdown consumer regressions cover successful mixed scanning, captured failure identity/cause, short-circuiting, prevalidation, protected/AllSource handling, malformed-candidate diagnostics, shared duplicate rejection, convenience APIs, panic propagation, and retry after invalidation. One Live Preview consumer regression verifies Live Preview widget mapping from successful fallible metadata. Suppressing reported errors reproduced three failures; correct propagation was restored before full verification. The fallible example reported two matches on success and the failing namespace plus unchanged canonical source on failure.
 
-The remaining Phase 7 design decision is any public host-renderer registration boundary, followed by overall compatibility review. This work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner-only slices. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
+Slice 05 local Windows verification on 2026-11-27: **285 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and all three examples passed. Nine public-consumer tests cover payload/action/range routing, qualified namespace and built-in key isolation, duplicate preservation, missing-handler preflight with source-visible fallback, stateful view-thread-only callbacks, typed failures, panic propagation, and unchanged foreign-source projection. Removing the duplicate guard, namespace qualification, or support check each reproduced a targeted assertion failure; all nine tests passed after restoration. The host example printed checkbox/decorative commands and an available editor action, kept foreign source visible, and rebuilt source-visible fallback for an unsupported rule. Review and final-head CI outcomes are tracked in its PR and execution ledger.
+
+The remaining Phase 7 gate is overall compatibility/integration review. This work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner/dispatch-only slices. Narrator/VoiceOver checks remain separately deferred; descriptor/dispatch tests do not establish native accessibility acceptance.
