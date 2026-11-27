@@ -4,12 +4,14 @@ Phase 7 PRs #16 -> #17 -> #18 -> #19 merged into main in order. Integrated main 
 
 ## Reproduce on Windows
 
+Use PowerShell 7 (`pwsh`); the runner declares this requirement before launching a child.
+
 ```powershell
 cargo build --locked --release -p mdedit-ime-lab --example phase8_profile
-./scripts/profile-phase8.ps1 -OutputDirectory target/phase-08-profiling/my-run
+pwsh -NoProfile -File ./scripts/profile-phase8.ps1 -OutputDirectory target/phase-08-profiling/my-run
 ```
 
-Use a fresh output directory: the runner refuses to overwrite prior fixture files. It launches only its own child processes hidden and captures their stdout CSV, stage-progress stderr, observed process peak working set, completion/limit status, and measured-row summaries. Defaults: one warmup, five samples, a nominal 90-second whole-child budget and 1.5 GB observed working-set ceiling. Polling/startup can overshoot the nominal deadline. Resource-limited data remains partial and is not counted as a complete frame.
+Use a fresh/empty output directory: each invocation claims it atomically and rejects prior contents, including another disjoint fixture run's aggregate files. It launches only its own child processes hidden and captures their stdout CSV, stage-progress stderr, observed process peak working set, completion/limit status, and measured-row summaries. A `finally` block stops and disposes any owned child still running during normal PowerShell interruption/error unwinding. Force-killing the host itself cannot execute that cleanup. Interrupted runs can retain partial files without final aggregate records; missing completion is not success. Defaults: one warmup, five samples, a nominal 90-second whole-child budget and 1.5 GB observed working-set ceiling. Polling/startup can overshoot the nominal deadline. Resource-limited data remains partial and is not counted as a complete frame.
 
 For the recorded dependency resolution, start in a fresh checkout and copy [`Cargo.lock.snapshot`](performance/2026-11-28-windows/Cargo.lock.snapshot) to `Cargo.lock` before the locked build. The root lockfile is otherwise untracked by this repository. Hardware/fonts and foreground machine activity still affect repeated results.
 
@@ -73,3 +75,9 @@ Background parsing remains part of the roadmap, but parser offloading alone woul
 ## Verification
 
 Windows workspace tests: **294 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc, the three existing public examples and the optimized profiler build passed. The two fixture tests ran RED/GREEN and are included in workspace CI. Actual small-run, one-second timeout and low-memory guard checks exercised the runner. Current-head review/CI outcomes are recorded in the profiling PR and ignored ledger. GPU, native input/presentation, macOS performance and accessibility acceptance retain their separate scope.
+
+Independent review recomputed all 157 raw/summary groups, matching counts/minima/medians/maxima and report tables. Three runner corrections were verified RED/GREEN: rejecting disjoint runs in a used directory without modifying prior records, terminating the exact owned child on interruption, and declaring a PowerShell 7 requirement visible to the 5.1 parser. The machine's 5.1 file-execution policy blocked an end-to-end legacy-host probe; it was respected, and compatibility metadata was checked through that host's read-only parser instead. Archived measurements were collected in PowerShell 7, fresh directories and uninterrupted guarded runs, so these lifecycle fixes do not alter their values or provenance. Repeat the runner regressions after the release build with:
+
+```powershell
+pwsh -NoProfile -File ./scripts/tests/profile-phase8-regressions.ps1
+```

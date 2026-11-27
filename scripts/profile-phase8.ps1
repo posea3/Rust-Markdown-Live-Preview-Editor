@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 param(
     [string[]]$Fixtures = @('mixed-10kb', 'mixed-100kb', 'mixed-1mb', 'mixed-10mb', 'single-line'),
     [ValidateRange(1,50)][int]$Samples = 5,
@@ -13,7 +14,15 @@ $profileRoot = Split-Path -Parent $PSScriptRoot
 $profileBinary = Join-Path $profileRoot 'target/release/examples/phase8_profile.exe'
 if (-not (Test-Path -LiteralPath $profileBinary)) { throw 'Build first: cargo build --release -p mdedit-ime-lab --example phase8_profile' }
 $profileOutput = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $profileRoot $OutputDirectory }
+if (Test-Path -LiteralPath $profileOutput) {
+    if (-not (Get-Item -LiteralPath $profileOutput).PSIsContainer -or (Get-ChildItem -LiteralPath $profileOutput -Force | Select-Object -First 1)) {
+        throw ('Output directory must be empty; select a fresh directory: ' + $profileOutput)
+    }
+}
 New-Item -ItemType Directory -Path $profileOutput -Force | Out-Null
+# Atomically claim an empty directory, including against another concurrent run.
+$profileClaim = [IO.File]::Open((Join-Path $profileOutput '.phase8-profile-run'), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+$profileClaim.Dispose()
 $profileCases = @('mixed-10kb', 'mixed-100kb', 'mixed-1mb', 'mixed-10mb', 'single-line')
 $profileRecords = @()
 foreach ($profileFixture in $Fixtures) {
@@ -25,36 +34,48 @@ foreach ($profileFixture in $Fixtures) {
     if ($NoLayout) { $profileArgs += '--no-layout' }
     if ($SourceVisible) { $profileArgs += '--source-visible' }
     $profileWatch = [Diagnostics.Stopwatch]::StartNew()
-    $profileProcess = Start-Process -FilePath $profileBinary -ArgumentList $profileArgs -WorkingDirectory $profileRoot -WindowStyle Hidden -RedirectStandardOutput $profileCsv -RedirectStandardError $profileLog -PassThru
-    $profilePeak = 0L
-    $profileStatus = 'completed'
-    $profileNextProgress = 10
-    while (-not $profileProcess.HasExited) {
-        $profileProcess.Refresh()
-        if ($profileProcess.HasExited) { break }
-        $profilePeak = [Math]::Max($profilePeak, $profileProcess.PeakWorkingSet64)
-        if ($profileWatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) { $profileStatus = 'timeout' }
-        elseif ($profileProcess.WorkingSet64 -gt $MaxWorkingSetBytes) { $profileStatus = 'memory_limit' }
-        if ($profileStatus -ne 'completed') {
-            # Only the process created immediately above (and its children).
-            $profileProcess.Kill($true)
-            break
+    $profileProcess = $null
+    try {
+        $profileProcess = Start-Process -FilePath $profileBinary -ArgumentList $profileArgs -WorkingDirectory $profileRoot -WindowStyle Hidden -RedirectStandardOutput $profileCsv -RedirectStandardError $profileLog -PassThru
+        $profilePeak = 0L
+        $profileStatus = 'completed'
+        $profileNextProgress = 10
+        while (-not $profileProcess.HasExited) {
+            $profileProcess.Refresh()
+            if ($profileProcess.HasExited) { break }
+            $profilePeak = [Math]::Max($profilePeak, $profileProcess.PeakWorkingSet64)
+            if ($profileWatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) { $profileStatus = 'timeout' }
+            elseif ($profileProcess.WorkingSet64 -gt $MaxWorkingSetBytes) { $profileStatus = 'memory_limit' }
+            if ($profileStatus -ne 'completed') {
+                # Only the process created immediately above (and its children).
+                $profileProcess.Kill($true)
+                break
+            }
+            if ($profileWatch.Elapsed.TotalSeconds -ge $profileNextProgress) {
+                Write-Output ($profileFixture + ': running ' + [int]$profileWatch.Elapsed.TotalSeconds + 's, peak ' + [Math]::Round($profilePeak / 1MB, 1) + ' MiB')
+                $profileNextProgress += 10
+            }
+            Start-Sleep -Milliseconds 20
         }
-        if ($profileWatch.Elapsed.TotalSeconds -ge $profileNextProgress) {
-            Write-Output ($profileFixture + ': running ' + [int]$profileWatch.Elapsed.TotalSeconds + 's, peak ' + [Math]::Round($profilePeak / 1MB, 1) + ' MiB')
-            $profileNextProgress += 10
+        $profileProcess.WaitForExit()
+        $profileWatch.Stop()
+        $profileExit = $profileProcess.ExitCode
+        if ($profileStatus -eq 'completed' -and $profileExit -ne 0) { $profileStatus = 'failed' }
+        $profileLastStage = Get-Content -LiteralPath $profileLog | Where-Object { $_ -like 'begin,*' } | Select-Object -Last 1
+        $profileRecords += [pscustomobject]@{ fixture = $profileFixture; status = $profileStatus; exit_code = $profileExit; elapsed_ms = [Math]::Round($profileWatch.Elapsed.TotalMilliseconds, 1); observed_peak_working_set_bytes = $profilePeak; samples_requested = $Samples; warmups = $Warmups; timeout_seconds = $TimeoutSeconds; max_working_set_bytes = $MaxWorkingSetBytes; layout = (-not $NoLayout); source_visible = [bool]$SourceVisible; last_stage = $profileLastStage }
+        $profileRecords | Export-Csv -LiteralPath (Join-Path $profileOutput 'processes.csv') -NoTypeInformation -Encoding utf8
+        Write-Output ($profileFixture + ': ' + $profileStatus + ', ' + [Math]::Round($profileWatch.Elapsed.TotalSeconds, 2) + 's, peak ' + [Math]::Round($profilePeak / 1MB, 1) + ' MiB')
+    } finally {
+        $profileWatch.Stop()
+        if ($null -ne $profileProcess) {
+            try {
+                if (-not $profileProcess.HasExited) {
+                    $profileProcess.Kill($true)
+                    $profileProcess.WaitForExit()
+                }
+            } finally { $profileProcess.Dispose() }
         }
-        Start-Sleep -Milliseconds 20
     }
-    $profileProcess.WaitForExit()
-    $profileWatch.Stop()
-    $profileExit = $profileProcess.ExitCode
-    if ($profileStatus -eq 'completed' -and $profileExit -ne 0) { $profileStatus = 'failed' }
-    $profileLastStage = Get-Content -LiteralPath $profileLog | Where-Object { $_ -like 'begin,*' } | Select-Object -Last 1
-    $profileRecords += [pscustomobject]@{ fixture = $profileFixture; status = $profileStatus; exit_code = $profileExit; elapsed_ms = [Math]::Round($profileWatch.Elapsed.TotalMilliseconds, 1); observed_peak_working_set_bytes = $profilePeak; samples_requested = $Samples; warmups = $Warmups; timeout_seconds = $TimeoutSeconds; max_working_set_bytes = $MaxWorkingSetBytes; layout = (-not $NoLayout); source_visible = [bool]$SourceVisible; last_stage = $profileLastStage }
-    $profileRecords | Export-Csv -LiteralPath (Join-Path $profileOutput 'processes.csv') -NoTypeInformation -Encoding utf8
-    Write-Output ($profileFixture + ': ' + $profileStatus + ', ' + [Math]::Round($profileWatch.Elapsed.TotalSeconds, 2) + 's, peak ' + [Math]::Round($profilePeak / 1MB, 1) + ' MiB')
-    $profileProcess.Dispose()
 }
 $profileTimingRows = foreach ($profileFixture in $Fixtures) {
     Import-Csv -LiteralPath (Join-Path $profileOutput ($profileFixture + '.csv')) | Where-Object { $_.kind -eq 'sample' }

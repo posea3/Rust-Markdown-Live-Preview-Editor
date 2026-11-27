@@ -22,7 +22,7 @@ Each fixture CSV has `fixture,kind,sample,phase,stage,ns,items`:
 
 Default raw data intentionally retains censored large cases. The 1 MB supplemental run completes one pair without warmup; the single-line baseline completes one measured pair before its next iteration times out. SourceVisible removes concealment/widgets and therefore changes semantics. Core-only omits the entire Buffer/FontSystem path. Neither is an equivalent native-editor optimization.
 
-Reproduce from a fresh checkout with the recorded dependency snapshot:
+Reproduce from a fresh checkout inside PowerShell 7 (`pwsh`), with the recorded dependency snapshot. The current runner rejects nonempty output directories and cleans up owned children on normal interruption/error; those guard corrections do not change the Rust measurement code or archived values:
 
 ```powershell
 Copy-Item docs/performance/2026-11-28-windows/Cargo.lock.snapshot Cargo.lock
