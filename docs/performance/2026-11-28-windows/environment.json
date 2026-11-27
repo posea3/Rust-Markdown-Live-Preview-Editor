@@ -1,0 +1,21 @@
+{
+  "engine_main": "0df1961f5cd4f33dd0c8a32749ef82c59d7b75d5",
+  "harness_commit": "c037bfd74c5921894cbbab95d92c5f7fb39270cf",
+  "harness_sha256": "DF785963EAF8E54B68EA015D8B173A7C65BF99779E59DF41767FEBD9F68DAD0F",
+  "runner_sha256": "C3C74DB313A7A7328354E85F243E53A899205293542937B862A2E48F4C4DAC19",
+  "binary_sha256": "12CF6344E06D38CBE43B61B02C9D3A8AA74DD8E20D7BCF07294F3BE1E94676C7",
+  "cpu": "Intel(R) Core(TM) i5-3570 CPU @ 3.40GHz",
+  "logical_processors": 4,
+  "os": "Microsoft Windows 10.0.26200",
+  "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "samples": 5,
+  "warmups": 1,
+  "timeout_seconds": 90,
+  "max_working_set_bytes": 1500000000,
+  "viewport": "1000x700",
+  "text_metrics": "22px font / 31px line height",
+  "font_family": "SansSerif",
+  "shaping": "Advanced",
+  "process_peak": "OS peak working set sampled every 20ms with 200ms untimed settle",
+  "date": "2026-11-28 Asia/Seoul"
+}

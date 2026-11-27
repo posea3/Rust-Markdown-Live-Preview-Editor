@@ -1,0 +1,22 @@
+{
+  "engine_main": "0df1961f5cd4f33dd0c8a32749ef82c59d7b75d5",
+  "harness_commit": "21ffaf456bff18a04f603d5d9e604a0d04385a0b",
+  "harness_sha256": "10641733DDB0E809B1A5B49948C6CD48DDE17ED343154EFDBDF4958F432F3AAD",
+  "runner_sha256": "77D6589DF9E54EFA66F1C0568C0FDDF5F68F8C9280E4C9CB4C890C10F9888176",
+  "binary_sha256": "13A7B0AD67C610140C3808EEF868B2ED137E025A6208BA9E42BD1E92D1F9ECFB",
+  "cpu": "Intel(R) Core(TM) i5-3570 CPU @ 3.40GHz",
+  "logical_processors": 4,
+  "os": "Microsoft Windows 10.0.26200",
+  "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "samples": 5,
+  "warmups": 1,
+  "timeout_seconds": 90,
+  "max_working_set_bytes": 1500000000,
+  "viewport": "1000x700",
+  "text_metrics": "22px font / 31px line height",
+  "font_family": "SansSerif",
+  "shaping": "Advanced",
+  "process_peak": "OS peak working set sampled every 20ms with 200ms untimed settle",
+  "date": "2026-11-28 Asia/Seoul",
+  "policy": "SourceVisible attribution control"
+}

@@ -8,12 +8,12 @@ Slice 06 reviews the public extension boundary and its composition through scann
 | --- | --- | --- |
 | 01 | Qualified scanner kinds and public consumer examples | Merged through [PR #13](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/13) |
 | 02 | Unique registration and captured scanner namespaces | Merged through [PR #15](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/15) |
-| 03 | Configuration identity and checked cached projection | Proposed in [PR #16](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/16) |
-| 04 | Declared scanner failures and strict scan abort | Proposed in [PR #17](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/17), above #16 |
-| 05 | Host renderer dispatch and widget support preflight | Proposed in [PR #18](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/18), above #17 |
-| 06 | Cumulative compatibility audit and composed consumer verification | Current `feature/extension-api-phase-07-compatibility` branch, above #18 |
+| 03 | Configuration identity and checked cached projection | Merged through [PR #16](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/16), `f24453a` |
+| 04 | Declared scanner failures and strict scan abort | Merged through [PR #17](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/17), `ee58f72` |
+| 05 | Host renderer dispatch and widget support preflight | Merged through [PR #18](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/18), `5f4563a` |
+| 06 | Cumulative compatibility audit and composed consumer verification | Merged through [PR #19](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/19), `0df1961` |
 
-The review range for unmerged implementation is integrated main `7d46db3` through the final Slice 06 head. Slices 01–02 are already in that baseline and their existing consumer tests remain in the workspace suite. Current-head independent review and CI results are recorded in the Slice 06 PR. Implementation/consumer verification in the proposed stack is distinct from merging it into main and rerunning integrated-main CI.
+The cumulative review covered `7d46db3..c57407c`; the important delayed-action issue was corrected in `66fbb0b` with regression evidence and a green suite. PRs #16 -> #17 -> #18 -> #19 merged in that order on 2026-11-28. Fresh integrated-main [Windows/macOS/Ubuntu CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/46023467296) passed at `0df1961`, whose tree matches verified `66fbb0b`. Slices 01–02 were already in the review baseline. The old CommonMark fixture-wording minor is clarified below and in its test name.
 
 ## Public API and migration audit
 
@@ -36,7 +36,7 @@ All workspace packages remain at `0.1.0`, Rust 1.90, with no new dependency. Thi
 
 [`extension_pipeline.rs`](../crates/mdedit-live/tests/extension_pipeline.rs) exercises actual exported APIs, without a new automatic host runtime:
 
-- CommonMark with an empty extension set builds checked projection and needs no host renderer.
+- The widget-free CommonMark bold-text fixture builds checked projection with an empty extension set and accepts an empty renderer registry. CommonMark core widgets such as thematic breaks still require handlers under concealment.
 - GFM with a legacy application scanner filters a protected inline-code claim, dispatches Unicode reference metadata, returns a checkbox action, and applies that action through `Document::apply`. CRLF/Unicode source is preserved, old scan metadata is rejected after the edit, and a refreshed render returns the reverse toggle action.
 - A delayed checkbox action retains the originating projection revision. An intervening insertion causes `Document::apply` to return `StaleRevision`, preserving that insertion instead of overwriting the old byte range in changed source.
 - Obsidian combines the legacy built-in scanner with a fallible application scanner. A declared failure stays an error despite an older matching-configuration snapshot. An explicit source-visible frame retains the complete canonical text; subsequent invalidation rejects old metadata and rescanning restores dispatch.
@@ -58,6 +58,6 @@ Initial local Windows verification on 2026-11-27 passed 291 tests. Cumulative re
 
 Post-review Windows verification on 2026-11-28: **292 passed, 0 failed, 1 ignored**. Format, workspace/all-target check, clippy with warnings denied, rustdoc with warnings denied, and all three public examples passed. This adds five composed-consumer tests, one later-widget preflight case, and one compiling error-newtype rustdoc example to the Slice 05 baseline. The ignored test requires a native graphics adapter (`image_widget::tests::gpu_upload_rejects_oversized_image_and_accepts_next_valid_image`); no new GPU run is claimed. The cumulative review range, verified correction, deferred polish and exact-head push/PR three-OS CI outcomes are tracked in the current PR and execution ledger, without an additional status-only source commit.
 
-Merge the proposed stack in dependency order only when authorized, then verify fresh integrated-main CI. No new native input, native renderer, GPU, IME, Narrator, or VoiceOver acceptance is claimed by these API tests; earlier Windows/macOS results retain their recorded scope, with Windows host fixes integrated through [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14). Adopting hosts still need actual native integration acceptance. Phase 9 owns the frozen API/accessibility/1.0 gate.
+The authorized stack merge and fresh integrated-main CI are complete. No new native input, native renderer, GPU, IME, Narrator, or VoiceOver acceptance is claimed by these API tests; earlier Windows/macOS results retain their recorded scope, with Windows host fixes integrated through [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14). Adopting hosts still need actual native integration acceptance. Phase 9 owns the frozen API/accessibility/1.0 gate.
 
 The next development phase is Phase 8 profiling: measure the documented 10 KB, 100 KB, 1 MB, 10 MB and million-character single-line fixtures before selecting optimizations. This review does not introduce a background parser, virtualized view, incremental projection, or cache based on unmeasured assumptions.

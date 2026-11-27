@@ -1,0 +1,53 @@
+{
+  "engine_main": "0df1961f5cd4f33dd0c8a32749ef82c59d7b75d5",
+  "dependency_lock_sha256": "0F267D4DA3DC5124C724452BE328C13C4C0FCED20A390A7A462A16BE976F7C6E",
+  "max_working_set_bytes": 1500000000,
+  "cohorts": [
+    {
+      "directory": "baseline",
+      "harness": "c037bfd74c5921894cbbab95d92c5f7fb39270cf",
+      "policy": "ConcealInactive",
+      "layout": true,
+      "samples_requested": 5,
+      "warmups": 1,
+      "timeout_seconds": 90
+    },
+    {
+      "directory": "single-sample",
+      "harness": "c037bfd74c5921894cbbab95d92c5f7fb39270cf",
+      "policy": "ConcealInactive",
+      "layout": true,
+      "samples_requested": 1,
+      "warmups": 0,
+      "timeout_seconds": 180
+    },
+    {
+      "directory": "core-only",
+      "harness": "c037bfd74c5921894cbbab95d92c5f7fb39270cf",
+      "policy": "ConcealInactive",
+      "layout": false,
+      "samples_requested": 5,
+      "warmups": 1,
+      "timeout_seconds": 90
+    },
+    {
+      "directory": "source-visible",
+      "harness": "21ffaf456bff18a04f603d5d9e604a0d04385a0b",
+      "policy": "SourceVisible",
+      "layout": true,
+      "samples_requested": 5,
+      "warmups": 1,
+      "timeout_seconds": 90
+    },
+    {
+      "directory": "source-visible-large",
+      "harness": "21ffaf456bff18a04f603d5d9e604a0d04385a0b",
+      "policy": "SourceVisible",
+      "layout": false,
+      "samples_requested": 1,
+      "warmups": 0,
+      "timeout_seconds": 90
+    }
+  ],
+  "notes": "ns are elapsed call durations; sample counts are per completed stage, not completed frames; warmup rows are excluded from summary.csv; raw row values preserved, Git may normalize text line endings."
+}

@@ -119,7 +119,7 @@ fn range(start: u32, end: u32) -> TextRange {
 }
 
 #[test]
-fn commonmark_with_no_extensions_needs_no_host_renderers() {
+fn commonmark_widget_free_fixture_accepts_an_empty_renderer_registry() {
     let document = Document::new("**한글**\r\n").unwrap().snapshot();
     let extensions = ExtensionSet::new();
     let metadata = scan(&document, MarkdownDialect::commonmark(), &extensions);

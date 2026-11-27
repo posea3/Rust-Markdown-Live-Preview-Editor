@@ -1,0 +1,6 @@
+"fixture","status","exit_code","elapsed_ms","observed_peak_working_set_bytes","samples_requested","warmups","layout","last_stage"
+"mixed-10kb","completed","0","2086.5","9912320","5","1","True","begin,mixed-10kb,sample,4,edit,caret_stops"
+"mixed-100kb","completed","0","6060.8","22839296","5","1","True","begin,mixed-100kb,sample,4,edit,caret_stops"
+"mixed-1mb","timeout","-1","90129.3","136499200","5","1","True","begin,mixed-1mb,sample,0,load,projection"
+"mixed-10mb","timeout","-1","91103.4","724729856","5","1","True","begin,mixed-10mb,warmup,0,load,projection"
+"single-line","timeout","-1","90080.3","914571264","5","1","True","begin,single-line,sample,1,load,shape_viewport"
