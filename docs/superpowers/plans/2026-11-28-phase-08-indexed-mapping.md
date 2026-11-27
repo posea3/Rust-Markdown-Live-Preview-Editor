@@ -36,8 +36,8 @@
 **Files:** profiling example metadata emitter; performance report/README/roadmap; portable comparison data; new results report as needed.
 
 - [x] Retain metadata iteration kind and validate actual release CSV keys; archive format remains documented.
-- [ ] Commit measured code identity, compare 10/100 KB five-sample runs and a 1 MB same-protocol observation; attempt larger/core-only cases with explicit bounds where useful.
-- [ ] Preserve source/projection semantic metadata, raw data, counts and environment; report remaining costs and source-based hypotheses honestly.
+- [x] Commit measured code identity, compare 10/100 KB five-sample runs and a 1 MB same-protocol observation; attempt larger/core-only cases with explicit bounds where useful.
+- [x] Preserve source/projection semantic metadata, raw data, counts and environment; report remaining costs and source-based hypotheses honestly.
 - [ ] Commit, obtain one independent branch review, address Important findings with RED/GREEN and full suite, publish draft above #20 and verify final-head CI.
 
 Post-commit review/CI outcomes are tracked in the PR and ignored ledger, without a status-only source commit.

@@ -271,7 +271,7 @@ See `docs/phase-07-extension-api.md` for the current boundary and [the compatibi
 
 ## Phase 8 - Large-document performance
 
-Status: **initial Windows release CPU baseline measured**. Dense-concealment mapping/caret construction, projection owner/range work and giant-line shaping are the evidence-driven priorities; implementation work remains. See [measurements, censored runs, controls and reproduction](phase-08-performance.md). Native GPU/presentation/input latency remains a separate measurement surface.
+Status: **Windows baseline and first indexed mapping/caret optimization measured in the proposed, unmerged PR stack**. Random queries use existing sorted spans; caret boundaries use forward traversal, preserving bias/grapheme/reveal contracts. See the [baseline](phase-08-performance.md) and [same-protocol comparison and correctness evidence](phase-08-indexed-mapping.md). Projection owner/range work and giant-line shaping remain measured priorities; instrument those passes before selecting the next change. Native GPU/presentation/input latency remains a separate measurement surface.
 
 Implement only after profiling:
 
