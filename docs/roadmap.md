@@ -271,7 +271,7 @@ See `docs/phase-07-extension-api.md` for the current boundary and [the compatibi
 
 ## Phase 8 - Large-document performance
 
-Status: **initial release CPU stage profiling in progress**. See [the measured baseline and reproduction protocol](phase-08-performance.md). Native GPU/presentation/input latency remains a separate measurement surface.
+Status: **initial Windows release CPU baseline measured**. Dense-concealment mapping/caret construction, projection owner/range work and giant-line shaping are the evidence-driven priorities; implementation work remains. See [measurements, censored runs, controls and reproduction](phase-08-performance.md). Native GPU/presentation/input latency remains a separate measurement surface.
 
 Implement only after profiling:
 

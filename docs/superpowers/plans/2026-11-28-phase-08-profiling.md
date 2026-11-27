@@ -35,12 +35,14 @@
 
 **Files:** `docs/phase-08-performance.md`, portable results under `docs/performance/`, README/roadmap/Phase 7 integration records.
 
-- [ ] Measure all five fixtures; preserve/report any incomplete stages and run evidence-driven controls where needed.
-- [ ] Analyze raw completed rows, counts/scaling and limits; choose next optimization priorities from observations only.
-- [ ] Update Phase 7 merged/main-CI status and close its deferred CommonMark wording minor.
-- [ ] Run fmt/check/clippy/workspace tests, rustdoc/examples as appropriate; record totals and exact profile/harness identity.
+- [x] Measure all five fixtures; preserve/report any incomplete stages and run evidence-driven controls where needed.
+- [x] Analyze raw completed rows, counts/scaling and limits; choose next optimization priorities from observations only.
+- [x] Update Phase 7 merged/main-CI status and close its deferred CommonMark wording minor.
+- [x] Run fmt/check/clippy/workspace tests, rustdoc/examples as appropriate; record totals and exact profile/harness identity.
 - [ ] Commit, obtain one independent branch review, address Important issues with RED/GREEN, publish draft and verify current-head CI.
 
 Review/final CI outcomes are recorded in the PR and ignored ledger without a status-only source commit.
 
 Evidence-driven controls: baseline attempted all five fixtures under `c037bfd`, with 1 MB/10 MB/single-line runs censored by the whole-process budget. A no-warmup one-sample 1 MB run completed under a 180-second budget, and a core-only single-line run completed all five samples. Added a SourceVisible control and map-span metadata to separate concealment growth; its different display semantics must remain explicit. Full local verification after the control path: 294 passed, 0 failed, 1 ignored; fmt/check/clippy and optimized build PASS. Initial rustdoc and public examples also PASS.
+
+Measurement/data review: SourceVisible controls under `21ffaf4` completed five samples for 10/100 KB and one no-layout sample for 1 MB. All 157 raw-to-summary groups were checked against their row counts/medians; the dependency snapshot hash matches the protocol. Report and portable evidence are committed separately from the measured harness identities, so those identities remain unambiguous. Final independent review and current-head CI are tracked by the profiling PR and ignored ledger.

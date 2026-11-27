@@ -1,0 +1,11 @@
+fixture,kind,sample,phase,stage,ns,items
+mixed-10mb,meta,0,setup,source_bytes,0,10000000
+mixed-10mb,meta,0,setup,source_chars,0,9698279
+mixed-10mb,setup,0,setup,font_system,554801200,0
+mixed-10mb,warmup,0,load,document,6230800,0
+mixed-10mb,warmup,0,load,buffer_create,192437900,0
+mixed-10mb,warmup,0,load,snapshot,9500,0
+mixed-10mb,warmup,0,load,parse,764672100,0
+mixed-10mb,warmup,0,load,scan,14198880300,0
+mixed-10mb,warmup,0,load,blocks,58499500,0
+mixed-10mb,warmup,0,load,delimiters,106086400,0

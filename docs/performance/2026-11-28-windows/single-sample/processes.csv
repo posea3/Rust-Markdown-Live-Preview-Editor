@@ -1,0 +1,2 @@
+"fixture","status","exit_code","elapsed_ms","observed_peak_working_set_bytes","samples_requested","warmups","layout","last_stage"
+"mixed-1mb","completed","0","97631.4","136458240","1","0","True","begin,mixed-1mb,sample,0,edit,caret_stops"

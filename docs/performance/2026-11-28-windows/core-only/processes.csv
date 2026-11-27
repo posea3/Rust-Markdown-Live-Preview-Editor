@@ -1,0 +1,2 @@
+"fixture","status","exit_code","elapsed_ms","observed_peak_working_set_bytes","samples_requested","warmups","layout","last_stage"
+"single-line","completed","0","1695.7","35115008","5","1","False","begin,single-line,sample,4,edit,caret_stops"
