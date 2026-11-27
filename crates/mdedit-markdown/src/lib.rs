@@ -10,6 +10,7 @@ mod block;
 mod delimiter;
 mod dialect;
 mod extension;
+mod fallible;
 mod metadata;
 mod obsidian;
 mod parser;
@@ -31,6 +32,7 @@ pub use extension::{
     ExtensionRegistrationError, ExtensionScanContext, ExtensionScanMode, ExtensionSet,
     ExtensionSnapshot, SyntaxExtension,
 };
+pub use fallible::{ExtensionScanError, FallibleSyntaxExtension};
 pub use metadata::{
     SyntaxAttribute, SyntaxBlockQuoteKind, SyntaxCodeBlockKind, SyntaxLinkMetadata, SyntaxLinkType,
     SyntaxMetadata, SyntaxMetadataBlockKind, SyntaxTableAlignment,

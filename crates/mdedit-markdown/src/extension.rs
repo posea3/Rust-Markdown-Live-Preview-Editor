@@ -9,6 +9,7 @@ use std::{
 
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 
+use crate::fallible::{ExtensionScanError, FallibleSyntaxExtension};
 use crate::{ParseStatus, SyntaxKind, SyntaxNode, SyntaxSnapshot};
 
 static CONFIGURATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -269,7 +270,31 @@ impl Error for ExtensionRegistrationError {}
 
 struct RegisteredExtension {
     id: ExtensionId,
-    scanner: Box<dyn SyntaxExtension>,
+    scanner: RegisteredScanner,
+}
+
+enum RegisteredScanner {
+    Legacy(Box<dyn SyntaxExtension>),
+    Fallible(Box<dyn FallibleSyntaxExtension>),
+}
+
+impl RegisteredScanner {
+    fn scan_mode(&self) -> ExtensionScanMode {
+        match self {
+            Self::Legacy(scanner) => scanner.scan_mode(),
+            Self::Fallible(scanner) => scanner.scan_mode(),
+        }
+    }
+
+    fn scan(
+        &self,
+        context: &ExtensionScanContext<'_>,
+    ) -> Result<Vec<ExtensionCandidate>, ExtensionScanError> {
+        match self {
+            Self::Legacy(scanner) => Ok(scanner.scan(context)),
+            Self::Fallible(scanner) => scanner.try_scan(context),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -337,14 +362,68 @@ impl ExtensionSet {
         E: SyntaxExtension + 'static,
     {
         let id = extension.id();
+        self.insert_registered(id, RegisteredScanner::Legacy(Box::new(extension)))
+    }
+
+    /// Register a fallible scanner under its current namespace. Successful
+    /// registration invalidates configuration identity, as with legacy scans.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtensionRegistrationError::DuplicateId` if either scanner
+    /// interface already owns this namespace. The existing set is unchanged.
+    pub fn try_register_fallible<E>(
+        &mut self,
+        extension: E,
+    ) -> Result<(), ExtensionRegistrationError>
+    where
+        E: FallibleSyntaxExtension + 'static,
+    {
+        let id = extension.id();
+        self.insert_registered(id, RegisteredScanner::Fallible(Box::new(extension)))
+    }
+
+    /// Register a fallible scanner for known-valid host configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics on duplicate IDs. Use `Self::try_register_fallible` to recover
+    /// from configuration errors. Scan-time errors are returned by `Self::scan`.
+    #[track_caller]
+    pub fn register_fallible<E>(&mut self, extension: E)
+    where
+        E: FallibleSyntaxExtension + 'static,
+    {
+        if let Err(error) = self.try_register_fallible(extension) {
+            panic!("{error}");
+        }
+    }
+
+    /// Add a fallible scanner to this set.
+    ///
+    /// # Panics
+    ///
+    /// Panics on duplicate IDs, as with `Self::register_fallible`.
+    #[must_use]
+    #[track_caller]
+    pub fn with_fallible_extension<E>(mut self, extension: E) -> Self
+    where
+        E: FallibleSyntaxExtension + 'static,
+    {
+        self.register_fallible(extension);
+        self
+    }
+
+    fn insert_registered(
+        &mut self,
+        id: ExtensionId,
+        scanner: RegisteredScanner,
+    ) -> Result<(), ExtensionRegistrationError> {
         if self.extensions.iter().any(|registered| registered.id == id) {
             return Err(ExtensionRegistrationError::DuplicateId(id));
         }
 
-        self.extensions.push(RegisteredExtension {
-            id,
-            scanner: Box::new(extension),
-        });
+        self.extensions.push(RegisteredExtension { id, scanner });
         self.invalidate_configuration();
         Ok(())
     }
@@ -369,6 +448,9 @@ impl ExtensionSet {
     /// Revision and source-length checks reject stale inputs but do not prove
     /// document identity. Invalid individual candidates are reported through
     /// `ExtensionSnapshot::issues` without discarding unrelated valid matches.
+    /// A fallible scanner's declared error returns `ExtensionError::ScannerFailed`
+    /// immediately, without a partial snapshot or invoking later scanners.
+    /// Panics propagate; earlier callback side effects are not rolled back.
     pub fn scan(
         &self,
         document: &DocumentSnapshot,
@@ -410,7 +492,14 @@ impl ExtensionSet {
             let extension = &registered.scanner;
             let mode = extension.scan_mode();
 
-            for candidate in extension.scan(&context) {
+            let candidates =
+                extension
+                    .scan(&context)
+                    .map_err(|error| ExtensionError::ScannerFailed {
+                        extension: id,
+                        error,
+                    })?;
+            for candidate in candidates {
                 let range = candidate.range.as_usize_range();
                 if candidate.range.is_empty()
                     || range.end > source.len()
@@ -625,6 +714,10 @@ impl ExtensionIssue {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExtensionError {
+    ScannerFailed {
+        extension: ExtensionId,
+        error: ExtensionScanError,
+    },
     SyntaxUnavailable(ParseStatus),
     RevisionMismatch {
         document: Revision,
@@ -640,6 +733,11 @@ pub enum ExtensionError {
 impl fmt::Display for ExtensionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ScannerFailed { extension, error } => write!(
+                formatter,
+                "extension '{}' failed: {error}",
+                extension.as_str()
+            ),
             Self::SyntaxUnavailable(status) => {
                 write!(
                     formatter,
@@ -665,7 +763,14 @@ impl fmt::Display for ExtensionError {
     }
 }
 
-impl Error for ExtensionError {}
+impl Error for ExtensionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::ScannerFailed { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod configuration_tests {
