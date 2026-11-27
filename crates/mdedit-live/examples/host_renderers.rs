@@ -3,7 +3,7 @@
 
 use std::{convert::Infallible, error::Error};
 
-use mdedit_core::{Document, DocumentSnapshot};
+use mdedit_core::{Change, ChangeSet, Document, DocumentSnapshot, Transaction, TransactionKind};
 use mdedit_live::{
     HostRenderInput, HostRenderKey, HostRendererRegistry, Projection, RevealContext, RevealPolicy,
     WidgetAction, WidgetKind,
@@ -105,10 +105,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Preflight before layout/painting: concealed widgets need host support.
     registry.check_widget_support(&projection)?;
     let mut view = HostView::default();
-    let mut available_actions = Vec::new();
+    // Per-document queue: keep these transactions with this document's host ID.
+    // A revision alone is not a document ID. Capture the projection revision
+    // now; substituting the latest revision at click time can corrupt source.
+    let mut pending_widget_transactions = Vec::new();
     for widget in projection.widgets() {
         if let Some(action) = registry.render(&mut view, HostRenderInput::Widget(widget))? {
-            available_actions.push(action);
+            let WidgetAction::SetTaskChecked { marker_range, .. } = action;
+            pending_widget_transactions.push(Transaction::new(
+                projection.revision(),
+                ChangeSet::single(Change::new(marker_range, action.replacement_text())),
+                TransactionKind::Widget,
+            ));
         }
     }
     // Only dispatch metadata this host owns. Do not paint built-in extension
@@ -123,11 +131,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     for command in &view.paint_commands {
         println!("{command}");
     }
-    println!("available editor actions: {available_actions:?}");
+    println!("pending editor transactions: {pending_widget_transactions:?}");
     assert_eq!(
-        available_actions.len(),
+        pending_widget_transactions.len(),
         1,
-        "the sample must expose a checkbox action"
+        "the sample must retain a revision-bound checkbox transaction"
     );
     println!(
         "projected text (note source stays visible): {:?}",

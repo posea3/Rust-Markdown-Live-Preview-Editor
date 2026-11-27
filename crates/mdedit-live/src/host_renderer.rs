@@ -126,6 +126,12 @@ struct RegisteredRenderer<C, O, E> {
 /// own geometry, hit testing, layout, or renderer cache invalidation. Callbacks
 /// may capture view-thread-only state: no Send/Sync bound is imposed.
 ///
+/// Keep deferred actions associated with their originating document identity
+/// and projection revision. Prepare transactions with that captured revision;
+/// substituting the latest revision at application time can edit a stale range.
+/// A revision alone does not identify the document. Recompute rejected stale
+/// actions against current view data.
+///
 /// Use [`Self::check_widget_support`] before painting concealed widgets. Hosts
 /// choose which extension matches to dispatch, avoiding duplicate painting of
 /// built-in extension metadata already represented by projected widgets.

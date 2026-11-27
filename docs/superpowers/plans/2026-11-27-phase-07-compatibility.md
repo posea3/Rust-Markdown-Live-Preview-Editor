@@ -49,3 +49,9 @@
 Post-commit review/CI outcomes are recorded in the PR and execution ledger, without an extra status-only source commit.
 
 Local verification on 2026-11-27, Windows: **291 passed, 0 failed, 1 ignored**. All named checks/examples passed. Each critical mutation produced the expected targeted failure, followed by restored focused tests and compiling rustdoc example. Evidence is retained in ignored `target/phase-07-compatibility`.
+
+## Cumulative review correction
+
+The review of `7d46db3..c57407c` identified an important delayed-action guidance error. Added a regression that reproduced canonical-source corruption with the old latest-revision recipe; using the originating projection revision makes the core guard return `StaleRevision`. Updated the immediate consumer recipe, the host example's queued transactions, and WidgetAction/renderer/lifecycle documentation. No public API or engine behavior change was needed. One CommonMark fixture-wording minor remains deferred in the PR/ledger.
+
+Post-review Windows verification on 2026-11-28: **292 passed, 0 failed, 1 ignored**, with fmt/check/clippy/rustdoc and all three examples PASS. The new regression is recorded RED/GREEN. The correction is committed in the same stacked PR and requires fresh final-head CI; no repeat reviewer or status-only source commit is needed.

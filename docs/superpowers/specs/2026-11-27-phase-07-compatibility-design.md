@@ -12,6 +12,7 @@ Review all unmerged Phase 7 changes from integrated main `7d46db3` through the f
 
 - Exercise CommonMark with no scanners, GFM with a legacy application scanner, and Obsidian with both legacy built-in and fallible application scanners, using current checked projection and host support checks.
 - Return a checkbox action from the renderer, apply it through a real canonical-source transaction, reject old extension metadata after the revision change, and verify refreshed state while preserving Unicode/CRLF source.
+- Retain delayed actions with the originating document identity and projection revision; an intervening edit must cause rejection instead of applying old byte ranges with the latest revision. This host-lifecycle requirement was made explicit by cumulative review.
 - A declared scan failure must remain an error even with an older matching-configuration snapshot available. Show an explicit source-visible frame, then configuration invalidation, cached-data rejection, and successful recovery.
 - A renderer failure after successful preflight must preserve its cause through a concrete host error newtype and `?` into `Box<dyn Error>`; rebuilding source-visible projection must retain canonical source.
 - Resolve the two deferred Slice 05 minors: preflight must reach an unsupported later widget, and heterogeneous boxed errors need clear enum/newtype guidance with a compiling Rust example.

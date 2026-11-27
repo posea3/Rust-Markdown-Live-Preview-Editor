@@ -11,7 +11,7 @@ use std::{
 
 use mdedit_core::{
     Change, ChangeSet, Document, DocumentSnapshot, TextRange, TextSize, Transaction,
-    TransactionKind,
+    TransactionError, TransactionKind,
 };
 use mdedit_live::{
     HostRenderError, HostRenderInput, HostRenderKey, HostRendererRegistry, Projection,
@@ -208,7 +208,7 @@ fn gfm_host_action_preserves_unicode_crlf_and_requires_fresh_metadata_after_edit
     let WidgetAction::SetTaskChecked { marker_range, .. } = action;
     document
         .apply(Transaction::new(
-            document.revision(),
+            projection.revision(),
             ChangeSet::single(Change::new(marker_range, action.replacement_text())),
             TransactionKind::Widget,
         ))
@@ -246,6 +246,63 @@ fn gfm_host_action_preserves_unicode_crlf_and_requires_fresh_metadata_after_edit
             marker_range: range(2, 5),
             checked: false
         })
+    );
+}
+
+#[test]
+fn delayed_checkbox_action_rejects_an_intervening_edit_on_its_originating_document() {
+    let mut document = Document::new("- [ ] task\n").unwrap();
+    let extensions = ExtensionSet::new();
+    let metadata = scan(&document.snapshot(), MarkdownDialect::gfm(), &extensions);
+    let projection = project(
+        &document.snapshot(),
+        MarkdownDialect::gfm(),
+        &extensions,
+        &metadata,
+    )
+    .unwrap();
+    let mut registry = HostRendererRegistry::<(), WidgetAction, Infallible>::new();
+    registry
+        .try_register(
+            HostRenderKey::Widget(WidgetKind::TaskCheckbox),
+            |_, input| {
+                let HostRenderInput::Widget(widget) = input else {
+                    unreachable!()
+                };
+                Ok(widget.primary_action().unwrap())
+            },
+        )
+        .unwrap();
+    registry.check_widget_support(&projection).unwrap();
+    let rendered_revision = projection.revision();
+    let action = registry
+        .render(&mut (), HostRenderInput::Widget(&projection.widgets()[0]))
+        .unwrap();
+
+    document
+        .apply(Transaction::new(
+            document.revision(),
+            ChangeSet::single(Change::new(range(0, 0), "abc")),
+            TransactionKind::Typing,
+        ))
+        .unwrap();
+    let WidgetAction::SetTaskChecked { marker_range, .. } = action;
+    let application = document.apply(Transaction::new(
+        rendered_revision,
+        ChangeSet::single(Change::new(marker_range, action.replacement_text())),
+        TransactionKind::Widget,
+    ));
+    assert_eq!(
+        document.text(),
+        "abc- [ ] task\n",
+        "a stale rendered action must preserve the intervening edit"
+    );
+    assert_eq!(
+        application.unwrap_err(),
+        TransactionError::StaleRevision {
+            expected: rendered_revision,
+            actual: document.revision()
+        }
     );
 }
 
