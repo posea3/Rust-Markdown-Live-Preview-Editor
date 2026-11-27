@@ -28,7 +28,8 @@ pub use dialect::MarkdownDialect;
 pub use extension::{
     ExtensionAttribute, ExtensionCandidate, ExtensionError, ExtensionId, ExtensionIssue,
     ExtensionIssueReason, ExtensionKind, ExtensionMatch, ExtensionOverlapPolicy,
-    ExtensionScanContext, ExtensionScanMode, ExtensionSet, ExtensionSnapshot, SyntaxExtension,
+    ExtensionRegistrationError, ExtensionScanContext, ExtensionScanMode, ExtensionSet,
+    ExtensionSnapshot, SyntaxExtension,
 };
 pub use metadata::{
     SyntaxAttribute, SyntaxBlockQuoteKind, SyntaxCodeBlockKind, SyntaxLinkMetadata, SyntaxLinkType,

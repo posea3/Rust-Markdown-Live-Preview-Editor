@@ -1,12 +1,12 @@
 # Phase 7 Extension API Hardening
 
-Branch: `feature/extension-api-phase-07`
+Branches: `feature/extension-api-phase-07` (Slice 01), `feature/extension-api-phase-07-registration` (Slice 02, stacked above Windows acceptance PR #14).
 
-Status: **Slice 01 implemented and locally verified — namespace isolation, public consumer examples, and compatibility contracts; current-head 3-OS CI is tracked by the PR checks**.
+Status: **Slices 01–02 implemented — namespace isolation, public consumer contracts, and unique scanner registration; current-head 3-OS CI is tracked by their PR checks**.
 
 ## Entry decision
 
-All six Phase 6 widget slices are implemented and PR #12 is integrated at `064bc40130f9a1c61adaab1168180d791e5b1416`. Its final-head Windows/macOS/Ubuntu CI passed. The user explicitly deferred Windows native GUI/IME acceptance on 2026-11-26 and authorized Phase 7 to proceed on macOS. On 2026-11-27 the Windows native checklist passed locally with CRLF and widget-layout host fixes, recorded in `docs/phase-06-widgets.md`. Those fixes still require integration and fresh cross-platform CI; the unchanged upstream head does not inherit the local result. Narrator/VoiceOver acceptance remains deferred.
+All six Phase 6 widget slices are implemented and PR #12 is integrated at `064bc40130f9a1c61adaab1168180d791e5b1416`. Its final-head Windows/macOS/Ubuntu CI passed. The user explicitly deferred Windows native GUI/IME acceptance on 2026-11-26 and authorized Phase 7 to proceed on macOS. On 2026-11-27 the Windows native checklist passed with CRLF and widget-layout host fixes, recorded in `docs/phase-06-widgets.md` and [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14). Fresh [CI run 45976582080](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45976582080) passed on all three operating systems for `b04dce1`. Those fixes still require integration; the unchanged upstream head does not inherit the native result. Narrator/VoiceOver acceptance remains deferred.
 
 ## Slice 01 design
 
@@ -26,6 +26,7 @@ The first compatibility tests cover application/built-in coexistence, registrati
 | `ExtensionScanContext` | Read canonical source and project-owned syntax; construct byte ranges with `source_range` |
 | `ExtensionCandidate` | Claim a non-empty range, local kind name, optional string attributes, priority, and overlap policy |
 | `ExtensionSet` | Explicitly register the scanners desired by the host and scan a matching document/syntax snapshot |
+| `ExtensionSet::try_register` | Recover from a duplicate scanner ID through `ExtensionRegistrationError::DuplicateId` without changing existing registrations |
 | `ExtensionSnapshot` | Consume accepted source ranges and qualified kinds; inspect rejected-candidate diagnostics |
 | `Projection::build_with_extensions` | Combine validated scanner metadata with the core Markdown projection |
 
@@ -48,7 +49,13 @@ These examples demonstrate the scanner boundary; their small grammars define no 
 
 Use a distinct, stable `ExtensionId` for each registered scanner and treat its local kind names as namespaced values. Compare both `matched.kind().extension()` and `matched.kind().name()` when assigning meaning. The built-in `obsidian` namespace is reserved for the built-in scanner.
 
-The registration API currently accepts duplicate IDs. Hosts must avoid them; duplicates do not create isolated namespaces, and equal-priority claims with the same qualified identity can depend on the scanner's emission order. Unique string attribute keys should also be chosen by the scanner; `attribute(key)` returns the first matching attribute.
+Slice 02 rejects duplicate IDs using exact `ExtensionId` equality. Use `try_register` when loading host configuration: it returns `ExtensionRegistrationError::DuplicateId(id)` and leaves the existing set unchanged. The rejected scanner is not registered or scanned. A different namespace, including a name that shares a prefix, remains valid.
+
+`register` and `with_extension` retain their existing signatures and panic on duplicate IDs, with a diagnostic naming the conflict. They are convenience APIs for known-valid configuration. Code that previously registered duplicates must remove the duplicate or migrate to `try_register`; registration never silently replaces a scanner. The public scanner example uses the fallible method with `?`.
+
+The set captures `SyntaxExtension::id()` once when registering each scanner. That ID owns the namespace for the registration's lifetime. Changing an implementation's returned ID later does not rename existing matches, release its original namespace, or claim another registered namespace. Scanning and its diagnostics use the captured ID.
+
+Unique string attribute keys should also be chosen by the scanner; `attribute(key)` returns the first matching attribute.
 
 Scanner metadata is independent of rendering. Built-in Callout/Custom Embed widgets require the Obsidian namespace plus their supported kind. Foreign or unknown kinds do not conceal additional source or produce native widgets. Core Markdown projection still applies normally to that source.
 
@@ -83,6 +90,8 @@ Scans are synchronous. Scanner panics are not caught by `ExtensionSet`; hosts se
 
 The workspace remains at `0.1.0`; this slice preserves existing public scanner method signatures and adds no dependency. It fixes the accidental interpretation of foreign `callout`/`embed` kinds as built-in widgets. Applications that relied on that implicit interpretation must explicitly choose the built-in Obsidian scanner or provide a host adapter.
 
+Slice 02 adds a registration error type and `try_register` without changing existing valid call sites. It deliberately tightens the distinct-ID precondition: duplicate convenience registrations now panic, and scanner namespaces are captured at registration rather than reread on each scan. Hosts with dynamic configuration should handle registration errors before replacing their active extension set. Registration failure is separate from the scan-time `ExtensionError` contract.
+
 Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-*` types, preserve canonical byte ranges, and exercise examples/consumer tests when upgrading. Parser-specific internals and native rendering types are not part of this scanner contract. Future breaking changes require explicit migration guidance before an API-stability milestone is declared.
 
 ## Verification and follow-up
@@ -90,6 +99,7 @@ Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-
 ```bash
 cargo test -p mdedit-live --test extension_compatibility
 cargo test -p mdedit-markdown --test extension_contract
+cargo test -p mdedit-markdown --test extension_registration
 cargo run -p mdedit-markdown --example extension_scanners
 ```
 
@@ -97,4 +107,8 @@ The namespace regression was observed before the fix: a foreign `embed` emitted 
 
 Local macOS verification on 2026-11-26: fmt/check/clippy PASS; workspace tests **242 passed, 0 failed, 1 ignored**; the public scanner example ran successfully. The ignored native GPU regression was not rerun, and native GUI/IME acceptance was not repeated for this scanner-only slice.
 
-Further Phase 7 decisions include explicit duplicate-registration policy, configuration identity on cached extension data, scanner failure handling, and any public host-renderer registration boundary. These require their own compatibility review; this slice does not declare a frozen 1.0 API. The Windows native checklist passed with local host fixes that still require integration and new CI. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
+Slice 02 first reproduced three failures: duplicate `register`/builder calls did not reject configuration, and changing a scanner's reported ID renamed accepted matches. The fixes passed those regressions plus two public-consumer tests covering recoverable duplicate rejection, continued unique registration, unchanged accepted matches, and reservation of a mutable scanner's original namespace. The fallible API's absence was also recorded before implementation. Full verification and final-head CI are tracked by the Slice 02 plan and PR.
+
+Local Windows verification on 2026-11-27 for Slice 02: fmt/check/clippy `-D warnings` PASS; workspace tests **252 passed, 0 failed, 1 ignored**; rustdoc with warnings denied PASS; the public example passed using `try_register` and retained its Korean/reference/issue/protected-code output. The five registration tests and nine existing scanner-contract tests all passed. The native GPU module and native input/rendering code are unchanged by this slice, so their earlier Windows acceptance results remain scoped to PR #14 rather than treated as new GUI runs.
+
+Further Phase 7 decisions include configuration identity on cached extension data, scanner failure handling, and any public host-renderer registration boundary. These require their own compatibility review; this work does not declare a frozen 1.0 API. The Windows acceptance fixes have fresh three-OS CI and still require integration. Native GUI/IME was not repeated for this scanner-only slice. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
