@@ -7,6 +7,8 @@ use mdedit_markdown::{
     ParseStatus, SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
+mod profile;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ProjectedSize(u32);
@@ -938,11 +940,15 @@ impl Projection {
         policy: RevealPolicy,
         context: &RevealContext,
     ) -> Result<Self, ProjectionBuildError> {
-        validate_inputs(document, syntax, blocks, delimiters)?;
-        if let Some(extensions) = extensions {
-            validate_extension_input(document, extensions)?;
-        }
-        let source = document.text();
+        let profile = profile::BuildProfile::new();
+        profile.measure("validation", || {
+            validate_inputs(document, syntax, blocks, delimiters)?;
+            if let Some(extensions) = extensions {
+                validate_extension_input(document, extensions)?;
+            }
+            Ok::<_, ProjectionBuildError>(())
+        })?;
+        let source = profile.measure("source_text", || document.text());
 
         if matches!(syntax.status(), ParseStatus::RawFallback(_)) {
             return Self::raw(
@@ -955,7 +961,9 @@ impl Projection {
             );
         }
 
-        let reveal_groups = match build_reveal_groups(syntax.root(), delimiters, policy, context) {
+        let reveal_groups = match profile.measure("reveal_groups", || {
+            build_reveal_groups(syntax.root(), delimiters, policy, context)
+        }) {
             Ok(groups) => groups,
             Err(ProjectionFallbackReason::UnownedDelimiter) => {
                 return Self::raw(
@@ -979,36 +987,50 @@ impl Projection {
             }
         };
 
-        let mut concealed = reveal_groups
-            .iter()
-            .filter(|group| !group.revealed)
-            .flat_map(|group| {
-                group.delimiters.iter().map(|delimiter| ConcealSpan {
-                    kind: delimiter.kind(),
-                    source_range: delimiter.range(),
-                    group: group.id,
+        let mut concealed = profile.measure("conceal_spans", || {
+            reveal_groups
+                .iter()
+                .filter(|group| !group.revealed)
+                .flat_map(|group| {
+                    group.delimiters.iter().map(|delimiter| ConcealSpan {
+                        kind: delimiter.kind(),
+                        source_range: delimiter.range(),
+                        group: group.id,
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+        });
 
-        let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
-        let mut widget_candidates =
-            build_widget_candidates(&source, syntax.root(), policy, context)?;
+        let mut structural_padding = profile.measure("structural_padding", || {
+            build_structural_padding(&source, &reveal_groups)
+        })?;
+        let mut widget_candidates = profile.measure("builtin_candidates", || {
+            build_widget_candidates(&source, syntax.root(), policy, context)
+        })?;
         if let Some(extensions) = extensions {
-            widget_candidates.extend(build_extension_widget_candidates(
-                &source,
-                syntax.root(),
-                extensions,
-                policy,
-                context,
-            )?);
-            widget_candidates = normalize_widget_candidate_ownership(widget_candidates);
+            widget_candidates.extend(profile.measure("extension_candidates", || {
+                build_extension_widget_candidates(
+                    &source,
+                    syntax.root(),
+                    extensions,
+                    policy,
+                    context,
+                )
+            })?);
+            widget_candidates = profile.measure("normalize_ownership", || {
+                normalize_widget_candidate_ownership(widget_candidates)
+            });
         }
-        concealed.retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
-        structural_padding
-            .retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
+        profile.measure("shadow_filter", || {
+            concealed
+                .retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
+            structural_padding
+                .retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
+        });
 
-        if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
+        if profile.measure("overlap_check", || {
+            has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates)
+        }) {
             return Self::raw(
                 document.revision(),
                 syntax.source_len(),
@@ -1019,22 +1041,29 @@ impl Projection {
             );
         }
 
-        let omitted_ranges = concealed
-            .iter()
-            .map(|span| span.source_range)
-            .chain(structural_padding.iter().map(|span| span.source_range))
-            .chain(
-                widget_candidates
-                    .iter()
-                    .filter(|widget| !widget.active)
-                    .map(|widget| widget.conceal_range),
-            )
-            .collect();
-        let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
-        let text = materialize_projection(&source, map.concealed_ranges());
-        let projected_blocks = project_blocks(blocks, &map)?;
-        let styles = project_styles(syntax.root(), &map)?;
-        let widgets = project_widgets(&widget_candidates, &map)?;
+        let map = profile.measure("map", || {
+            let omitted_ranges = concealed
+                .iter()
+                .map(|span| span.source_range)
+                .chain(structural_padding.iter().map(|span| span.source_range))
+                .chain(
+                    widget_candidates
+                        .iter()
+                        .filter(|widget| !widget.active)
+                        .map(|widget| widget.conceal_range),
+                )
+                .collect();
+            ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)
+        })?;
+        let text = profile.measure("materialize", || {
+            materialize_projection(&source, map.concealed_ranges())
+        });
+        let projected_blocks =
+            profile.measure("project_blocks", || project_blocks(blocks, &map))?;
+        let styles = profile.measure("project_styles", || project_styles(syntax.root(), &map))?;
+        let widgets = profile.measure("project_widgets", || {
+            project_widgets(&widget_candidates, &map)
+        })?;
 
         Ok(Self {
             revision: syntax.revision(),
