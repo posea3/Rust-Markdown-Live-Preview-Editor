@@ -251,7 +251,7 @@ On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows nati
 
 ## Phase 7 - Extension API hardening
 
-Status: **in progress — Slices 01–02 merged through PRs #13 and #15; Slice 03 adds extension configuration provenance, explicit invalidation, and checked projection of cached snapshots; scanner failure-policy and renderer-boundary review remain**.
+Status: **in progress — Slices 01–02 merged through PRs #13 and #15; Slices 03–04 add configuration provenance, checked cached projection, and declared scanner failures with strict scan abort; renderer-boundary and final compatibility review remain**.
 
 The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
 

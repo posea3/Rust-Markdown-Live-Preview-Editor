@@ -1,8 +1,8 @@
 # Phase 7 Extension API Hardening
 
-Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Current branch: `feature/extension-api-phase-07-config` (Slice 03), based on integrated main `7d46db3`.
+Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Slice 03 is proposed in PR #16 (`bacd562`), based on integrated main `7d46db3`. Current branch: `feature/extension-api-phase-07-failures` (Slice 04), stacked above Slice 03.
 
-Status: **Slices 01–02 merged; Slice 03 implements configuration provenance and checked cached-snapshot projection. Current-head three-OS CI is tracked by the Slice 03 PR checks**.
+Status: **Slices 01–02 merged; Slices 03–04 implement configuration provenance, checked cached-snapshot projection, and declared scanner failures with strict scan abort. Current-head three-OS CI is tracked by their PR checks**.
 
 ## Entry decision
 
@@ -23,10 +23,12 @@ The first compatibility tests cover application/built-in coexistence, registrati
 | API | Consumer responsibility |
 | --- | --- |
 | `SyntaxExtension` | Supply a stable namespace and synchronous scanner; implementations are `Send + Sync` |
+| `FallibleSyntaxExtension` | Supply a complete candidate list or a declared `ExtensionScanError`; callback panics still propagate |
 | `ExtensionScanContext` | Read canonical source and project-owned syntax; construct byte ranges with `source_range` |
 | `ExtensionCandidate` | Claim a non-empty range, local kind name, optional string attributes, priority, and overlap policy |
 | `ExtensionSet` | Explicitly register the scanners desired by the host and scan a matching document/syntax snapshot |
 | `ExtensionSet::try_register` | Recover from a duplicate scanner ID through `ExtensionRegistrationError::DuplicateId` without changing existing registrations |
+| `ExtensionSet::try_register_fallible` | Register a fallible scanner under the same unique-namespace and configuration rules |
 | `ExtensionSnapshot` | Consume accepted source ranges and qualified kinds; inspect rejected-candidate diagnostics |
 | `ExtensionConfigId` | Use process-local configuration provenance when retaining scanner results in memory |
 | `Projection::build_with_extensions` | Combine validated scanner metadata with the core Markdown projection |
@@ -41,6 +43,8 @@ cargo run -p mdedit-markdown --example extension_scanners
 ```
 
 The complete consumer is in `crates/mdedit-markdown/examples/extension_scanners.rs`; the two reusable scanner implementations are in `examples/support/scanners.rs` within that crate.
+
+`cargo run -p mdedit-markdown --example fallible_scanners` demonstrates both complete success and a reported scanner failure. Its host policy prints the canonical source on failure, rather than treating earlier matches as a complete result.
 
 - `example.references::reference` recognizes `{{ref:설계 노트}}` and emits a `target` attribute. A target is trimmed, non-empty, and confined to one line.
 - `example.issues::issue` recognizes `#42` at the start of source or after whitespace and emits a `number` attribute. The number contains ASCII digits.
@@ -78,7 +82,7 @@ Accepted claims are chosen deterministically by descending priority, earlier sta
 - Identical ranges always conflict, including two `AllowContained` claims.
 - Crossing/partial overlaps always conflict.
 
-Inspect `ExtensionSnapshot::issues()` for `InvalidRange`, `SuppressedByCoreSyntax`, and `Conflict { kept }`. A rejected individual claim is a diagnostic, whereas unavailable syntax, stale revision, source-length mismatch, or unsupported document size returns `ExtensionError` for the scan.
+Inspect `ExtensionSnapshot::issues()` for `InvalidRange`, `SuppressedByCoreSyntax`, and `Conflict { kept }`. A rejected individual claim is a diagnostic, whereas unavailable syntax, stale revision, source-length mismatch, unsupported document size, or a declared scanner failure returns `ExtensionError` for the scan.
 
 ## Snapshot and configuration lifecycle
 
@@ -90,9 +94,19 @@ Successful registration invalidates the current identity. Duplicate rejection le
 
 For an in-memory cache, reuse requires both current document metadata and a matching `snapshot.configuration_id() == extensions.configuration_id()`. Use `Projection::build_with_current_extensions` for cached metadata; it accepts the snapshot followed by the current `ExtensionSet`, rejects mismatches through `ProjectionBuildError::ExtensionConfigurationMismatch { expected, snapshot }`, and retains document revision/length validation. Rescan after a mismatch. Existing `build_with_extensions` keeps its signature and checks document metadata, but has no current set with which to validate configuration; use it for freshly scanned data or enforce the identity check in the host. The public scanner example demonstrates registration invalidating a cached scan without editing source.
 
-Hosts using `ParseReconciler` should still advance `ParseConfigEpoch` when parser/dialect configuration changes and discard incompatible syntax. Extension identity does not replace parser configuration epochs or host-owned document identity. Unrelated documents with equal revision and byte length remain the host's responsibility.
+Hosts using `ParseReconciler` should still advance `ParseConfigEpoch` when parser/dialect configuration changes. Discard both incompatible syntax and extension snapshots derived from that old parser configuration, invalidate the extension configuration, and rescan against the new syntax. The configuration ID cannot detect parser changes automatically. Extension identity does not replace parser configuration epochs or host-owned document identity. Unrelated documents with equal revision and byte length remain the host's responsibility.
 
-Scans are synchronous. Scanner panics are not caught by `ExtensionSet`; hosts select the implementations they register. This slice adds no asynchronous plugin runtime or dynamic library loading.
+## Declared scanner failures and host fallback
+
+Slice 04 preserves the required `SyntaxExtension::scan -> Vec<ExtensionCandidate>` method. New scanners that need to report recoverable failures implement `FallibleSyntaxExtension::try_scan -> Result<Vec<ExtensionCandidate>, ExtensionScanError>`. The separate trait avoids changing existing scanner implementations or silently substituting an empty list when a failure occurs.
+
+Register through `try_register_fallible`, `register_fallible`, or `with_fallible_extension`. The latter two panic on duplicate configuration, matching the existing convenience APIs. Both interfaces share the same namespace registry, registration-time IDs, protected-source policies, and configuration invalidation. A fallible scanner defaults to `MarkdownText`; `AllSource` remains explicit opt-in.
+
+The first declared failure stops the scan immediately and returns `ExtensionError::ScannerFailed { extension, error }`. The ID is captured at registration, and the owned `ExtensionScanError` is available through the error's `source()` chain. No partial snapshot is published and later scanners are not invoked. Earlier callback side effects are not rolled back. Invalid candidates from an otherwise successful callback remain per-candidate issues; they do not become a declared scanner failure.
+
+A reported error does not remove a scanner, poison the set, or change configuration identity. It is not a successful empty snapshot. The host must handle that attempt as failed and choose source-visible fallback, a deliberate retry, or revised scanner configuration. An older successful snapshot does not become a new success merely because its configuration ID still matches. Invalidate configuration when changing effective settings or external state used in cached scanner results, and rescan. The example demonstrates complete success with a reference scanner followed by a fallible issue scanner, and source-visible fallback when the latter fails after the former has run.
+
+Scans are synchronous. Rust panics in `id`, `scan_mode`, `scan`, or `try_scan` are not caught or converted into declared errors. There is no recovery from `panic=abort`, timeout enforcement, process isolation, asynchronous plugin runtime, or dynamic library loading. Hosts choose the scanner implementations they register.
 
 ## Compatibility guidance
 
@@ -101,6 +115,8 @@ The workspace remains at `0.1.0`; this slice preserves existing public scanner m
 Slice 02 adds a registration error type and `try_register` without changing existing valid call sites. It deliberately tightens the distinct-ID precondition: duplicate convenience registrations now panic, and scanner namespaces are captured at registration rather than reread on each scan. Hosts with dynamic configuration should handle registration errors before replacing their active extension set. Registration failure is separate from the scan-time `ExtensionError` contract.
 
 Slice 03 preserves the const `ExtensionSet::new()` constructor and existing method signatures. Consumers that cache extension snapshots should adopt the configuration ID and checked projection builder. `ProjectionBuildError` has an additional mismatch variant; exhaustive matches must handle it. Snapshot equality now includes configuration provenance. This adds no native renderer or scanner panic isolation.
+
+Slice 04 adds the fallible trait, error type, and registration methods without changing existing trait requirements. `ExtensionError` gains `ScannerFailed`; exhaustive matches must handle it. Successful legacy scans keep their previous behavior. Error reporting and fallback are explicit host decisions; this is not a panic-catching layer or rollback mechanism.
 
 Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-*` types, preserve canonical byte ranges, and exercise examples/consumer tests when upgrading. Parser-specific internals and native rendering types are not part of this scanner contract. Future breaking changes require explicit migration guidance before an API-stability milestone is declared.
 
@@ -112,7 +128,10 @@ cargo test -p mdedit-markdown --test extension_contract
 cargo test -p mdedit-markdown --test extension_registration
 cargo test -p mdedit-markdown --test extension_configuration
 cargo test -p mdedit-live --test extension_configuration
+cargo test -p mdedit-markdown --test extension_failures
+cargo test -p mdedit-live --test extension_failures
 cargo run -p mdedit-markdown --example extension_scanners
+cargo run -p mdedit-markdown --example fallible_scanners
 ```
 
 The namespace regression was observed before the fix: a foreign `embed` emitted an extra Custom Embed widget, and a foreign `callout` concealed the containing blockquote. The three regression cases passed after qualifying built-in dispatch by `OBSIDIAN_EXTENSION_ID`. Nine public-consumer contract tests exercise the merge/snapshot boundary.
@@ -125,4 +144,6 @@ Local Windows verification on 2026-11-27 for Slice 02: fmt/check/clippy `-D warn
 
 Slice 03 local Windows verification on 2026-11-27: **263 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and the public cache-aware scanner example passed. Ten public-consumer tests cover configuration identity and checked projection, and one isolated-counter unit test covers exhaustion without ID reuse. Removing the projection guard reproduced three stale/cross-set failures; replacing checked allocation with wrapping allocation reproduced the exhaustion failure. The correct implementations passed after restoration. Fresh CI for integrated main `7d46db3` passed on all three operating systems; the Slice 03 PR tracks its own current-head CI.
 
-Further Phase 7 decisions include scanner failure handling and any public host-renderer registration boundary. These require their own compatibility review; this work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner-only slices. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
+Slice 04 local Windows verification on 2026-11-27: **276 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and both scanner examples passed. Twelve markdown consumer regressions cover successful mixed scanning, captured failure identity/cause, short-circuiting, prevalidation, protected/AllSource handling, malformed-candidate diagnostics, shared duplicate rejection, convenience APIs, panic propagation, and retry after invalidation. One Live Preview consumer regression verifies native widget mapping from successful fallible metadata. Suppressing reported errors reproduced three failures; correct propagation was restored before full verification. The fallible example reported two matches on success and the failing namespace plus unchanged canonical source on failure.
+
+The remaining Phase 7 design decision is any public host-renderer registration boundary, followed by overall compatibility review. This work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner-only slices. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
