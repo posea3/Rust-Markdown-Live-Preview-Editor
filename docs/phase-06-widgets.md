@@ -595,7 +595,7 @@ The long embed's wrapped source has a different visual height from its one-row c
 
 ## Final Windows native integration acceptance
 
-Status: **Windows native GUI/IME checklist and fresh Windows/macOS/Ubuntu CI passed for acceptance PR #14 (`b04dce1`) on 2026-11-27; patch integration remains pending**.
+Status: **Windows native GUI/IME checklist passed for acceptance PR #14 (`b04dce1`) on 2026-11-27; the patch is merged and integrated main `7d46db3` passed Windows/macOS/Ubuntu CI**.
 
 Use the integrated revision being considered for platform acceptance and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result. If this check is performed after later-phase changes, test that then-current integrated revision rather than relying on the earlier Phase 6 baseline alone.
 
@@ -615,7 +615,7 @@ cargo run -p mdedit-ime-lab --release
 - Confirm DX12 startup and absence of wgpu validation errors, panic, or crash. Record any `WGPU_BACKEND` override rather than treating an alternate backend as the default-path result.
 - Undo temporary acceptance edits and record the final source baseline.
 
-Phase 6 implementation is integrated. Windows native testing subsequently passed with local host fixes; the unchanged upstream head does not inherit that result until those fixes are integrated and verified. On 2026-11-26 the user explicitly authorized starting Phase 7 on macOS with Windows verification deferred. Phase 7 hardens the extension API; its scanner tests are independent of native acceptance. Narrator/VoiceOver acceptance remains separately deferred.
+Phase 6 implementation and Windows host fixes are integrated. The measured Windows native result remains scoped to the acceptance build below; later scanner-only slices do not represent new GUI runs. On 2026-11-26 the user explicitly authorized starting Phase 7 on macOS with Windows verification deferred. That native checklist is now complete. Narrator/VoiceOver acceptance remains separately deferred.
 
 ### Windows native results — 2026-11-26–27
 
@@ -673,4 +673,4 @@ The final semantic trace replayed **178 events**, including 44 preedit and 10 IM
 
 Local evidence is retained under `target/windows-acceptance/`: command logs, RED/GREEN regressions, semantic traces and replay, action/scroll measurements, OS/GPU metadata, the exact code diff, and the resolved `Cargo.lock`. Its SHA-256 is `0f267d4da3dc5124c724452be328c13c4c0fced20a390a7a462a16be976f7c6e`; the generated lockfile is retained as local evidence rather than added to the repository.
 
-Local native acceptance is complete for the tested patch. Native session logs contain no wgpu validation error, panic, device-loss error, or crash; invalid TeX produced only its expected fallback. The fixes and results are proposed for integration through Windows acceptance PR #14, whose fresh three-OS CI passed at `b04dce1`. Narrator/VoiceOver acceptance remains separately deferred.
+Local native acceptance is complete for the tested patch. Native session logs contain no wgpu validation error, panic, device-loss error, or crash; invalid TeX produced only its expected fallback. PR #14 was merged into main at `7b927f81a8c270ab283f393c82f14895f1f6aa28`, following #13 and before #15. Integrated main `7d46db377c44aeda755d7f8978ead128bcea6c1d` passed fresh [Windows/macOS/Ubuntu CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45979821603). Narrator/VoiceOver acceptance remains separately deferred.
