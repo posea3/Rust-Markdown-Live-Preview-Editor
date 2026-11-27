@@ -4,6 +4,7 @@ use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 
 use crate::{ParseStatus, SyntaxKind, SyntaxNode, SyntaxSnapshot};
 
+/// Namespace owned by one registered scanner. Use a distinct ID per scanner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExtensionId(&'static str);
 
@@ -19,6 +20,7 @@ impl ExtensionId {
     }
 }
 
+/// A qualified syntax identity: the scanner namespace plus its local kind name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExtensionKind {
     extension: ExtensionId,
@@ -37,12 +39,15 @@ impl ExtensionKind {
     }
 }
 
+/// Whether a candidate may coexist with a containing or contained candidate.
+/// Identical ranges and crossing overlaps always conflict.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExtensionOverlapPolicy {
     Exclusive,
     AllowContained,
 }
 
+/// Candidate filtering policy. Scanners still receive the full canonical source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExtensionScanMode {
     MarkdownText,
@@ -175,6 +180,8 @@ impl<'a> ExtensionScanContext<'a> {
         self.syntax
     }
 
+    /// Constructs a UTF-8-aligned byte range within this source. Empty ranges
+    /// are representable here but are rejected as extension candidates by `scan`.
     #[must_use]
     pub fn source_range(&self, start: usize, end: usize) -> Option<TextRange> {
         if start > end
@@ -191,6 +198,11 @@ impl<'a> ExtensionScanContext<'a> {
     }
 }
 
+/// Application-supplied synchronous scanner over canonical Markdown source.
+///
+/// Candidates are metadata claims, not source edits or native render requests.
+/// The merge engine validates ranges and applies protection/overlap policies
+/// after `scan` returns. Hosts own scanner registration and configuration epochs.
 pub trait SyntaxExtension: Send + Sync {
     fn id(&self) -> ExtensionId;
 
@@ -214,6 +226,9 @@ impl ExtensionSet {
         }
     }
 
+    /// Registers a scanner. Hosts must use distinct scanner IDs; duplicate IDs
+    /// are not rejected by this method. Recompute cached extension snapshots
+    /// after registration or scanner configuration changes.
     pub fn register<E>(&mut self, extension: E)
     where
         E: SyntaxExtension + 'static,
@@ -230,6 +245,11 @@ impl ExtensionSet {
         self
     }
 
+    /// Scans syntax from the same document snapshot and parser configuration.
+    ///
+    /// Revision and source-length checks reject stale inputs but do not prove
+    /// document identity. Invalid individual candidates are reported through
+    /// `ExtensionSnapshot::issues` without discarding unrelated valid matches.
     pub fn scan(
         &self,
         document: &DocumentSnapshot,

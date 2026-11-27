@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
     BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ExtensionSnapshot,
-    OBSIDIAN_CALLOUT, OBSIDIAN_EMBED, ParseStatus, SyntaxKind, SyntaxMetadata, SyntaxNode,
-    SyntaxSnapshot, SyntaxTableAlignment,
+    OBSIDIAN_CALLOUT, OBSIDIAN_EMBED, OBSIDIAN_EXTENSION_ID, ParseStatus, SyntaxKind,
+    SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1715,6 +1715,9 @@ fn build_extension_widget_candidates(
     let mut widgets = Vec::new();
 
     for extension in extensions.matches() {
+        if extension.kind().extension() != OBSIDIAN_EXTENSION_ID {
+            continue;
+        }
         match extension.kind().name() {
             OBSIDIAN_CALLOUT => {
                 let marker_range = extension.range();

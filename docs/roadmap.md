@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **all six slices implemented — horizontal rule, task checkbox, standalone image, Display Math, and Table macOS integration PASS; Callout / custom embed macOS focused retest PASS at `d834fe8`; final branch-head CI and Windows native integration acceptance remain before Phase 6 is complete**
+Status: **implementation integrated — all six slices are on main through PR #12 (`064bc40`); macOS acceptance and final PR Windows/macOS/Ubuntu CI PASS; Windows native GUI/IME integration acceptance remains deferred**
 
 Rules:
 
@@ -242,14 +242,16 @@ Order:
 
 Widgets emit editor/host actions. They never mutate the buffer directly.
 
-Before closing Phase 6:
+Before closing Phase 6 platform acceptance:
 
-- record the Callout / custom embed focused macOS results and long-label clipping check in `docs/phase-06-widgets.md`
-- pass Windows/macOS/Ubuntu CI on the final PR head and integrate PR #12
 - complete the Windows native widget/IME integration checklist in `docs/phase-06-widgets.md`
 - keep Narrator/VoiceOver manual acceptance explicitly deferred; do not infer it from CI or visual acceptance
 
+On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows native acceptance remains a separate open item. Implementation milestones and platform acceptance are tracked independently.
+
 ## Phase 7 - Extension API hardening
+
+Status: **in progress — Slice 01 implemented: namespace isolation, public consumer compatibility tests, runnable scanner examples, and API contract guidance; further registration/configuration/failure-policy review remains**.
 
 The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
 
@@ -262,6 +264,8 @@ Target use cases:
 - application-specific references
 
 NodeNotes-specific behavior remains outside the core repository.
+
+See `docs/phase-07-extension-api.md` for the current boundary and follow-up decisions.
 
 ## Phase 8 - Large-document performance
 

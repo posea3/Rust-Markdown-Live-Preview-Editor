@@ -518,7 +518,7 @@ Slice 05 — Table is **macOS PASS** and can be merged. Narrow-window edge-drag 
 
 ## Slice 06 - callout / custom embed
 
-Status: **projection/data and native rendering implemented; macOS focused retest PASS at `d834fe8`; Windows/macOS/Ubuntu CI PASS required on the final branch head; Windows native manual acceptance remains deferred to the final Phase 6 integration pass**.
+Status: **integrated through PR #12 at `064bc40`; macOS focused acceptance and long-label clipping PASS; final PR Windows/macOS/Ubuntu CI PASS; Windows native manual acceptance remains deferred**.
 
 ### Contract
 
@@ -558,7 +558,7 @@ In **Callout and custom embed widget scratch**, verify:
 - Korean `한글` and `**한글**` keep the viewport stable
 - no wgpu validation error, panic, or crash appears
 
-Keep PR #12 Draft until this macOS acceptance passes.
+PR #12 was merged after the focused macOS results and final-head CI passed; measured scope and limitations are recorded below.
 
 ### Recorded macOS focused retest
 
@@ -597,7 +597,7 @@ The long embed's wrapped source has a different visual height from its one-row c
 
 Status: **pending — macOS visual acceptance and CI do not establish Windows native GUI/IME behavior**.
 
-Use the final integrated Phase 6 revision and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result.
+Use the integrated revision being considered for platform acceptance and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result. If this check is performed after later-phase changes, test that then-current integrated revision rather than relying on the earlier Phase 6 baseline alone.
 
 ```powershell
 git rev-parse HEAD
@@ -615,4 +615,4 @@ cargo run -p mdedit-ime-lab --release
 - Confirm DX12 startup and absence of wgpu validation errors, panic, or crash. Record any `WGPU_BACKEND` override rather than treating an alternate backend as the default-path result.
 - Undo temporary acceptance edits and record the final source baseline.
 
-Close Phase 6 only after the final-head CI gate and this Windows checklist pass. Narrator/VoiceOver acceptance remains separately deferred; Phase 7 then hardens the extension API rather than adding an application-specific editor integration.
+Phase 6 implementation is integrated, while its Windows native platform acceptance remains open until this checklist passes. On 2026-11-26 the user explicitly authorized starting Phase 7 on macOS with that verification deferred. Phase 7 hardens the extension API; it does not establish Windows GUI/IME acceptance. Narrator/VoiceOver acceptance remains separately deferred.
