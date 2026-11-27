@@ -129,6 +129,37 @@ struct RegisteredRenderer<C, O, E> {
 /// Use [`Self::check_widget_support`] before painting concealed widgets. Hosts
 /// choose which extension matches to dispatch, avoiding duplicate painting of
 /// built-in extension metadata already represented by projected widgets.
+///
+/// For heterogeneous callback failures, use a concrete host error enum or a
+/// local newtype. The standard error implementation requires `E: Error`;
+/// `Box<dyn Error>` itself does not satisfy that generic bound. A newtype lets
+/// hosts retain boxed causes and propagate dispatch errors with `?`:
+///
+/// ```
+/// use std::{error::Error, fmt};
+/// use mdedit_live::{HostRenderInput, HostRendererRegistry};
+///
+/// #[derive(Debug)]
+/// struct ViewError(Box<dyn Error>);
+/// impl fmt::Display for ViewError {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         fmt::Display::fmt(self.0.as_ref(), f)
+///     }
+/// }
+/// impl Error for ViewError {
+///     fn source(&self) -> Option<&(dyn Error + 'static)> {
+///         Some(self.0.as_ref())
+///     }
+/// }
+///
+/// fn paint(
+///     registry: &mut HostRendererRegistry<(), (), ViewError>,
+///     input: HostRenderInput<'_>,
+/// ) -> Result<(), Box<dyn Error>> {
+///     registry.render(&mut (), input)?;
+///     Ok(())
+/// }
+/// ```
 pub struct HostRendererRegistry<C, O, E> {
     renderers: Vec<RegisteredRenderer<C, O, E>>,
 }
