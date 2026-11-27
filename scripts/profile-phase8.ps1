@@ -5,7 +5,8 @@ param(
     [ValidateRange(1,3600)][int]$TimeoutSeconds = 90,
     [long]$MaxWorkingSetBytes = 1500000000,
     [string]$OutputDirectory = 'target/phase-08-profiling/baseline',
-    [switch]$NoLayout
+    [switch]$NoLayout,
+    [switch]$SourceVisible
 )
 $ErrorActionPreference = 'Stop'
 $profileRoot = Split-Path -Parent $PSScriptRoot
@@ -22,6 +23,7 @@ foreach ($profileFixture in $Fixtures) {
     if ((Test-Path -LiteralPath $profileCsv) -or (Test-Path -LiteralPath $profileLog)) { throw ('Output already exists; select a fresh directory: ' + $profileFixture) }
     $profileArgs = @($profileFixture, '--samples', [string]$Samples, '--warmups', [string]$Warmups, '--settle-ms', '200')
     if ($NoLayout) { $profileArgs += '--no-layout' }
+    if ($SourceVisible) { $profileArgs += '--source-visible' }
     $profileWatch = [Diagnostics.Stopwatch]::StartNew()
     $profileProcess = Start-Process -FilePath $profileBinary -ArgumentList $profileArgs -WorkingDirectory $profileRoot -WindowStyle Hidden -RedirectStandardOutput $profileCsv -RedirectStandardError $profileLog -PassThru
     $profilePeak = 0L
@@ -49,7 +51,7 @@ foreach ($profileFixture in $Fixtures) {
     $profileExit = $profileProcess.ExitCode
     if ($profileStatus -eq 'completed' -and $profileExit -ne 0) { $profileStatus = 'failed' }
     $profileLastStage = Get-Content -LiteralPath $profileLog | Where-Object { $_ -like 'begin,*' } | Select-Object -Last 1
-    $profileRecords += [pscustomobject]@{ fixture = $profileFixture; status = $profileStatus; exit_code = $profileExit; elapsed_ms = [Math]::Round($profileWatch.Elapsed.TotalMilliseconds, 1); observed_peak_working_set_bytes = $profilePeak; samples_requested = $Samples; warmups = $Warmups; layout = (-not $NoLayout); last_stage = $profileLastStage }
+    $profileRecords += [pscustomobject]@{ fixture = $profileFixture; status = $profileStatus; exit_code = $profileExit; elapsed_ms = [Math]::Round($profileWatch.Elapsed.TotalMilliseconds, 1); observed_peak_working_set_bytes = $profilePeak; samples_requested = $Samples; warmups = $Warmups; timeout_seconds = $TimeoutSeconds; max_working_set_bytes = $MaxWorkingSetBytes; layout = (-not $NoLayout); source_visible = [bool]$SourceVisible; last_stage = $profileLastStage }
     $profileRecords | Export-Csv -LiteralPath (Join-Path $profileOutput 'processes.csv') -NoTypeInformation -Encoding utf8
     Write-Output ($profileFixture + ': ' + $profileStatus + ', ' + [Math]::Round($profileWatch.Elapsed.TotalSeconds, 2) + 's, peak ' + [Math]::Round($profilePeak / 1MB, 1) + ' MiB')
     $profileProcess.Dispose()

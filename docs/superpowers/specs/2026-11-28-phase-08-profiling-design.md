@@ -12,7 +12,7 @@ Each isolated fixture process uses one warmup and five measured samples. Measure
 
 Text layout uses SansSerif, 22 px / 31 px metrics, Word wrap, a fixed 1000 x 700 viewport. This is base-text CPU shaping, not the lab's complete styled/widget-reservation, resource-rendering, GPU or input-to-display path. Record that distinction. Sum of stage times excludes logging and teardown and is not a frame-latency claim.
 
-A Windows PowerShell runner launches each child hidden, captures raw CSV/stage progress and process peak working set, and limits a fixture to 90 seconds / 1.5 GB observed working set. The child briefly settles after completing measurements so the parent can observe its peak counter. Preserve incomplete data and report timeouts/limits with the last stage; never present censored runs as completed samples. A core-only control may be run when layout prevents attribution. Report measured sample counts and median/min/max for completed rows, not unsupported tail percentiles.
+A Windows PowerShell runner launches each child hidden, captures raw CSV/stage progress and process peak working set, and limits a fixture to 90 seconds / 1.5 GB observed working set. The child briefly settles after completing measurements so the parent can observe its peak counter. Preserve incomplete data and report timeouts/limits with the last stage; never present censored runs as completed samples. A core-only control isolates layout, a single-sample/longer-budget control records an expensive full frame, and a SourceVisible control isolates concealment work. The latter changes display semantics and is not an equivalent optimization. Report measured sample counts and median/min/max for completed rows, not unsupported tail percentiles.
 
 ## Scope and delivery
 

@@ -58,12 +58,13 @@ struct Options {
     samples: usize,
     warmups: usize,
     layout: bool,
+    policy: RevealPolicy,
     settle_ms: u64,
 }
 impl Options {
     fn parse() -> Result<Self, Box<dyn Error>> {
         let mut args = env::args().skip(1);
-        let name = args.next().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "usage: phase8_profile <mixed-10kb|mixed-100kb|mixed-1mb|mixed-10mb|single-line> [--samples N] [--warmups N] [--no-layout] [--settle-ms N]"))?;
+        let name = args.next().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "usage: phase8_profile <mixed-10kb|mixed-100kb|mixed-1mb|mixed-10mb|single-line> [--samples N] [--warmups N] [--no-layout] [--source-visible] [--settle-ms N]"))?;
         let fixture = Fixture::from_name(&name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unknown fixture"))?;
         let mut result = Self {
@@ -71,11 +72,16 @@ impl Options {
             samples: 5,
             warmups: 1,
             layout: true,
+            policy: RevealPolicy::ConcealInactive,
             settle_ms: 0,
         };
         while let Some(arg) = args.next() {
             if arg == "--no-layout" {
                 result.layout = false;
+                continue;
+            }
+            if arg == "--source-visible" {
+                result.policy = RevealPolicy::SourceVisible;
                 continue;
             }
             let value = args.next().ok_or_else(|| {
@@ -137,6 +143,7 @@ struct Pipeline<'a> {
     blocks: BlockCache,
     fonts: Option<&'a mut FontSystem>,
     buffer: Option<Buffer>,
+    policy: RevealPolicy,
 }
 
 impl<'a> Pipeline<'a> {
@@ -144,6 +151,7 @@ impl<'a> Pipeline<'a> {
         extensions: &'a ExtensionSet,
         mut fonts: Option<&'a mut FontSystem>,
         clock: &Clock,
+        policy: RevealPolicy,
     ) -> Self {
         let buffer = fonts.as_deref_mut().map(|font_system| {
             clock.measure("load", "buffer_create", || {
@@ -158,6 +166,7 @@ impl<'a> Pipeline<'a> {
             blocks: BlockCache::new(),
             fonts,
             buffer,
+            policy,
         }
     }
 
@@ -188,7 +197,7 @@ impl<'a> Pipeline<'a> {
                 &delimiters,
                 &extensions,
                 self.extensions,
-                RevealPolicy::ConcealInactive,
+                self.policy,
                 &context,
             )
         })?;
@@ -197,6 +206,16 @@ impl<'a> Pipeline<'a> {
         clock.metric(phase, "delimiters_count", delimiters.spans().len());
         clock.metric(phase, "widgets_count", projection.widgets().len());
         clock.metric(phase, "projected_bytes", projection.text().len());
+        clock.metric(
+            phase,
+            "concealed_ranges",
+            projection.map().concealed_ranges().len(),
+        );
+        clock.metric(
+            phase,
+            "visible_spans",
+            projection.map().visible_spans().len(),
+        );
         clock.metric(
             phase,
             "raw_fallback",
@@ -248,7 +267,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             },
         };
         let mut document = clock.measure("load", "document", || Document::new(&source))?;
-        let mut pipeline = Pipeline::new(&extensions, fonts.as_mut(), &clock);
+        let mut pipeline = Pipeline::new(&extensions, fonts.as_mut(), &clock, options.policy);
         let initial = pipeline.refresh(&document, &clock, "load")?;
         black_box(&initial);
         drop(initial);

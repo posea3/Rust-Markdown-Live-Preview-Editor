@@ -27,9 +27,9 @@
 **Files:** `examples/ime-lab/examples/phase8_profile.rs`, `scripts/profile-phase8.ps1`.
 **Interfaces:** existing mdedit document/scanner/projection/caret APIs and cosmic-text Buffer; CSV and per-fixture process records.
 
-- [ ] Write fixture-generation tests, observe RED, implement deterministic fixtures and stage measurement example.
-- [ ] Add hidden-child Windows runner with raw outputs, peak-memory sampling and explicit resource limits.
-- [ ] Run focused checks and a small release smoke measurement; inspect real output/schema/semantics.
+- [x] Write fixture-generation tests, observe RED, implement deterministic fixtures and stage measurement example.
+- [x] Add hidden-child Windows runner with raw outputs, peak-memory sampling and explicit resource limits.
+- [x] Run focused checks and a small release smoke measurement; inspect real output/schema/semantics.
 
 ## Task 2 — Measurement, report and publication
 
@@ -42,3 +42,5 @@
 - [ ] Commit, obtain one independent branch review, address Important issues with RED/GREEN, publish draft and verify current-head CI.
 
 Review/final CI outcomes are recorded in the PR and ignored ledger without a status-only source commit.
+
+Evidence-driven controls: baseline attempted all five fixtures under `c037bfd`, with 1 MB/10 MB/single-line runs censored by the whole-process budget. A no-warmup one-sample 1 MB run completed under a 180-second budget, and a core-only single-line run completed all five samples. Added a SourceVisible control and map-span metadata to separate concealment growth; its different display semantics must remain explicit. Full local verification after the control path: 294 passed, 0 failed, 1 ignored; fmt/check/clippy and optimized build PASS. Initial rustdoc and public examples also PASS.
