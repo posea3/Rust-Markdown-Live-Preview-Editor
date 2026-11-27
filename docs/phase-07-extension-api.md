@@ -1,8 +1,8 @@
 # Phase 7 Extension API Hardening
 
-Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Slice 03 is proposed in PR #16 (`bacd562`), based on integrated main `7d46db3`; Slice 04 is proposed in PR #17 (`00de68e`). Current branch: `feature/extension-api-phase-07-renderers` (Slice 05), stacked above Slice 04.
+Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Slices 03–05 are proposed in PRs #16 (`bacd562`), #17 (`00de68e`), and #18 (`4ee95b9`), above integrated main `7d46db3`. Current branch: `feature/extension-api-phase-07-compatibility` (Slice 06), stacked above Slice 05.
 
-Status: **Slices 01–02 merged; Slices 03–05 implement configuration provenance, checked cached-snapshot projection, declared scanner failures, and host-owned renderer dispatch with support preflight. Current-head three-OS CI is tracked by their PR checks**.
+Status: **Slices 01–06 implemented in the proposed stack, including final consumer compatibility coverage and migration audit; Slices 01–02 merged. Independent cumulative review/current-head CI are tracked in the Slice 06 PR; remaining stack integration requires fresh main CI**. See the [compatibility review](phase-07-compatibility-review.md) for migration effects, consumer evidence and acceptance limits.
 
 ## Entry decision
 
@@ -121,11 +121,15 @@ Keys are `HostRenderKey::Widget(WidgetKind)` or `HostRenderKey::Extension { exte
 
 `render` calls exactly one registered handler and returns its output. Missing handlers return `HostRenderError::Unregistered { key, source_range }`; callback errors return `RendererFailed { key, source_range, error }` with the typed cause available through `source()` when it implements `Error`. Ranges are canonical source bytes. Errors are explicit host decisions: choose retry, omit an optional decoration, or rebuild a source-visible frame as appropriate. Panics propagate. Callbacks already run may have changed host state; the registry provides no rollback or panic isolation. Build paint output offscreen or discard partial commands before retry/fallback.
 
+For heterogeneous renderer errors, use a concrete host error enum or a local newtype around `Box<dyn Error>`. Rust's plain boxed error type does not itself satisfy the generic `E: Error + 'static` bound used by `HostRenderError<E>` for standard chaining and `?` propagation. A local newtype can implement `Display` and `Error`, forwarding `source()` to the inner error. The registry rustdoc includes a compiling example, and the public pipeline test verifies the concrete error chain through real dispatch.
+
 Before painting, call `check_widget_support(&projection)`. It checks every projected widget and returns the first missing key/range without invoking callbacks. Success establishes registration only, not successful resource loading, geometry, or paint execution. A missing widget may already conceal source. Rebuild/reflow with that source revealed, or rebuild the frame with `RevealPolicy::SourceVisible`; simply skipping the missing callback leaves concealed text blank. Runtime callback failures still need the host's fallback even after successful preflight.
 
 Foreign metadata handlers do not conceal extra source, create `ProjectedWidget`s, or opt into Obsidian interpretation. They can produce host-owned decorations/actions while existing core projection rules continue to apply. Choose which metadata to dispatch; avoid painting built-in extension matches twice when projected widgets already represent them. This is a callback dispatch boundary, not an arbitrary extension-to-widget conversion API.
 
 Supply metadata from the current validated document, syntax, extension configuration, and projection. The registry does not recheck snapshot freshness or carry document identity. Hosts own graphics/fonts, shaping, layout/reflow, clipping, hit testing, accessibility, and renderer/layout cache invalidation when view state or settings change. Source edits should travel through editor/host actions after rendering; the registry does not receive a mutable document or apply transactions.
+
+`WidgetAction` contains a source range, not document identity or revision. Keep deferred actions with their originating document and `projection.revision()`, or build pending transactions with that captured revision as the example does. Never replace it with the latest document revision at application time: an intervening edit may move the range, causing an unrelated source edit to pass the revision guard. Reject/recompute on `TransactionError::StaleRevision`. A captured revision does not identify an unrelated document, so per-document association is still required.
 
 ## Compatibility guidance
 
@@ -152,6 +156,7 @@ cargo test -p mdedit-live --test extension_configuration
 cargo test -p mdedit-markdown --test extension_failures
 cargo test -p mdedit-live --test extension_failures
 cargo test -p mdedit-live --test host_renderers
+cargo test -p mdedit-live --test extension_pipeline
 cargo run -p mdedit-markdown --example extension_scanners
 cargo run -p mdedit-markdown --example fallible_scanners
 cargo run -p mdedit-live --example host_renderers
@@ -171,4 +176,4 @@ Slice 04 local Windows verification on 2026-11-27: **276 passed, 0 failed, 1 ign
 
 Slice 05 local Windows verification on 2026-11-27: **285 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and all three examples passed. Nine public-consumer tests cover payload/action/range routing, qualified namespace and built-in key isolation, duplicate preservation, missing-handler preflight with source-visible fallback, stateful view-thread-only callbacks, typed failures, panic propagation, and unchanged foreign-source projection. Removing the duplicate guard, namespace qualification, or support check each reproduced a targeted assertion failure; all nine tests passed after restoration. The host example printed checkbox/decorative commands and an available editor action, kept foreign source visible, and rebuilt source-visible fallback for an unsupported rule. Review and final-head CI outcomes are tracked in its PR and execution ledger.
 
-The remaining Phase 7 gate is overall compatibility/integration review. This work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner/dispatch-only slices. Narrator/VoiceOver checks remain separately deferred; descriptor/dispatch tests do not establish native accessibility acceptance.
+Slice 06 post-review Windows verification on 2026-11-28: **292 passed, 0 failed, 1 ignored**; fmt/check/clippy, rustdoc with warnings denied and all three public examples passed. It adds composed public consumer checks and the [cumulative compatibility/migration audit](phase-07-compatibility-review.md), closing both deferred Slice 05 review items. The cumulative review also caught the delayed-action revision issue: the previous recipe corrupted intervening edits, while the corrected captured-revision transaction rejects stale actions. Review/correction and exact-head CI outcomes are recorded in its PR; merging the proposed stack and checking integrated main remain separate from branch implementation readiness. This work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner/dispatch-only slices. Narrator/VoiceOver checks remain separately deferred; descriptor/dispatch tests do not establish native accessibility acceptance.

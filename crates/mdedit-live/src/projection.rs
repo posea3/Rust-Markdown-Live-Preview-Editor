@@ -461,6 +461,11 @@ pub enum WidgetPayload {
     CustomEmbed(CustomEmbedWidgetData),
 }
 
+/// Source-relative action without document identity or revision provenance.
+/// Hosts retaining it must also retain the originating document identity and
+/// projection revision. Build the eventual transaction with that captured
+/// revision; using the latest document revision can apply a stale range to
+/// unrelated text. Reject/recompute stale actions before applying them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WidgetAction {
     SetTaskChecked {

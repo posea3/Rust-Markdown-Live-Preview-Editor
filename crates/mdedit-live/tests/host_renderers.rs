@@ -284,6 +284,36 @@ fn preflight_reports_missing_concealed_widget_before_any_callback_and_allows_sou
 }
 
 #[test]
+fn preflight_checks_an_unsupported_widget_after_a_supported_widget_without_callbacks() {
+    let document = Document::new("- [ ] task\n\n---\n").unwrap().snapshot();
+    let (projection, _) = project(
+        &document,
+        &ExtensionSet::new(),
+        RevealPolicy::ConcealInactive,
+    );
+    let calls = Rc::new(Cell::new(0));
+    let seen = Rc::clone(&calls);
+    let mut registry = HostRendererRegistry::<(), (), Infallible>::new();
+    registry
+        .try_register(
+            HostRenderKey::Widget(WidgetKind::TaskCheckbox),
+            move |_, _| {
+                seen.set(seen.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        registry.check_widget_support(&projection),
+        Err(HostRenderError::Unregistered {
+            key: HostRenderKey::Widget(WidgetKind::HorizontalRule),
+            source_range: range(12, 16),
+        })
+    );
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
 fn complete_preflight_does_not_invoke_stateful_view_thread_callbacks() {
     let document = Document::new("- [ ] task\n\n---\n").unwrap().snapshot();
     let (projection, _) = project(

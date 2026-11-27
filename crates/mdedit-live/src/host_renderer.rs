@@ -126,9 +126,46 @@ struct RegisteredRenderer<C, O, E> {
 /// own geometry, hit testing, layout, or renderer cache invalidation. Callbacks
 /// may capture view-thread-only state: no Send/Sync bound is imposed.
 ///
+/// Keep deferred actions associated with their originating document identity
+/// and projection revision. Prepare transactions with that captured revision;
+/// substituting the latest revision at application time can edit a stale range.
+/// A revision alone does not identify the document. Recompute rejected stale
+/// actions against current view data.
+///
 /// Use [`Self::check_widget_support`] before painting concealed widgets. Hosts
 /// choose which extension matches to dispatch, avoiding duplicate painting of
 /// built-in extension metadata already represented by projected widgets.
+///
+/// For heterogeneous callback failures, use a concrete host error enum or a
+/// local newtype. The standard error implementation requires `E: Error`;
+/// `Box<dyn Error>` itself does not satisfy that generic bound. A newtype lets
+/// hosts retain boxed causes and propagate dispatch errors with `?`:
+///
+/// ```
+/// use std::{error::Error, fmt};
+/// use mdedit_live::{HostRenderInput, HostRendererRegistry};
+///
+/// #[derive(Debug)]
+/// struct ViewError(Box<dyn Error>);
+/// impl fmt::Display for ViewError {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         fmt::Display::fmt(self.0.as_ref(), f)
+///     }
+/// }
+/// impl Error for ViewError {
+///     fn source(&self) -> Option<&(dyn Error + 'static)> {
+///         Some(self.0.as_ref())
+///     }
+/// }
+///
+/// fn paint(
+///     registry: &mut HostRendererRegistry<(), (), ViewError>,
+///     input: HostRenderInput<'_>,
+/// ) -> Result<(), Box<dyn Error>> {
+///     registry.render(&mut (), input)?;
+///     Ok(())
+/// }
+/// ```
 pub struct HostRendererRegistry<C, O, E> {
     renderers: Vec<RegisteredRenderer<C, O, E>>,
 }
