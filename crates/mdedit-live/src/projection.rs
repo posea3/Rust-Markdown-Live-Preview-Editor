@@ -2,9 +2,9 @@ use std::{collections::BTreeMap, error::Error, fmt};
 
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use mdedit_markdown::{
-    BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ExtensionSnapshot,
-    OBSIDIAN_CALLOUT, OBSIDIAN_EMBED, OBSIDIAN_EXTENSION_ID, ParseStatus, SyntaxKind,
-    SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
+    BlockId, BlockSnapshot, DelimiterKind, DelimiterSnapshot, DelimiterSpan, ExtensionConfigId,
+    ExtensionSet, ExtensionSnapshot, OBSIDIAN_CALLOUT, OBSIDIAN_EMBED, OBSIDIAN_EXTENSION_ID,
+    ParseStatus, SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -822,6 +822,9 @@ impl Projection {
         Self::build_internal(document, syntax, blocks, delimiters, None, policy, context)
     }
 
+    /// Build from a fresh extension scan. This validates source metadata but
+    /// has no current scanner set with which to check cached configuration.
+    /// Use `Self::build_with_current_extensions` when reusing scan snapshots.
     pub fn build_with_extensions(
         document: &DocumentSnapshot,
         syntax: &SyntaxSnapshot,
@@ -839,6 +842,32 @@ impl Projection {
             Some(extensions),
             policy,
             context,
+        )
+    }
+
+    /// Build only if cached extension data belongs to the current scanner
+    /// configuration, then validate the usual document revision and length.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_current_extensions(
+        document: &DocumentSnapshot,
+        syntax: &SyntaxSnapshot,
+        blocks: &BlockSnapshot,
+        delimiters: &DelimiterSnapshot,
+        extensions: &ExtensionSnapshot,
+        current_extensions: &ExtensionSet,
+        policy: RevealPolicy,
+        context: &RevealContext,
+    ) -> Result<Self, ProjectionBuildError> {
+        let expected = current_extensions.configuration_id();
+        let snapshot = extensions.configuration_id();
+        if expected != snapshot {
+            return Err(ProjectionBuildError::ExtensionConfigurationMismatch {
+                expected,
+                snapshot,
+            });
+        }
+        Self::build_with_extensions(
+            document, syntax, blocks, delimiters, extensions, policy, context,
         )
     }
 
@@ -2241,6 +2270,10 @@ const fn range_contains(outer: TextRange, inner: TextRange) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectionBuildError {
+    ExtensionConfigurationMismatch {
+        expected: ExtensionConfigId,
+        snapshot: ExtensionConfigId,
+    },
     RevisionMismatch {
         input: &'static str,
         document: Revision,
@@ -2272,6 +2305,12 @@ pub enum ProjectionBuildError {
 impl fmt::Display for ProjectionBuildError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ExtensionConfigurationMismatch { expected, snapshot } => write!(
+                formatter,
+                "extension snapshot configuration {} does not match current configuration {}",
+                snapshot.get(),
+                expected.get()
+            ),
             Self::RevisionMismatch {
                 input,
                 document,

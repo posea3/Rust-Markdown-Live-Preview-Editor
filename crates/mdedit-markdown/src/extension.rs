@@ -1,8 +1,38 @@
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt,
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 
 use crate::{ParseStatus, SyntaxKind, SyntaxNode, SyntaxSnapshot};
+
+static CONFIGURATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Opaque process-local identity of one observed scanner configuration.
+/// This is not a persistent ID, document identity, or configuration hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ExtensionConfigId(u64);
+
+impl ExtensionConfigId {
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+fn allocate_configuration_id(sequence: &AtomicU64) -> ExtensionConfigId {
+    let previous = sequence
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            value.checked_add(1)
+        })
+        .expect("extension configuration IDs exhausted");
+    ExtensionConfigId(previous + 1)
+}
 
 /// Namespace owned by one registered scanner. Use a distinct ID per scanner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -245,6 +275,7 @@ struct RegisteredExtension {
 #[derive(Default)]
 pub struct ExtensionSet {
     extensions: Vec<RegisteredExtension>,
+    configuration: OnceLock<ExtensionConfigId>,
 }
 
 impl ExtensionSet {
@@ -252,7 +283,28 @@ impl ExtensionSet {
     pub const fn new() -> Self {
         Self {
             extensions: Vec::new(),
+            configuration: OnceLock::new(),
         }
+    }
+
+    /// Stable cache identity until successful registration or explicit
+    /// invalidation. IDs are unique across sets within this process.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the process has exhausted all `u64` configuration identities.
+    #[must_use]
+    pub fn configuration_id(&self) -> ExtensionConfigId {
+        *self
+            .configuration
+            .get_or_init(|| allocate_configuration_id(&CONFIGURATION_SEQUENCE))
+    }
+
+    /// Invalidate cached snapshots after changing host-owned scanner settings.
+    /// The next observation allocates a new identity. Scanner internals cannot
+    /// be inspected automatically; hosts must call this method and rescan.
+    pub fn invalidate_configuration(&mut self) {
+        self.configuration.take();
     }
 
     /// Registers a scanner under its current ID. Recompute cached extension
@@ -293,6 +345,7 @@ impl ExtensionSet {
             id,
             scanner: Box::new(extension),
         });
+        self.invalidate_configuration();
         Ok(())
     }
 
@@ -341,6 +394,7 @@ impl ExtensionSet {
             });
         }
 
+        let configuration_id = self.configuration_id();
         let source = document.text();
         let protected = collect_protected_ranges(syntax.root());
         let context = ExtensionScanContext {
@@ -443,6 +497,7 @@ impl ExtensionSet {
         Ok(ExtensionSnapshot {
             revision: syntax.revision(),
             source_len: syntax.source_len(),
+            configuration_id,
             matches: accepted,
             issues,
         })
@@ -504,11 +559,18 @@ const fn is_protected_kind(kind: SyntaxKind) -> bool {
 pub struct ExtensionSnapshot {
     revision: Revision,
     source_len: TextSize,
+    configuration_id: ExtensionConfigId,
     matches: Vec<ExtensionMatch>,
     issues: Vec<ExtensionIssue>,
 }
 
 impl ExtensionSnapshot {
+    /// Configuration provenance captured when this snapshot was scanned.
+    #[must_use]
+    pub const fn configuration_id(&self) -> ExtensionConfigId {
+        self.configuration_id
+    }
+
     #[must_use]
     pub const fn revision(&self) -> Revision {
         self.revision
@@ -604,3 +666,16 @@ impl fmt::Display for ExtensionError {
 }
 
 impl Error for ExtensionError {}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::{AtomicU64, Ordering, allocate_configuration_id};
+
+    #[test]
+    fn configuration_id_exhaustion_never_reuses_the_last_id() {
+        let sequence = AtomicU64::new(u64::MAX - 1);
+        assert_eq!(allocate_configuration_id(&sequence).get(), u64::MAX);
+        assert!(std::panic::catch_unwind(|| allocate_configuration_id(&sequence)).is_err());
+        assert_eq!(sequence.load(Ordering::Relaxed), u64::MAX);
+    }
+}

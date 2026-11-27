@@ -26,8 +26,8 @@ pub use delimiter::{
 };
 pub use dialect::MarkdownDialect;
 pub use extension::{
-    ExtensionAttribute, ExtensionCandidate, ExtensionError, ExtensionId, ExtensionIssue,
-    ExtensionIssueReason, ExtensionKind, ExtensionMatch, ExtensionOverlapPolicy,
+    ExtensionAttribute, ExtensionCandidate, ExtensionConfigId, ExtensionError, ExtensionId,
+    ExtensionIssue, ExtensionIssueReason, ExtensionKind, ExtensionMatch, ExtensionOverlapPolicy,
     ExtensionRegistrationError, ExtensionScanContext, ExtensionScanMode, ExtensionSet,
     ExtensionSnapshot, SyntaxExtension,
 };

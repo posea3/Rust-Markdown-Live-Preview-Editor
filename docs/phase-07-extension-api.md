@@ -1,12 +1,12 @@
 # Phase 7 Extension API Hardening
 
-Branches: `feature/extension-api-phase-07` (Slice 01), `feature/extension-api-phase-07-registration` (Slice 02, stacked above Windows acceptance PR #14).
+Slices 01–02 are integrated through PRs #13 and #15, with Windows acceptance PR #14 merged between them. Current branch: `feature/extension-api-phase-07-config` (Slice 03), based on integrated main `7d46db3`.
 
-Status: **Slices 01–02 implemented — namespace isolation, public consumer contracts, and unique scanner registration; current-head 3-OS CI is tracked by their PR checks**.
+Status: **Slices 01–02 merged; Slice 03 implements configuration provenance and checked cached-snapshot projection. Current-head three-OS CI is tracked by the Slice 03 PR checks**.
 
 ## Entry decision
 
-All six Phase 6 widget slices are implemented and PR #12 is integrated at `064bc40130f9a1c61adaab1168180d791e5b1416`. Its final-head Windows/macOS/Ubuntu CI passed. The user explicitly deferred Windows native GUI/IME acceptance on 2026-11-26 and authorized Phase 7 to proceed on macOS. On 2026-11-27 the Windows native checklist passed with CRLF and widget-layout host fixes, recorded in `docs/phase-06-widgets.md` and [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14). Fresh [CI run 45976582080](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45976582080) passed on all three operating systems for `b04dce1`. Those fixes still require integration; the unchanged upstream head does not inherit the native result. Narrator/VoiceOver acceptance remains deferred.
+All six Phase 6 widget slices are implemented. The user initially deferred Windows native verification on 2026-11-26; the 2026-11-27 Windows session subsequently passed with host fixes recorded in `docs/phase-06-widgets.md` and [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14). The user then requested merging #13 → #14 → #15 in order. Their merge commits are `b3d9dfa`, `7b927f8`, and `7d46db3`; final integrated main passed fresh [Windows/macOS/Ubuntu CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45979821603). The native GUI result remains tied to the measured acceptance build; later scanner-only changes do not imply another native run. Narrator/VoiceOver acceptance remains deferred.
 
 ## Slice 01 design
 
@@ -28,7 +28,9 @@ The first compatibility tests cover application/built-in coexistence, registrati
 | `ExtensionSet` | Explicitly register the scanners desired by the host and scan a matching document/syntax snapshot |
 | `ExtensionSet::try_register` | Recover from a duplicate scanner ID through `ExtensionRegistrationError::DuplicateId` without changing existing registrations |
 | `ExtensionSnapshot` | Consume accepted source ranges and qualified kinds; inspect rejected-candidate diagnostics |
+| `ExtensionConfigId` | Use process-local configuration provenance when retaining scanner results in memory |
 | `Projection::build_with_extensions` | Combine validated scanner metadata with the core Markdown projection |
+| `Projection::build_with_current_extensions` | Reject cached metadata from an obsolete or unrelated extension configuration before building projection |
 
 CommonMark/GFM applications may register no scanners. Obsidian syntax is opt-in through `ObsidianSyntaxExtension` or `obsidian_extension_set`; selecting a parser dialect does not register scanners by itself.
 
@@ -82,7 +84,13 @@ Inspect `ExtensionSnapshot::issues()` for `InvalidRange`, `SuppressedByCoreSynta
 
 Parse and scan the same `DocumentSnapshot`. Revision and source-length checks reject stale or mismatched inputs, but do not identify unrelated documents with the same revision and byte length; the host must retain document identity.
 
-Scanner registration/configuration changes require a rescan even when the document revision is unchanged. Hosts using `ParseReconciler` should advance `ParseConfigEpoch` when parser/dialect/extension configuration changes, discard old accepted extension data, and rebuild projection from the newly accepted syntax and extension snapshots. The extension snapshot itself has no configuration-epoch field.
+Slice 03 gives each observed `ExtensionSet` configuration an opaque `ExtensionConfigId`, available through `configuration_id()` on the set and its scan snapshots. Repeated scans and snapshot clones retain that ID until configuration changes. Different sets receive different IDs even when both are empty or register scanners with identical names. Snapshot equality includes this provenance; equal match lists from unrelated configurations are no longer interchangeable cache entries. IDs are process-local and must not be persisted as configuration fingerprints.
+
+Successful registration invalidates the current identity. Duplicate rejection leaves the identity and existing snapshots current. After changing host-owned scanner settings, call `invalidate_configuration()` before reusing cached data or rescanning. The set cannot inspect scanner interior state. Synchronize setting changes with active scans; the invalidation method takes `&mut self`. A new identity is allocated lazily on the next observation or scan. IDs never wrap or get reused; exhausting the process-wide `u64` identity space produces an explicit panic.
+
+For an in-memory cache, reuse requires both current document metadata and a matching `snapshot.configuration_id() == extensions.configuration_id()`. Use `Projection::build_with_current_extensions` for cached metadata; it accepts the snapshot followed by the current `ExtensionSet`, rejects mismatches through `ProjectionBuildError::ExtensionConfigurationMismatch { expected, snapshot }`, and retains document revision/length validation. Rescan after a mismatch. Existing `build_with_extensions` keeps its signature and checks document metadata, but has no current set with which to validate configuration; use it for freshly scanned data or enforce the identity check in the host. The public scanner example demonstrates registration invalidating a cached scan without editing source.
+
+Hosts using `ParseReconciler` should still advance `ParseConfigEpoch` when parser/dialect configuration changes and discard incompatible syntax. Extension identity does not replace parser configuration epochs or host-owned document identity. Unrelated documents with equal revision and byte length remain the host's responsibility.
 
 Scans are synchronous. Scanner panics are not caught by `ExtensionSet`; hosts select the implementations they register. This slice adds no asynchronous plugin runtime or dynamic library loading.
 
@@ -92,6 +100,8 @@ The workspace remains at `0.1.0`; this slice preserves existing public scanner m
 
 Slice 02 adds a registration error type and `try_register` without changing existing valid call sites. It deliberately tightens the distinct-ID precondition: duplicate convenience registrations now panic, and scanner namespaces are captured at registration rather than reread on each scan. Hosts with dynamic configuration should handle registration errors before replacing their active extension set. Registration failure is separate from the scan-time `ExtensionError` contract.
 
+Slice 03 preserves the const `ExtensionSet::new()` constructor and existing method signatures. Consumers that cache extension snapshots should adopt the configuration ID and checked projection builder. `ProjectionBuildError` has an additional mismatch variant; exhaustive matches must handle it. Snapshot equality now includes configuration provenance. This adds no native renderer or scanner panic isolation.
+
 Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-*` types, preserve canonical byte ranges, and exercise examples/consumer tests when upgrading. Parser-specific internals and native rendering types are not part of this scanner contract. Future breaking changes require explicit migration guidance before an API-stability milestone is declared.
 
 ## Verification and follow-up
@@ -100,6 +110,8 @@ Keep host-owned syntax in host-owned scanner crates. Depend on exported `mdedit-
 cargo test -p mdedit-live --test extension_compatibility
 cargo test -p mdedit-markdown --test extension_contract
 cargo test -p mdedit-markdown --test extension_registration
+cargo test -p mdedit-markdown --test extension_configuration
+cargo test -p mdedit-live --test extension_configuration
 cargo run -p mdedit-markdown --example extension_scanners
 ```
 
@@ -111,4 +123,6 @@ Slice 02 first reproduced three failures: duplicate `register`/builder calls did
 
 Local Windows verification on 2026-11-27 for Slice 02: fmt/check/clippy `-D warnings` PASS; workspace tests **252 passed, 0 failed, 1 ignored**; rustdoc with warnings denied PASS; the public example passed using `try_register` and retained its Korean/reference/issue/protected-code output. The five registration tests and nine existing scanner-contract tests all passed. The native GPU module and native input/rendering code are unchanged by this slice, so their earlier Windows acceptance results remain scoped to PR #14 rather than treated as new GUI runs.
 
-Further Phase 7 decisions include configuration identity on cached extension data, scanner failure handling, and any public host-renderer registration boundary. These require their own compatibility review; this work does not declare a frozen 1.0 API. The Windows acceptance fixes have fresh three-OS CI and still require integration. Native GUI/IME was not repeated for this scanner-only slice. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
+Slice 03 local Windows verification on 2026-11-27: **263 passed, 0 failed, 1 ignored**; fmt/check/clippy with warnings denied, rustdoc with warnings denied, and the public cache-aware scanner example passed. Ten public-consumer tests cover configuration identity and checked projection, and one isolated-counter unit test covers exhaustion without ID reuse. Removing the projection guard reproduced three stale/cross-set failures; replacing checked allocation with wrapping allocation reproduced the exhaustion failure. The correct implementations passed after restoration. Fresh CI for integrated main `7d46db3` passed on all three operating systems; the Slice 03 PR tracks its own current-head CI.
+
+Further Phase 7 decisions include scanner failure handling and any public host-renderer registration boundary. These require their own compatibility review; this work does not declare a frozen 1.0 API. Native GUI/IME was not repeated for the scanner-only slices. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.

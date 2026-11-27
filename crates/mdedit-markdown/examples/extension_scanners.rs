@@ -13,8 +13,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::gfm());
     let mut extensions = ExtensionSet::new();
     extensions.try_register(ReferenceScanner)?;
+    let mut snapshot = extensions.scan(&document, &syntax)?;
     extensions.try_register(IssueScanner)?;
-    let snapshot = extensions.scan(&document, &syntax)?;
+    if snapshot.configuration_id() != extensions.configuration_id() {
+        snapshot = extensions.scan(&document, &syntax)?;
+        println!("scanner configuration changed; rescanned without editing source");
+    }
 
     for matched in snapshot.matches() {
         println!(
