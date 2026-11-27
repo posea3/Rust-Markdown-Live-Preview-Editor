@@ -743,19 +743,19 @@ impl ProjectionMap {
         if source > self.source_len {
             return None;
         }
-
-        let mut removed = 0_u32;
-        for range in &self.concealed {
-            if source < range.start() {
-                break;
-            }
-            if source <= range.end() {
-                return Some(ProjectedSize(range.start().get().checked_sub(removed)?));
-            }
-            removed = removed.checked_add(range.len().get())?;
-        }
-
-        Some(ProjectedSize(source.get().checked_sub(removed)?))
+        let index = self
+            .visible_spans
+            .partition_point(|span| span.source_range.end() < source);
+        let Some(span) = self.visible_spans.get(index) else {
+            return Some(self.projected_len);
+        };
+        // Positions in a concealed gap collapse to the next visible start.
+        let offset = source.get().saturating_sub(span.source_range.start().get());
+        span.projected_range
+            .start()
+            .get()
+            .checked_add(offset)
+            .map(ProjectedSize::new)
     }
 
     #[must_use]
@@ -768,22 +768,75 @@ impl ProjectionMap {
             return None;
         }
 
-        let mut removed = 0_u32;
-        for range in &self.concealed {
-            let collapse = range.start().get().checked_sub(removed)?;
-            if projected.get() < collapse {
-                return Some(TextSize::new(projected.get().checked_add(removed)?));
-            }
-            if projected.get() == collapse {
-                return Some(match bias {
-                    ProjectionBias::Before => range.start(),
-                    ProjectionBias::After => range.end(),
-                });
-            }
-            removed = removed.checked_add(range.len().get())?;
-        }
+        let index = self
+            .visible_spans
+            .partition_point(|span| span.projected_range.end() < projected);
+        let (before, after) = self.projected_source_bounds(projected, index)?;
+        Some(match bias {
+            ProjectionBias::Before => before,
+            ProjectionBias::After => after,
+        })
+    }
 
-        Some(TextSize::new(projected.get().checked_add(removed)?))
+    // The selected span ends at/after `projected`; an exact end keeps the
+    // previous visible source endpoint for Before and the next one for After.
+    fn projected_source_bounds(
+        &self,
+        projected: ProjectedSize,
+        index: usize,
+    ) -> Option<(TextSize, TextSize)> {
+        if projected > self.projected_len {
+            return None;
+        }
+        let span = self.visible_spans.get(index);
+        let source = if let Some(span) = span {
+            let offset = projected
+                .get()
+                .checked_sub(span.projected_range.start().get())?;
+            TextSize::new(span.source_range.start().get().checked_add(offset)?)
+        } else {
+            self.source_len
+        };
+        let before = if projected == ProjectedSize::ZERO {
+            TextSize::ZERO
+        } else {
+            source
+        };
+        let after = if span.is_some_and(|span| span.projected_range.end() == projected) {
+            self.visible_spans
+                .get(index + 1)
+                .map_or(self.source_len, |next| next.source_range.start())
+        } else {
+            source
+        };
+        Some((before, after))
+    }
+
+    /// Map nondecreasing projected boundaries with one forward span cursor.
+    /// Caret construction supplies unique grapheme ends; repeated positions are
+    /// also supported. This stays crate-private so ordering is a caller contract.
+    pub(crate) fn projected_source_boundaries<'a>(
+        &'a self,
+        positions: impl Iterator<Item = ProjectedSize> + 'a,
+    ) -> impl Iterator<Item = (ProjectedSize, TextSize, TextSize)> + 'a {
+        let mut index = 0;
+        let mut previous = ProjectedSize::ZERO;
+        positions.filter_map(move |projected| {
+            debug_assert!(
+                previous <= projected,
+                "projected boundaries must be ordered"
+            );
+            previous = projected;
+            while self
+                .visible_spans
+                .get(index)
+                .is_some_and(|span| span.projected_range.end() < projected)
+            {
+                index += 1;
+            }
+            let (before, after) = self.projected_source_bounds(projected, index)?;
+            Some((projected, before, after))
+        })
     }
 
     fn source_range_to_projected(
@@ -2369,6 +2422,9 @@ impl fmt::Display for ProjectionBuildError {
 }
 
 impl Error for ProjectionBuildError {}
+
+#[cfg(test)]
+mod mapping_tests;
 
 #[cfg(test)]
 mod tests {

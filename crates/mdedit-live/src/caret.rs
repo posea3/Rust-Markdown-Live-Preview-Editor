@@ -54,33 +54,28 @@ pub struct ProjectedCaretStops {
 impl ProjectedCaretStops {
     #[must_use]
     pub fn from_projection(projection: &Projection) -> Self {
-        let mut boundaries = Vec::new();
-        boundaries.push(0_usize);
-        boundaries.extend(
+        // Grapheme ends are already strictly increasing; keep no boundary
+        // buffer and walk the map once instead of searching twice per stop.
+        let boundaries = std::iter::once(ProjectedSize::ZERO).chain(
             projection
                 .text()
                 .grapheme_indices(true)
-                .map(|(start, grapheme)| start + grapheme.len()),
+                .filter_map(|(start, grapheme)| {
+                    u32::try_from(start + grapheme.len())
+                        .ok()
+                        .map(ProjectedSize::new)
+                }),
         );
-        boundaries.sort_unstable();
-        boundaries.dedup();
-
-        let stops = boundaries
-            .into_iter()
-            .filter_map(|boundary| {
-                let projected = u32::try_from(boundary).ok().map(ProjectedSize::new)?;
-                let source_before = projection
-                    .map()
-                    .projected_to_source(projected, ProjectionBias::Before)?;
-                let source_after = projection
-                    .map()
-                    .projected_to_source(projected, ProjectionBias::After)?;
-                Some(ProjectedCaretStop {
+        let stops = projection
+            .map()
+            .projected_source_boundaries(boundaries)
+            .map(
+                |(projected, source_before, source_after)| ProjectedCaretStop {
                     projected,
                     source_before,
                     source_after,
-                })
-            })
+                },
+            )
             .collect();
 
         Self { stops }
