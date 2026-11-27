@@ -26,3 +26,7 @@ winit = "0.30.13"
 
 [lints]
 workspace = true
+
+[[example]]
+name = "phase8_profile"
+test = true

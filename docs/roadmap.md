@@ -251,7 +251,7 @@ On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows nati
 
 ## Phase 7 - Extension API hardening
 
-Status: **Slices 01–06 implemented in the proposed stack, including final consumer compatibility coverage and migration audit; Slices 01–02 merged through PRs #13 and #15. Cumulative review/current-head CI are tracked by the final review PR; remaining stack integration and fresh main CI are separate gates**.
+Status: **all six slices merged. PRs #16 -> #17 -> #18 -> #19 merged into main in order on 2026-11-28; integrated main `0df1961` passed fresh Windows/macOS/Ubuntu CI.** See the compatibility audit for cumulative review, deferred-action correction and acceptance limits.
 
 The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
 
@@ -270,6 +270,8 @@ NodeNotes-specific behavior remains outside the core repository.
 See `docs/phase-07-extension-api.md` for the current boundary and [the compatibility review](phase-07-compatibility-review.md) for migration, consumer evidence and acceptance limits. Implementation readiness does not declare a frozen 1.0 API or new native acceptance.
 
 ## Phase 8 - Large-document performance
+
+Status: **initial release CPU stage profiling in progress**. See [the measured baseline and reproduction protocol](phase-08-performance.md). Native GPU/presentation/input latency remains a separate measurement surface.
 
 Implement only after profiling:
 
