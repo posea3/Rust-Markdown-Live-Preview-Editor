@@ -595,7 +595,7 @@ The long embed's wrapped source has a different visual height from its one-row c
 
 ## Final Windows native integration acceptance
 
-Status: **Windows native GUI/IME checklist passed on 2026-11-27 with the acceptance patch recorded below; patch integration remains pending and fresh Windows/macOS/Ubuntu CI is tracked by its PR checks**.
+Status: **Windows native GUI/IME checklist and fresh Windows/macOS/Ubuntu CI passed for acceptance PR #14 (`b04dce1`) on 2026-11-27; patch integration remains pending**.
 
 Use the integrated revision being considered for platform acceptance and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result. If this check is performed after later-phase changes, test that then-current integrated revision rather than relying on the earlier Phase 6 baseline alone.
 
@@ -645,7 +645,7 @@ Four new regression tests were observed failing before their corresponding fixes
 | Native DX12 oversized-image rejection followed by valid-image upload | **1 passed**, separately from the default suite; GPU module unchanged by the final layout refactor |
 | Public `extension_scanners` example | PASS; Korean reference, `#42`, and protected-inline-code diagnostic observed |
 
-The baseline [PR CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743140198) and [push CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743096065) passed on Windows, macOS, and Ubuntu. Those runs do **not** cover the subsequent acceptance patch. Fresh CI is tracked by the acceptance PR's current-head checks; integration requires those checks to pass.
+The baseline [PR CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743140198) and [push CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743096065) passed on Windows, macOS, and Ubuntu. Those runs do **not** cover the subsequent acceptance patch. Its separate [PR #14](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/pull/14) received fresh [CI run 45976582080](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45976582080): **Windows, macOS, and Ubuntu all passed** for `b04dce1d24147cd1bbc86dfaae7223c5a42e2066`.
 
 #### Observed native behavior
 
@@ -673,4 +673,4 @@ The final semantic trace replayed **178 events**, including 44 preedit and 10 IM
 
 Local evidence is retained under `target/windows-acceptance/`: command logs, RED/GREEN regressions, semantic traces and replay, action/scroll measurements, OS/GPU metadata, the exact code diff, and the resolved `Cargo.lock`. Its SHA-256 is `0f267d4da3dc5124c724452be328c13c4c0fced20a390a7a462a16be976f7c6e`; the generated lockfile is retained as local evidence rather than added to the repository.
 
-Local native acceptance is complete for the tested patch. Native session logs contain no wgpu validation error, panic, device-loss error, or crash; invalid TeX produced only its expected fallback. The fixes and results are proposed for integration through a separate Windows acceptance PR; its current-head checks track fresh cross-platform CI. Narrator/VoiceOver acceptance remains separately deferred.
+Local native acceptance is complete for the tested patch. Native session logs contain no wgpu validation error, panic, device-loss error, or crash; invalid TeX produced only its expected fallback. The fixes and results are proposed for integration through Windows acceptance PR #14, whose fresh three-OS CI passed at `b04dce1`. Narrator/VoiceOver acceptance remains separately deferred.

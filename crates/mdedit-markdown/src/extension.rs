@@ -204,6 +204,8 @@ impl<'a> ExtensionScanContext<'a> {
 /// The merge engine validates ranges and applies protection/overlap policies
 /// after `scan` returns. Hosts own scanner registration and configuration epochs.
 pub trait SyntaxExtension: Send + Sync {
+    /// Namespace captured by `ExtensionSet` when this scanner is registered.
+    /// Later changes to the returned ID do not rename that registration.
     fn id(&self) -> ExtensionId;
 
     fn scan_mode(&self) -> ExtensionScanMode {
@@ -213,9 +215,36 @@ pub trait SyntaxExtension: Send + Sync {
     fn scan(&self, context: &ExtensionScanContext<'_>) -> Vec<ExtensionCandidate>;
 }
 
+/// An invalid scanner registration. Scan-time failures use `ExtensionError`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtensionRegistrationError {
+    DuplicateId(ExtensionId),
+}
+
+impl fmt::Display for ExtensionRegistrationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateId(id) => {
+                write!(
+                    formatter,
+                    "extension ID '{}' is already registered",
+                    id.as_str()
+                )
+            }
+        }
+    }
+}
+
+impl Error for ExtensionRegistrationError {}
+
+struct RegisteredExtension {
+    id: ExtensionId,
+    scanner: Box<dyn SyntaxExtension>,
+}
+
 #[derive(Default)]
 pub struct ExtensionSet {
-    extensions: Vec<Box<dyn SyntaxExtension>>,
+    extensions: Vec<RegisteredExtension>,
 }
 
 impl ExtensionSet {
@@ -226,17 +255,54 @@ impl ExtensionSet {
         }
     }
 
-    /// Registers a scanner. Hosts must use distinct scanner IDs; duplicate IDs
-    /// are not rejected by this method. Recompute cached extension snapshots
-    /// after registration or scanner configuration changes.
+    /// Registers a scanner under its current ID. Recompute cached extension
+    /// snapshots after registration or scanner configuration changes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID is already registered. Use `Self::try_register` when
+    /// loading configuration that may contain duplicate scanner IDs.
+    #[track_caller]
     pub fn register<E>(&mut self, extension: E)
     where
         E: SyntaxExtension + 'static,
     {
-        self.extensions.push(Box::new(extension));
+        if let Err(error) = self.try_register(extension) {
+            panic!("{error}");
+        }
     }
 
+    /// Registers a scanner if its ID is unused, capturing the ID once.
+    /// Rejection leaves existing registrations unchanged. Recompute cached
+    /// extension snapshots after a successful registration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtensionRegistrationError::DuplicateId` if a scanner already
+    /// owns this ID. The rejected scanner is not added to the set.
+    pub fn try_register<E>(&mut self, extension: E) -> Result<(), ExtensionRegistrationError>
+    where
+        E: SyntaxExtension + 'static,
+    {
+        let id = extension.id();
+        if self.extensions.iter().any(|registered| registered.id == id) {
+            return Err(ExtensionRegistrationError::DuplicateId(id));
+        }
+
+        self.extensions.push(RegisteredExtension {
+            id,
+            scanner: Box::new(extension),
+        });
+        Ok(())
+    }
+
+    /// Adds a scanner to this set under its current ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ID is already registered, as with `Self::register`.
     #[must_use]
+    #[track_caller]
     pub fn with_extension<E>(mut self, extension: E) -> Self
     where
         E: SyntaxExtension + 'static,
@@ -285,8 +351,9 @@ impl ExtensionSet {
         let mut pending = Vec::new();
         let mut issues = Vec::new();
 
-        for extension in &self.extensions {
-            let id = extension.id();
+        for registered in &self.extensions {
+            let id = registered.id;
+            let extension = &registered.scanner;
             let mode = extension.scan_mode();
 
             for candidate in extension.scan(&context) {

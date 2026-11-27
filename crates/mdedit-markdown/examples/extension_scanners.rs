@@ -11,9 +11,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = "See {{ref:설계 노트}} and #42.\n\n`{{ref:code stays literal}}`\n";
     let document = Document::new(source)?.snapshot();
     let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::gfm());
-    let extensions = ExtensionSet::new()
-        .with_extension(ReferenceScanner)
-        .with_extension(IssueScanner);
+    let mut extensions = ExtensionSet::new();
+    extensions.try_register(ReferenceScanner)?;
+    extensions.try_register(IssueScanner)?;
     let snapshot = extensions.scan(&document, &syntax)?;
 
     for matched in snapshot.matches() {

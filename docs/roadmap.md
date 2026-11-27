@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **implementation integrated — all six slices are on main through PR #12 (`064bc40`); macOS acceptance and baseline Windows/macOS/Ubuntu CI PASS; Windows native GUI/IME checklist passed on 2026-11-27 with host fixes; patch integration pending, with fresh cross-platform CI tracked by its PR checks**
+Status: **implementation integrated — all six slices are on main through PR #12 (`064bc40`); macOS acceptance PASS; Windows native GUI/IME checklist and fresh Windows/macOS/Ubuntu CI passed for acceptance PR #14 (`b04dce1`); patch integration pending**
 
 Rules:
 
@@ -244,14 +244,14 @@ Widgets emit editor/host actions. They never mutate the buffer directly.
 
 Before closing Phase 6 platform acceptance:
 
-- integrate the Windows host fixes recorded in `docs/phase-06-widgets.md` and run fresh Windows/macOS/Ubuntu CI; the native widget/IME checklist passed locally on that patch
+- integrate the Windows host fixes recorded in `docs/phase-06-widgets.md` and PR #14; the native checklist and fresh three-OS CI passed on that patch
 - keep Narrator/VoiceOver manual acceptance explicitly deferred; do not infer it from CI or visual acceptance
 
 On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows native acceptance was deferred. The 2026-11-27 Windows session completed the local native checklist and found host fixes that still need integration. Implementation milestones, tested revisions, and platform acceptance are tracked independently.
 
 ## Phase 7 - Extension API hardening
 
-Status: **in progress — Slice 01 implemented: namespace isolation, public consumer compatibility tests, runnable scanner examples, and API contract guidance; further registration/configuration/failure-policy review remains**.
+Status: **in progress — Slices 01–02 implemented: namespace isolation, public consumer compatibility tests, runnable scanner examples, duplicate-ID rejection with recoverable registration, and registration-time identities; configuration/failure-policy and renderer-boundary review remain**.
 
 The public extension/scanner boundary is introduced in Phase 4 so syntax compatibility can be exercised before Live Preview. Phase 7 hardens that API after projection/widgets reveal real integration requirements.
 
