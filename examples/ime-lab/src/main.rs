@@ -797,7 +797,7 @@ impl WindowState {
 
     fn move_cursor_horizontal_visual(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
-        self.refresh_layout();
+        self.refresh_layout_with_widgets();
 
         let primary = self.session.selections().primary();
         let Some(display_offset) = self
@@ -868,7 +868,7 @@ impl WindowState {
     fn move_cursor_vertical(&mut self, direction: i32, extend: bool) {
         self.session.cancel_composition();
         self.ensure_caret_visible = true;
-        self.refresh_layout();
+        self.refresh_layout_with_widgets();
 
         let primary = self.session.selections().primary();
         let Some(display_offset) = self
@@ -1085,7 +1085,7 @@ impl WindowState {
     }
 
     fn hit_test_source_anchor(&mut self) -> Option<Anchor> {
-        self.refresh_layout();
+        self.refresh_layout_with_widgets();
 
         let width = (self.surface_config.width as f32 - TEXT_LEFT * 2.0).max(1.0);
         let height = (self.surface_config.height as f32 - TEXT_TOP * 2.0).max(1.0);
@@ -1098,6 +1098,20 @@ impl WindowState {
         let display_offset = cursor_to_display_offset(&self.display_text, cursor)?;
         self.live_preview
             .display_to_source_anchor(&self.session, display_offset, Affinity::After)
+    }
+
+    fn refresh_layout_with_widgets(&mut self) {
+        let scroll_before = self.text_buffer.scroll();
+        self.refresh_layout();
+        self.sync_image_widgets();
+        self.sync_math_widgets();
+        let reservations_changed = self.update_block_widget_reservations();
+        if let Some(anchor) =
+            widget_reservation_viewport_anchor(scroll_before, reservations_changed)
+        {
+            self.pending_widget_viewport_anchor = Some(anchor);
+            self.refresh_layout();
+        }
     }
 
     fn refresh_layout(&mut self) {
@@ -1186,33 +1200,12 @@ impl WindowState {
             );
 
             if !updated_in_place {
-                if let Some(range) = self.preedit_range.clone() {
-                    let mut spans = Vec::new();
-
-                    if range.start > 0 {
-                        spans.push((&self.display_text[..range.start], normal.clone()));
-                    }
-                    if range.start < range.end {
-                        spans.push((&self.display_text[range.clone()], preedit));
-                    }
-                    if range.end < self.display_text.len() {
-                        spans.push((&self.display_text[range.end..], normal.clone()));
-                    }
-                    if spans.is_empty() {
-                        spans.push(("", normal.clone()));
-                    }
-
-                    self.text_buffer
-                        .set_rich_text(spans, &normal, Shaping::Advanced, None);
-                } else {
-                    self.text_buffer
-                        .set_text(&self.display_text, &normal, Shaping::Advanced, None);
-                }
-
-                ensure_buffer_lines_match_display_text(
+                rebuild_buffer_text(
                     &mut self.text_buffer,
                     &self.display_text,
+                    self.preedit_range.as_ref(),
                     &normal,
+                    &preedit,
                 );
                 self.text_buffer.set_scroll(old_scroll);
             }
@@ -1552,7 +1545,7 @@ impl WindowState {
     }
 
     fn activate_widget_at_pointer(&mut self) -> bool {
-        self.refresh_layout();
+        self.refresh_layout_with_widgets();
         let pointer_x = self.cursor_position.x as f32;
         let pointer_y = self.cursor_position.y as f32;
         let action = widget_action_at_pointer(self.widget_hit_regions(), pointer_x, pointer_y);
@@ -1922,17 +1915,7 @@ impl WindowState {
         self.image_widgets.drain_ready(&self.device, &self.queue);
         self.math_widgets
             .drain_ready(&mut self.image_widgets, &self.device, &self.queue);
-        let widget_scroll_before = self.text_buffer.scroll();
-        self.refresh_layout();
-        self.sync_image_widgets();
-        self.sync_math_widgets();
-        let reservations_changed = self.update_block_widget_reservations();
-        if let Some(anchor) =
-            widget_reservation_viewport_anchor(widget_scroll_before, reservations_changed)
-        {
-            self.pending_widget_viewport_anchor = Some(anchor);
-            self.refresh_layout();
-        }
+        self.refresh_layout_with_widgets();
         self.update_accessibility_tree();
 
         if self.viewport_dirty {
@@ -2412,6 +2395,22 @@ fn env_flag(name: &str) -> bool {
     })
 }
 
+fn rebuild_buffer_text(
+    buffer: &mut Buffer,
+    display_text: &str,
+    preedit_range: Option<&Range<usize>>,
+    normal: &Attrs<'_>,
+    preedit: &Attrs<'_>,
+) {
+    // Initialize shaping state, then use the editor's LF-based line parser in
+    // both paths. CRLF must remain one ending, including after a synthetic LF.
+    buffer.set_text(display_text, normal, Shaping::Advanced, None);
+    ensure_buffer_lines_match_display_text(buffer, display_text, normal);
+    let updated =
+        update_buffer_lines_in_place(buffer, display_text, preedit_range, normal, preedit);
+    debug_assert!(updated);
+}
+
 fn update_buffer_lines_in_place(
     buffer: &mut Buffer,
     display_text: &str,
@@ -2426,12 +2425,13 @@ fn update_buffer_lines_in_place(
 
     let mut line_start = 0usize;
     for (line_i, text) in lines.into_iter().enumerate() {
-        let line_end = line_start + text.len();
-        let ending = if line_i + 1 < buffer.lines.len() {
-            LineEnding::Lf
+        let (text, ending) = if line_i + 1 < buffer.lines.len() {
+            text.strip_suffix('\r')
+                .map_or((text, LineEnding::Lf), |text| (text, LineEnding::CrLf))
         } else {
-            LineEnding::None
+            (text, LineEnding::None)
         };
+        let line_end = line_start + text.len();
 
         let mut attrs_list = AttrsList::new(normal);
         if let Some(range) = preedit_range {
@@ -2443,7 +2443,7 @@ fn update_buffer_lines_in_place(
         }
 
         buffer.lines[line_i].set_text(text, ending, attrs_list);
-        line_start = line_end.saturating_add(1);
+        line_start = line_end + ending.as_str().len();
     }
 
     true
@@ -2454,18 +2454,17 @@ fn ensure_buffer_lines_match_display_text(
     display_text: &str,
     attrs: &Attrs<'_>,
 ) {
-    // cosmic-text 0.19 BidiParagraphs intentionally omits a final empty
-    // paragraph when text ends with a newline. Editor caret semantics still
-    // require that trailing empty source line to exist as a BufferLine.
+    // Cursor byte offsets count LF boundaries. Reserve exactly those rows,
+    // including the final empty row, before populating text and endings.
     let expected_lines = display_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    while buffer.lines.len() < expected_lines {
-        buffer.lines.push(BufferLine::new(
+    buffer.lines.resize_with(expected_lines, || {
+        BufferLine::new(
             String::new(),
             LineEnding::None,
             AttrsList::new(attrs),
             Shaping::Advanced,
-        ));
-    }
+        )
+    });
 }
 
 fn selection_intersects_source_line(line_i: usize, start: CosmicCursor, end: CosmicCursor) -> bool {
@@ -3413,6 +3412,155 @@ mod tests {
 
         buffer.shape_until_scroll(&mut font_system, false);
         assert_eq!(buffer.scroll(), stable);
+    }
+
+    #[test]
+    fn crlf_ime_update_keeps_line_endings_out_of_shaped_text() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let normal = Attrs::new().family(Family::SansSerif);
+        let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+        buffer.set_text("before\r\nKorean:\r\n", &normal, Shaping::Advanced, None);
+        ensure_buffer_lines_match_display_text(&mut buffer, "before\r\nKorean:\r\n", &normal);
+
+        assert!(update_buffer_lines_in_place(
+            &mut buffer,
+            "before\r\nKorean:한\r\n",
+            Some(&(15..18)),
+            &normal,
+            &preedit,
+        ));
+        assert_eq!(
+            buffer
+                .lines
+                .iter()
+                .map(BufferLine::text)
+                .collect::<Vec<_>>(),
+            vec!["before", "Korean:한", ""],
+        );
+        assert_eq!(buffer.lines[0].ending(), LineEnding::CrLf);
+        assert_eq!(buffer.lines[1].ending(), LineEnding::CrLf);
+        assert_eq!(buffer.lines[2].ending(), LineEnding::None);
+        assert_eq!(
+            buffer.lines[1].attrs_list().get_span(7).color_opt,
+            preedit.color_opt
+        );
+        assert_eq!(
+            buffer.lines[1].attrs_list().get_span(6).color_opt,
+            normal.color_opt
+        );
+    }
+
+    #[test]
+    fn crlf_empty_widget_row_hit_does_not_skip_its_line_ending() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        buffer.set_size(Some(600.0), Some(400.0));
+        let normal = Attrs::new().family(Family::SansSerif);
+        let source = "above\r\n\r\nbelow";
+        buffer.set_text(source, &normal, Shaping::Advanced, None);
+        assert!(update_buffer_lines_in_place(
+            &mut buffer,
+            source,
+            None,
+            &normal,
+            &normal
+        ));
+        buffer.shape_until_scroll(&mut font_system, false);
+
+        let hit = buffer.hit(100.0, LINE_HEIGHT * 1.5).expect("empty row hit");
+        assert_eq!(cursor_to_display_offset(source, hit), Some(7));
+    }
+
+    #[test]
+    fn crlf_preedit_rebuild_preserves_rows_attributes_and_visible_content() {
+        for (display, preedit_range, endings) in [
+            (
+                "above\nKorean:한\nbelow\n",
+                13..16,
+                [LineEnding::Lf, LineEnding::Lf, LineEnding::Lf],
+            ),
+            (
+                "above\r\nKorean:한\r\nbelow\r\n",
+                14..17,
+                [LineEnding::CrLf, LineEnding::CrLf, LineEnding::CrLf],
+            ),
+            (
+                "above\r\nKorean:한\nbelow\r\n",
+                14..17,
+                [LineEnding::CrLf, LineEnding::Lf, LineEnding::CrLf],
+            ),
+        ] {
+            let mut font_system = FontSystem::new();
+            let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+            buffer.set_size(Some(600.0), Some(LINE_HEIGHT * 2.0));
+            let normal = Attrs::new().family(Family::SansSerif);
+            let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+            buffer.set_text("above\nbelow", &normal, Shaping::Advanced, None);
+            assert!(!update_buffer_lines_in_place(
+                &mut buffer,
+                display,
+                Some(&preedit_range),
+                &normal,
+                &preedit
+            ));
+
+            rebuild_buffer_text(
+                &mut buffer,
+                display,
+                Some(&preedit_range),
+                &normal,
+                &preedit,
+            );
+            assert_eq!(
+                buffer
+                    .lines
+                    .iter()
+                    .map(BufferLine::text)
+                    .collect::<Vec<_>>(),
+                vec!["above", "Korean:한", "below", ""],
+                "rebuilding preedit must keep one buffer row per source line",
+            );
+            for (line, ending) in buffer.lines.iter().zip(endings) {
+                assert_eq!(line.ending(), ending);
+            }
+            assert_eq!(
+                buffer.lines[1].attrs_list().get_span(7).color_opt,
+                preedit.color_opt
+            );
+            buffer.set_scroll(Scroll::new(1, 0.0, 0.0));
+            buffer.shape_until_scroll(&mut font_system, false);
+            assert_eq!(buffer.layout_runs().next().unwrap().text, "Korean:한");
+        }
+    }
+
+    #[test]
+    fn fallback_keeps_lf_then_empty_crlf_row_distinct() {
+        let mut font_system = FontSystem::new();
+        let mut buffer = Buffer::new(&mut font_system, Metrics::new(FONT_SIZE, LINE_HEIGHT));
+        let normal = Attrs::new().family(Family::SansSerif);
+        let preedit = normal.clone().color(Color::rgb(255, 214, 102));
+
+        rebuild_buffer_text(
+            &mut buffer,
+            "above\n\r\n한글",
+            Some(&(8..11)),
+            &normal,
+            &preedit,
+        );
+
+        assert_eq!(buffer.lines[0].ending(), LineEnding::Lf);
+        assert_eq!(buffer.lines[1].text(), "");
+        assert_eq!(buffer.lines[1].ending(), LineEnding::CrLf);
+        assert_eq!(buffer.lines[2].text(), "한글");
+        assert_eq!(
+            buffer.lines[2].attrs_list().get_span(0).color_opt,
+            preedit.color_opt,
+        );
+        assert_eq!(
+            buffer.lines[2].attrs_list().get_span(3).color_opt,
+            normal.color_opt,
+        );
     }
 
     #[test]

@@ -220,7 +220,7 @@ Deferred:
 
 ## Phase 6 - Widgets
 
-Status: **implementation integrated — all six slices are on main through PR #12 (`064bc40`); macOS acceptance and final PR Windows/macOS/Ubuntu CI PASS; Windows native GUI/IME integration acceptance remains deferred**
+Status: **implementation integrated — all six slices are on main through PR #12 (`064bc40`); macOS acceptance and baseline Windows/macOS/Ubuntu CI PASS; Windows native GUI/IME checklist passed on 2026-11-27 with host fixes; patch integration pending, with fresh cross-platform CI tracked by its PR checks**
 
 Rules:
 
@@ -244,10 +244,10 @@ Widgets emit editor/host actions. They never mutate the buffer directly.
 
 Before closing Phase 6 platform acceptance:
 
-- complete the Windows native widget/IME integration checklist in `docs/phase-06-widgets.md`
+- integrate the Windows host fixes recorded in `docs/phase-06-widgets.md` and run fresh Windows/macOS/Ubuntu CI; the native widget/IME checklist passed locally on that patch
 - keep Narrator/VoiceOver manual acceptance explicitly deferred; do not infer it from CI or visual acceptance
 
-On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows native acceptance remains a separate open item. Implementation milestones and platform acceptance are tracked independently.
+On 2026-11-26 the user authorized continuing Phase 7 on macOS while Windows native acceptance was deferred. The 2026-11-27 Windows session completed the local native checklist and found host fixes that still need integration. Implementation milestones, tested revisions, and platform acceptance are tracked independently.
 
 ## Phase 7 - Extension API hardening
 

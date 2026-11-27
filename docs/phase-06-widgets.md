@@ -595,7 +595,7 @@ The long embed's wrapped source has a different visual height from its one-row c
 
 ## Final Windows native integration acceptance
 
-Status: **pending — macOS visual acceptance and CI do not establish Windows native GUI/IME behavior**.
+Status: **Windows native GUI/IME checklist passed on 2026-11-27 with the acceptance patch recorded below; patch integration remains pending and fresh Windows/macOS/Ubuntu CI is tracked by its PR checks**.
 
 Use the integrated revision being considered for platform acceptance and record the full commit SHA, Windows version, GPU/driver, and selected wgpu backend with the result. If this check is performed after later-phase changes, test that then-current integrated revision rather than relying on the earlier Phase 6 baseline alone.
 
@@ -615,4 +615,62 @@ cargo run -p mdedit-ime-lab --release
 - Confirm DX12 startup and absence of wgpu validation errors, panic, or crash. Record any `WGPU_BACKEND` override rather than treating an alternate backend as the default-path result.
 - Undo temporary acceptance edits and record the final source baseline.
 
-Phase 6 implementation is integrated, while its Windows native platform acceptance remains open until this checklist passes. On 2026-11-26 the user explicitly authorized starting Phase 7 on macOS with that verification deferred. Phase 7 hardens the extension API; it does not establish Windows GUI/IME acceptance. Narrator/VoiceOver acceptance remains separately deferred.
+Phase 6 implementation is integrated. Windows native testing subsequently passed with local host fixes; the unchanged upstream head does not inherit that result until those fixes are integrated and verified. On 2026-11-26 the user explicitly authorized starting Phase 7 on macOS with Windows verification deferred. Phase 7 hardens the extension API; its scanner tests are independent of native acceptance. Narrator/VoiceOver acceptance remains separately deferred.
+
+### Windows native results — 2026-11-26–27
+
+Baseline: `87a5ffac6fd83777ebb4310320cdff8a2cf470ec` (PR #13), including the integrated Phase 6 base `064bc40130f9a1c61adaab1168180d791e5b1416`. Native testing exposed defects in the lab's CRLF shaping and widget layout synchronization. The results below include local fixes in `examples/ime-lab/src/main.rs`; they must not be attributed to the unchanged PR #13 head.
+
+Final source-file SHA-256: `4786871b21b0a4f8b6c4870c66413d8e83ea6a30ee590cd29f2de01815ed7ccb`. Release executable SHA-256: `98be7ee39c1fd8d865543d4939f81605788d19e110ec37f8f3f89c54cfcea137`.
+
+Environment: Windows 11 Home `10.0.26200`, x64; Rust/Cargo `1.90.0`; NVIDIA GeForce GTX 1060 3GB, driver `32.0.15.6094`. Startup selected **DX12 / FIFO** with no `WGPU_BACKEND` override. Microsoft Korean, Japanese, and Simplified Chinese input methods were used. The fixture in this checkout has CRLF endings and is **4707 bytes** (4560 bytes with LF endings).
+
+#### Defects reproduced and corrected
+
+- CR bytes were included in shaped line text by the in-place update path. Clicking an empty projected widget row could therefore resolve inside its CRLF ending and enter the following blank line. Rule, missing-note, and long-label embed clicks now resolve into their canonical source ranges.
+- The preedit fallback used a different paragraph parser, producing extra rows for CRLF and visibly moving the Korean scratch area during the second syllable. Rebuild and in-place paths now share LF-based row boundaries, preserve CRLF endings separately, and apply preedit attributes using canonical byte offsets. An LF followed by an empty CRLF row is also preserved as two boundaries.
+- Pointer/visual-navigation layout refreshes could consume geometry before block-widget reservations were restored. Near the lower viewport edge, table concealment moved the viewport backward from `99:50` to `96:26`. Rendering, hit testing, checkbox activation, and visual navigation now refresh the same reserved layout. The focused retest changed `99:46` to `99:55`, matching the existing small downward drag-margin scroll rather than jumping backward several logical rows.
+
+Four new regression tests were observed failing before their corresponding fixes, then passing. They check shaped CRLF text/endings, empty-row hit offsets, fallback row/attribute/visible-content consistency, and mixed LF/CRLF boundaries.
+
+#### Automated verification
+
+| Check | Local result |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo check --locked --workspace --all-targets` | PASS |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --locked --workspace` | **247 passed, 0 failed, 1 ignored**; baseline was 243 passed |
+| `cargo build --locked --release -p mdedit-ime-lab` | PASS |
+| Native DX12 oversized-image rejection followed by valid-image upload | **1 passed**, separately from the default suite; GPU module unchanged by the final layout refactor |
+| Public `extension_scanners` example | PASS; Korean reference, `#42`, and protected-inline-code diagnostic observed |
+
+The baseline [PR CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743140198) and [push CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/45743096065) passed on Windows, macOS, and Ubuntu. Those runs do **not** cover the subsequent acceptance patch. Fresh CI is tracked by the acceptance PR's current-head checks; integration requires those checks to pass.
+
+#### Observed native behavior
+
+The initial checklist was run on the baseline; failures were reproduced and corrected, then affected cases were repeated on the fixed builds. The final widget-layout build received the table, selection/clipboard, resize, Callout, embed, grapheme, viewport-boundary, Korean/Japanese/Chinese IME, and focus loss/refocus retests recorded here.
+
+| Case | Observed result |
+| --- | --- |
+| Rule mouse/arrow entry and exit | Canonical `---` revealed; click at source offset 1753 is within the owned 1750..1753 range |
+| Both checkboxes; center/edge clicks with remote and nearby caret | All eight click cases changed native/canonical state together; single-step Undo/Redo restored/reapplied each toggle without viewport movement |
+| Image loading → ready | Directly observed with delayed loading; `scroll=66:19`, source selection 2193, and following-text separation preserved |
+| Five Image reveal/conceal cycles | `scroll=75:19` throughout on the CRLF-fixed build |
+| Five Display Math reveal/conceal cycles | `scroll=86:19` throughout; invalid TeX used the expected safe fallback |
+| Both tables, five mouse reveal/conceal cycles each | Final build preserved `scroll=108:24`; alignment, Korean cells, and native restoration verified |
+| Selection and clipboard across a table | Full inline markers became visible; copied 92 bytes exactly matched canonical bytes 3313..3405, including CRLF; paste/Undo/Redo/Undo restored source length 4707 |
+| Wide → 493 px → 1920 px | Grids/cards stayed bounded; Callout title/fold/body and following text remained separated; long label clipped to one row |
+| Five Callout reveal/conceal cycles after resizing | Final build preserved `scroll=119:0` throughout |
+| Architecture, missing-note, and long standalone embeds | Mouse/arrow entry exposed exact source; leaving restored native cards; inline embed stayed source-visible |
+| Long embed at 493 px | Full source retained final `한글 레이블]]`; reveal/conceal measured `128:22 → 132:22 → 128:22`, reflecting wrapped source height |
+| Unicode and viewport navigation | One Shift+Right selected the complete 25-byte family ZWJ grapheme; Down across the lower viewport edge kept the caret visible |
+| Korean, Japanese, Chinese, and focus loss/refocus | PASS on the final layout build at 493 px; `scroll=41:0` throughout |
+
+On the final layout build, Korean `**한글**` kept `scroll=41:0` throughout. With the opening `**` inserted, preedit left source at 4709 bytes; committing `한` raised it to 4712 while `글` remained preedit. Closing markers committed the remaining syllable and produced the exact 4717-byte document; leaving concealed both marker pairs. Japanese `nihongo` converted to `日本語` and Chinese `zhongwen` selected `中文`; their preedit left source at 4707 bytes, commits added 9/6 bytes, and one Undo restored each commit. Focus loss committed the active Korean `하`, refocus left no stale composition, and a new `ㅎ` composition worked and could be cleared. All temporary edits were undone to 4707 bytes. These were physical native IME input events, not pasted CJK text. The earlier CRLF-fixed build also passed at `scroll=45:19`.
+
+The final semantic trace replayed **178 events**, including 44 preedit and 10 IME-commit events. Every preedit preserved canonical source. The replayed final document matched the original CRLF fixture **byte for byte**, not only by length. This trace also includes input-mode probes and the manual mode-setup interval. The main test window was left open at the restored baseline, and the temporary focus helper was closed.
+
+Local evidence is retained under `target/windows-acceptance/`: command logs, RED/GREEN regressions, semantic traces and replay, action/scroll measurements, OS/GPU metadata, the exact code diff, and the resolved `Cargo.lock`. Its SHA-256 is `0f267d4da3dc5124c724452be328c13c4c0fced20a390a7a462a16be976f7c6e`; the generated lockfile is retained as local evidence rather than added to the repository.
+
+Local native acceptance is complete for the tested patch. Native session logs contain no wgpu validation error, panic, device-loss error, or crash; invalid TeX produced only its expected fallback. The fixes and results are proposed for integration through a separate Windows acceptance PR; its current-head checks track fresh cross-platform CI. Narrator/VoiceOver acceptance remains separately deferred.

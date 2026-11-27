@@ -6,7 +6,7 @@ Status: **Slice 01 implemented and locally verified — namespace isolation, pub
 
 ## Entry decision
 
-All six Phase 6 widget slices are implemented and PR #12 is integrated at `064bc40130f9a1c61adaab1168180d791e5b1416`. Its final-head Windows/macOS/Ubuntu CI passed. The user explicitly deferred Windows native GUI/IME acceptance on 2026-11-26 and authorized Phase 7 to proceed on macOS. That manual gate remains open in `docs/phase-06-widgets.md`; proceeding does not turn it into PASS. Narrator/VoiceOver acceptance also remains deferred.
+All six Phase 6 widget slices are implemented and PR #12 is integrated at `064bc40130f9a1c61adaab1168180d791e5b1416`. Its final-head Windows/macOS/Ubuntu CI passed. The user explicitly deferred Windows native GUI/IME acceptance on 2026-11-26 and authorized Phase 7 to proceed on macOS. On 2026-11-27 the Windows native checklist passed locally with CRLF and widget-layout host fixes, recorded in `docs/phase-06-widgets.md`. Those fixes still require integration and fresh cross-platform CI; the unchanged upstream head does not inherit the local result. Narrator/VoiceOver acceptance remains deferred.
 
 ## Slice 01 design
 
@@ -97,4 +97,4 @@ The namespace regression was observed before the fix: a foreign `embed` emitted 
 
 Local macOS verification on 2026-11-26: fmt/check/clippy PASS; workspace tests **242 passed, 0 failed, 1 ignored**; the public scanner example ran successfully. The ignored native GPU regression was not rerun, and native GUI/IME acceptance was not repeated for this scanner-only slice.
 
-Further Phase 7 decisions include explicit duplicate-registration policy, configuration identity on cached extension data, scanner failure handling, and any public host-renderer registration boundary. These require their own compatibility review; this slice does not declare a frozen 1.0 API. Windows native widget/IME acceptance and Narrator/VoiceOver checks remain open independently of these scanner tests.
+Further Phase 7 decisions include explicit duplicate-registration policy, configuration identity on cached extension data, scanner failure handling, and any public host-renderer registration boundary. These require their own compatibility review; this slice does not declare a frozen 1.0 API. The Windows native checklist passed with local host fixes that still require integration and new CI. Narrator/VoiceOver checks remain separately deferred; scanner tests do not establish native accessibility acceptance.
