@@ -1,0 +1,8 @@
+"fixture","phase","stage","completed_samples","min_ms","median_ms","max_ms"
+"mixed-10mb","load","blocks","1","42.7411","42.7411","42.7411"
+"mixed-10mb","load","buffer_create","1","146.7511","146.7511","146.7511"
+"mixed-10mb","load","delimiters","1","143.6728","143.6728","143.6728"
+"mixed-10mb","load","document","1","6.1553","6.1553","6.1553"
+"mixed-10mb","load","parse","1","674.9057","674.9057","674.9057"
+"mixed-10mb","load","scan","1","14922.3508","14922.3508","14922.3508"
+"mixed-10mb","load","snapshot","1","0.0008","0.0008","0.0008"

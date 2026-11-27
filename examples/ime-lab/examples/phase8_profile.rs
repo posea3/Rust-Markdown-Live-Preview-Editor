@@ -132,8 +132,8 @@ impl Clock {
 
     fn metric(&self, phase: &str, name: &str, value: usize) {
         println!(
-            "{},meta,{},{},{},0,{}",
-            self.fixture, self.sample, phase, name, value
+            "{},meta-{},{},{},{},0,{}",
+            self.fixture, self.kind, self.sample, phase, name, value
         );
     }
 }
@@ -247,6 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         kind: "setup",
         sample: 0,
     };
+    setup.metric("setup", "schema_version", 2);
     setup.metric("setup", "source_bytes", source.len());
     setup.metric("setup", "source_chars", source.chars().count());
     let mut fonts = if options.layout {

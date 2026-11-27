@@ -1,5 +1,7 @@
 # Windows Phase 8 raw evidence
 
+These files retain the legacy `kind=meta` format. New [Slice 02 comparison data](../2026-11-28-indexed-mapping/README.md) uses schema2 iteration-specific metadata; no archived numerical rows are rewritten.
+
 See [the report](../../phase-08-performance.md). Engine baseline is `0df1961` (all Phase 7 PRs merged, main CI `46023467296` PASS). Data values are unedited numeric rows; Git may normalize text line endings.
 
 | Directory | Profiler source commit | Layout | Reveal policy | Warmups / requested samples | Nominal process deadline |

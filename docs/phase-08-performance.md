@@ -1,5 +1,7 @@
 # Phase 8 measured CPU baseline
 
+Follow-up: [Slice 02 indexed mapping/caret traversal and measured comparison](phase-08-indexed-mapping.md) implements the first experiment below. This report and its archived rows retain the original baseline values.
+
 Phase 7 PRs #16 -> #17 -> #18 -> #19 merged into main in order. Integrated main `0df1961` passed fresh [three-OS CI](https://github.com/posea3/Rust-Markdown-Live-Preview-Editor/actions/runs/46023467296) before this work began. This slice measures existing engine behavior; it does not implement an optimization.
 
 ## Reproduce on Windows

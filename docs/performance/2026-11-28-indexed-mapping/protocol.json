@@ -1,0 +1,17 @@
+{
+  "measured_commit": "14994398d4e3eb0cffbe67bdd1261905345a866f",
+  "baseline_engine": "0df1961f5cd4f33dd0c8a32749ef82c59d7b75d5",
+  "baseline_harness": "c037bfd74c5921894cbbab95d92c5f7fb39270cf",
+  "policy": "ConcealInactive",
+  "dialect": "Obsidian",
+  "edit": "insert ASCII x at source byte zero",
+  "max_working_set_bytes": 1500000000,
+  "untimed_settle_ms": 200,
+  "cohorts": [
+    { "directory": "small", "fixtures": ["mixed-10kb", "mixed-100kb"], "layout": true, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90, "paired_archive": "baseline" },
+    { "directory": "single-sample", "fixtures": ["mixed-1mb"], "layout": true, "warmups": 0, "samples_requested": 1, "timeout_seconds": 180, "paired_archive": "single-sample" },
+    { "directory": "core-only", "fixtures": ["single-line"], "layout": false, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90, "paired_archive": "core-only" },
+    { "directory": "large-bounded", "fixtures": ["mixed-10mb"], "layout": true, "warmups": 0, "samples_requested": 1, "timeout_seconds": 90, "paired_archive": null }
+  ],
+  "notes": "Elapsed API wall calls, sequential earlier-before/new-after cohorts, no randomized order or affinity/power isolation. Schema2 disambiguates metadata iteration kinds; timed columns unchanged. A censored stage has no duration and partial groups are not complete frames."
+}
