@@ -30,3 +30,6 @@ jobs:
         run: cargo clippy -p mdedit-live --all-targets --features projection-profiling -- -D warnings
       - name: Test projection profiling
         run: cargo test -p mdedit-live --features projection-profiling
+      - name: Projection trace extraction regressions
+        if: matrix.os == 'windows-latest'
+        run: pwsh -NoProfile -File ./docs/performance/2026-11-28-projection-hotspots/extract-stages.tests.ps1

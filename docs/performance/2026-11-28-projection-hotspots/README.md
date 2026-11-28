@@ -31,7 +31,10 @@ See [the attribution and correctness report](../../phase-08-projection-hotspots.
 
 ```powershell
 ./docs/performance/2026-11-28-projection-hotspots/audit-evidence.ps1
+./docs/performance/2026-11-28-projection-hotspots/extract-stages.tests.ps1
 ```
+
+The extractor validates unsigned durations and newline-terminated completions; a torn final completion in an interrupted child retains its pending censored stage. A censored-only cohort produces header-only timing/summary CSVs and a censor record, with zero observations. The seven regression cases cover empty/torn numeric durations, first-stage censoring, valid zero durations, negative/empty completed durations and mismatched IDs; their scratch evidence stays under ignored `target`. Windows CI runs these tests. The archive audit's missing-whole-warmup cross-check remains a deferred minor; all current warmups were independently regenerated and verified during review.
 
 ## Reproduction
 
