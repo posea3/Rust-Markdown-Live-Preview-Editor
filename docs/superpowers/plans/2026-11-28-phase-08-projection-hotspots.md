@@ -52,8 +52,8 @@
 **Files:** `docs/phase-08-projection-hotspots.md`, portable raw evidence directory, README/roadmap links.
 **Interfaces:** Task 1 markers and Task 2 unchanged semantic outputs; feature-off total timings remain comparable to prior cohorts.
 
-- [ ] Run serial profiled after and normal before/after cohorts; keep 10 MB bounds explicit; verify every summary and semantic metadata key, and preserve raw data/manifests.
-- [ ] Report internal attribution, total observed improvement and remaining costs; commit results.
+- [x] Run serial profiled after and normal before/after cohorts; keep 10 MB bounds explicit; verify every summary and semantic metadata key, and preserve raw data/manifests.
+- [x] Report internal attribution, total observed improvement and remaining costs; commit results.
 - [ ] Obtain one fresh whole-branch review; fix Important findings RED→GREEN plus full suite; publish a stacked draft above #21 and confirm final-head push/PR Windows/macOS/Ubuntu CI.
 
 Review/CI outcomes after commits live in the PR and ignored execution ledger; avoid status-only source commits.

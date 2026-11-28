@@ -1,0 +1,7 @@
+"fixture","phase","stage","completed_samples","min_ms","median_ms","max_ms"
+"mixed-1mb","load","blocks","1","2.7032","2.7032","2.7032"
+"mixed-1mb","load","delimiters","1","7.1072","7.1072","7.1072"
+"mixed-1mb","load","document","1","0.8195","0.8195","0.8195"
+"mixed-1mb","load","parse","1","56.5943","56.5943","56.5943"
+"mixed-1mb","load","scan","1","91.479","91.479","91.479"
+"mixed-1mb","load","snapshot","1","0.0008","0.0008","0.0008"

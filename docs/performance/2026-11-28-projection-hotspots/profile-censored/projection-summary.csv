@@ -1,0 +1,3 @@
+"fixture","phase","stage","completed_samples","min_ms","median_ms","max_ms"
+"mixed-1mb","load","source_text","1","0.2613","0.2613","0.2613"
+"mixed-1mb","load","validation","1","0.0143","0.0143","0.0143"
