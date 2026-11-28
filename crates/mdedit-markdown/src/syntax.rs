@@ -94,6 +94,11 @@ impl SyntaxNode {
         &self.children
     }
 
+    #[cfg(feature = "parse-profiling")]
+    pub(crate) fn child_capacity(&self) -> usize {
+        self.children.capacity()
+    }
+
     pub(crate) fn with_metadata(mut self, metadata: SyntaxMetadata) -> Self {
         self.metadata = metadata;
         self

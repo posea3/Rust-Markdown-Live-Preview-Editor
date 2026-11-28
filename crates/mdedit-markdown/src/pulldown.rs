@@ -15,11 +15,34 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PulldownCmarkParser;
 
+#[cfg(feature = "parse-profiling")]
+mod profile;
+
 impl MarkdownParser for PulldownCmarkParser {
     fn parse(&self, snapshot: &DocumentSnapshot, dialect: &MarkdownDialect) -> SyntaxSnapshot {
-        let source = snapshot.text();
-        let parser = Parser::new_ext(&source, options_for(*dialect)).into_offset_iter();
-        build_snapshot(snapshot.revision(), &source, parser)
+        #[cfg(feature = "parse-profiling")]
+        {
+            let profile = profile::ParseProfile::new();
+            let source = profile.measure("source_text", || snapshot.text());
+            let parser = profile.measure("parser_init", || {
+                Parser::new_ext(&source, options_for(*dialect))
+            });
+            let events = profile.measure("decode_events", || {
+                parser.into_offset_iter().collect::<Vec<_>>()
+            });
+            let count = events.len();
+            let syntax = profile.measure("build_tree", || {
+                build_snapshot(snapshot.revision(), &source, events)
+            });
+            profile.stats(&syntax, count);
+            syntax
+        }
+        #[cfg(not(feature = "parse-profiling"))]
+        {
+            let source = snapshot.text();
+            let parser = Parser::new_ext(&source, options_for(*dialect)).into_offset_iter();
+            build_snapshot(snapshot.revision(), &source, parser)
+        }
     }
 }
 

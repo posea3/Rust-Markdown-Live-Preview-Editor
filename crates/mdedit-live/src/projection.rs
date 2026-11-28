@@ -8,7 +8,20 @@ use mdedit_markdown::{
 };
 
 mod ownership;
+#[cfg(feature = "projection-profiling")]
 mod profile;
+macro_rules! projection_stage {
+    ($profile:expr, $stage:literal, $work:expr $(,)?) => {{
+        #[cfg(feature = "projection-profiling")]
+        {
+            $profile.measure($stage, $work)
+        }
+        #[cfg(not(feature = "projection-profiling"))]
+        {
+            ($work)()
+        }
+    }};
+}
 
 use ownership::{ContainmentSet, OwnerLookup};
 
@@ -943,15 +956,16 @@ impl Projection {
         policy: RevealPolicy,
         context: &RevealContext,
     ) -> Result<Self, ProjectionBuildError> {
+        #[cfg(feature = "projection-profiling")]
         let profile = profile::BuildProfile::new();
-        profile.measure("validation", || {
+        projection_stage!(profile, "validation", || {
             validate_inputs(document, syntax, blocks, delimiters)?;
             if let Some(extensions) = extensions {
                 validate_extension_input(document, extensions)?;
             }
             Ok::<_, ProjectionBuildError>(())
         })?;
-        let source = profile.measure("source_text", || document.text());
+        let source = projection_stage!(profile, "source_text", || document.text());
 
         if matches!(syntax.status(), ParseStatus::RawFallback(_)) {
             return Self::raw(
@@ -964,34 +978,40 @@ impl Projection {
             );
         }
 
-        let (owners, reveal_groups) = match profile.measure("reveal_groups", || {
-            let owners = OwnerLookup::new(syntax.root());
-            build_reveal_groups(&owners, delimiters, policy, context).map(|groups| (owners, groups))
-        }) {
-            Ok(groups) => groups,
-            Err(ProjectionFallbackReason::UnownedDelimiter) => {
-                return Self::raw(
-                    document.revision(),
-                    syntax.source_len(),
-                    source,
-                    blocks,
-                    syntax,
-                    ProjectionFallbackReason::UnownedDelimiter,
-                );
-            }
-            Err(reason) => {
-                return Self::raw(
-                    document.revision(),
-                    syntax.source_len(),
-                    source,
-                    blocks,
-                    syntax,
-                    reason,
-                );
-            }
-        };
+        let owners = projection_stage!(profile, "owner_index", || OwnerLookup::new(syntax.root()));
+        let reveal_groups =
+            match projection_stage!(profile, "reveal_grouping", || group_reveal_delimiters(
+                &owners, delimiters
+            ))
+            .and_then(|grouped| {
+                projection_stage!(profile, "reveal_materialize", || materialize_reveal_groups(
+                    grouped, policy, context
+                ))
+            }) {
+                Ok(groups) => groups,
+                Err(ProjectionFallbackReason::UnownedDelimiter) => {
+                    return Self::raw(
+                        document.revision(),
+                        syntax.source_len(),
+                        source,
+                        blocks,
+                        syntax,
+                        ProjectionFallbackReason::UnownedDelimiter,
+                    );
+                }
+                Err(reason) => {
+                    return Self::raw(
+                        document.revision(),
+                        syntax.source_len(),
+                        source,
+                        blocks,
+                        syntax,
+                        reason,
+                    );
+                }
+            };
 
-        let mut concealed = profile.measure("conceal_spans", || {
+        let mut concealed = projection_stage!(profile, "conceal_spans", || {
             reveal_groups
                 .iter()
                 .filter(|group| !group.revealed)
@@ -1005,21 +1025,21 @@ impl Projection {
                 .collect::<Vec<_>>()
         });
 
-        let mut structural_padding = profile.measure("structural_padding", || {
+        let mut structural_padding = projection_stage!(profile, "structural_padding", || {
             build_structural_padding(&source, &reveal_groups)
         })?;
-        let mut widget_candidates = profile.measure("builtin_candidates", || {
+        let mut widget_candidates = projection_stage!(profile, "builtin_candidates", || {
             build_widget_candidates(&source, syntax.root(), policy, context)
         })?;
         if let Some(extensions) = extensions {
-            widget_candidates.extend(profile.measure("extension_candidates", || {
+            widget_candidates.extend(projection_stage!(profile, "extension_candidates", || {
                 build_extension_widget_candidates(&source, &owners, extensions, policy, context)
             })?);
-            widget_candidates = profile.measure("normalize_ownership", || {
+            widget_candidates = projection_stage!(profile, "normalize_ownership", || {
                 normalize_widget_candidate_ownership(widget_candidates)
             });
         }
-        profile.measure("shadow_filter", || {
+        projection_stage!(profile, "shadow_filter", || {
             let shadowed = ContainmentSet::new(widget_candidates.iter().flat_map(|widget| {
                 let concealed = (!widget.active).then_some(widget.conceal_range);
                 let owner = matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
@@ -1030,7 +1050,7 @@ impl Projection {
             structural_padding.retain(|span| !shadowed.contains(span.source_range));
         });
 
-        if profile.measure("overlap_check", || {
+        if projection_stage!(profile, "overlap_check", || {
             has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates)
         }) {
             return Self::raw(
@@ -1043,7 +1063,7 @@ impl Projection {
             );
         }
 
-        let map = profile.measure("map", || {
+        let map = projection_stage!(profile, "map", || {
             let omitted_ranges = concealed
                 .iter()
                 .map(|span| span.source_range)
@@ -1057,13 +1077,16 @@ impl Projection {
                 .collect();
             ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)
         })?;
-        let text = profile.measure("materialize", || {
+        let text = projection_stage!(profile, "materialize", || {
             materialize_projection(&source, map.concealed_ranges())
         });
         let projected_blocks =
-            profile.measure("project_blocks", || project_blocks(blocks, &map))?;
-        let styles = profile.measure("project_styles", || project_styles(syntax.root(), &map))?;
-        let widgets = profile.measure("project_widgets", || {
+            projection_stage!(profile, "project_blocks", || project_blocks(blocks, &map))?;
+        let styles = projection_stage!(profile, "project_styles", || project_styles(
+            syntax.root(),
+            &map
+        ))?;
+        let widgets = projection_stage!(profile, "project_widgets", || {
             project_widgets(&widget_candidates, &map)
         })?;
 
@@ -1242,12 +1265,10 @@ fn validate_inputs(
 type RevealGroupKey = (u32, u32, u32);
 type PendingRevealGroup = (SyntaxKind, TextRange, Vec<DelimiterSpan>);
 
-fn build_reveal_groups(
+fn group_reveal_delimiters(
     owners: &OwnerLookup<'_>,
     delimiters: &DelimiterSnapshot,
-    policy: RevealPolicy,
-    context: &RevealContext,
-) -> Result<Vec<RevealGroup>, ProjectionFallbackReason> {
+) -> Result<BTreeMap<RevealGroupKey, PendingRevealGroup>, ProjectionFallbackReason> {
     let mut grouped: BTreeMap<RevealGroupKey, PendingRevealGroup> = BTreeMap::new();
 
     for delimiter in delimiters.spans() {
@@ -1269,6 +1290,14 @@ fn build_reveal_groups(
             .push(*delimiter);
     }
 
+    Ok(grouped)
+}
+
+fn materialize_reveal_groups(
+    grouped: BTreeMap<RevealGroupKey, PendingRevealGroup>,
+    policy: RevealPolicy,
+    context: &RevealContext,
+) -> Result<Vec<RevealGroup>, ProjectionFallbackReason> {
     let mut groups = grouped
         .into_values()
         .enumerate()

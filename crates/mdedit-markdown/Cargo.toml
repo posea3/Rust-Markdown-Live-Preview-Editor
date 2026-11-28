@@ -10,6 +10,8 @@ repository.workspace = true
 [features]
 # Diagnostic serial scan timings; omitted from default builds.
 extension-profiling = []
+# Buffered event diagnostics; normal parsing remains streaming.
+parse-profiling = []
 
 [dependencies]
 mdedit-core = { path = "../mdedit-core" }

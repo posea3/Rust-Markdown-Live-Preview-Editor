@@ -1,13 +1,15 @@
 #Requires -Version 7.0
 param(
     [Parameter(Mandatory)][string]$Directory,
-    [ValidateSet('extension','projection')][string]$Subsystem = 'extension',
+    [ValidateSet('extension','projection','parse')][string]$Subsystem = 'extension',
     [string[]]$ExpectedStages = @()
 )
-$outerStage = if ($Subsystem -eq 'extension') { 'scan' } else { 'projection' }
+$outerStage = if ($Subsystem -eq 'extension') { 'scan' } else { $Subsystem }
 if (-not $PSBoundParameters.ContainsKey('ExpectedStages')) {
     $ExpectedStages = if ($Subsystem -eq 'extension') {
         @('validation','source_text','protected_ranges','scanner_0','candidate_filter_0','pending_sort','conflict_merge','final_sort')
+    } elseif ($Subsystem -eq 'parse') {
+        @('source_text','parser_init','decode_events','build_tree')
     } else {
         @('validation','source_text','reveal_groups','conceal_spans','structural_padding','builtin_candidates','extension_candidates','normalize_ownership','shadow_filter','overlap_check','map','materialize','project_blocks','project_styles','project_widgets')
     }
