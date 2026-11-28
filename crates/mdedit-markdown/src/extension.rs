@@ -12,7 +12,13 @@ use mdedit_core::{DocumentSnapshot, Revision, TextRange, TextSize};
 use crate::fallible::{ExtensionScanError, FallibleSyntaxExtension};
 use crate::{ParseStatus, SyntaxKind, SyntaxNode, SyntaxSnapshot};
 
+mod index;
 mod profile;
+use index::OverlapIndex;
+#[cfg(test)]
+mod indexed_tests;
+#[cfg(test)]
+mod scan_reference;
 
 static CONFIGURATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -487,6 +493,7 @@ impl ExtensionSet {
         let protected = profile.measure("protected_ranges", None, || {
             collect_protected_ranges(syntax.root())
         });
+        let mut protected_index = None;
         let context = ExtensionScanContext {
             source: &source,
             syntax,
@@ -526,10 +533,13 @@ impl ExtensionSet {
                     }
 
                     if mode == ExtensionScanMode::MarkdownText
-                        && let Some((_, core_kind)) =
-                            protected.iter().find(|(protected_range, _)| {
-                                ranges_overlap(*protected_range, candidate.range)
+                        && let Some(protected_slot) = protected_index
+                            .get_or_insert_with(|| {
+                                OverlapIndex::fully_active(
+                                    protected.iter().map(|(range, _)| *range),
+                                )
                             })
+                            .first_matching(candidate.range, |_| true)
                     {
                         issues.push(ExtensionIssue {
                             kind: ExtensionKind {
@@ -537,7 +547,9 @@ impl ExtensionSet {
                                 name: candidate.name,
                             },
                             range: candidate.range,
-                            reason: ExtensionIssueReason::SuppressedByCoreSyntax(*core_kind),
+                            reason: ExtensionIssueReason::SuppressedByCoreSyntax(
+                                protected[protected_slot].1,
+                            ),
                         });
                         continue;
                     }
@@ -569,21 +581,22 @@ impl ExtensionSet {
 
         let mut accepted = profile.measure("conflict_merge", None, || {
             let mut accepted: Vec<ExtensionMatch> = Vec::new();
-            for candidate in pending {
-                let conflict = accepted.iter().find(|existing| {
-                    ranges_overlap(existing.range, candidate.range)
-                        && !can_coexist(existing, &candidate)
+            let mut conflicts = OverlapIndex::new(pending.iter().map(|candidate| candidate.range));
+            for (slot, candidate) in pending.into_iter().enumerate() {
+                let conflict = conflicts.first_matching(candidate.range, |ordinal| {
+                    !can_coexist(&accepted[ordinal], &candidate)
                 });
 
-                if let Some(existing) = conflict {
+                if let Some(ordinal) = conflict {
                     issues.push(ExtensionIssue {
                         kind: candidate.kind,
                         range: candidate.range,
                         reason: ExtensionIssueReason::Conflict {
-                            kept: existing.kind,
+                            kept: accepted[ordinal].kind,
                         },
                     });
                 } else {
+                    conflicts.activate(slot, accepted.len());
                     accepted.push(candidate);
                 }
             }

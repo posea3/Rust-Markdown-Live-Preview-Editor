@@ -29,17 +29,21 @@
 
 - [x] Observe missing extension stage transcript RED and write extractor tests for prior interruption bugs plus wholly missing warmup.
 - [x] Add private feature-only timing and untimed issue/digest metadata; validate ordered stage transcripts, feature-off marker absence, common metadata and all extractor regressions.
-- [ ] Freeze instrumentation-only code/binaries; run serial profiled/normal 10/100KB/1MB warmed cohorts and bounded 10MB single observations. Record measured dominance before optimization.
+- [x] Freeze instrumentation-only code/binaries; run serial profiled/normal 10/100KB/1MB warmed cohorts and bounded 10MB single observations. Record measured dominance before optimization.
 
 ## Task 2 — Optimize measured searches
 
 **Files:** private extension lookup/merge helpers and tests; frozen parent reference; public consumer regression if needed.
-**Interfaces:** Preserve original protection/conflict selection results. Exact private index interfaces and input assertions are refined here after Task 1 attribution, before algorithm changes.
+**Interfaces:** `OverlapIndex::new(impl IntoIterator<Item=TextRange>)`, `activate(slot:usize, ordinal:usize)`, `first_matching(range:TextRange, predicate:impl FnMut(usize)->bool)->Option<usize>`, plus a test-only visit counter. Static balanced topology over all known ranges; active-only max end/min start/min ordinal metadata prune queries. Original vector ordinals determine first matching overlap. Use a lazy fully activated protection index after the first valid MarkdownText candidate; build conflict topology inside the measured merge and activate only accepted slots. No cross-scan state; overlapping accepted entries use the unchanged coexist predicate.
 
-- [ ] Record measured target and exact index/merge interfaces; choose the smallest measured change.
-- [ ] Add independent full-snapshot and brute-force range/result oracles plus deterministic disjoint-work tests; observe missing/old search RED.
-- [ ] Implement selected searches; prove wrong boundary/first-winner/activation/protection mutations fail; restore originals and pass focused/consumer tests.
-- [ ] Verify fmt/check/default+profiling clippy, workspace/feature tests, rustdoc, three examples and both release builds; freeze optimized code identity.
+**Attribution gate:** before `35b384174c973a3d3b0d2927f29de45edb7d1236`; profiled 10 MB edit conflict_merge8,213.5283ms, candidate_filter_0 2,958.1232ms, callback121.8878ms. 1 MB warmed medians52.0701ms/31.6560ms/9.4704ms. Select protection/conflict searches; preserve callback implementation. Static index build is charged to the first candidate-filter invocation, dynamic topology/updates to conflict_merge.
+
+**Tests:** exhaustive small overlap queries against original strict predicate (empty/touching/max endpoints), activation in arbitrary order and predicate filtering with earliest ordinal; disjoint4096-range work bound; full snapshot comparison to a frozen `36a6dff` scan across generated priorities/policies/namespaces/invalid UTF8 and real protected Markdown; explicit first-protected/first-conflict issue identities; callback failure/panic/prevalidation event traces. Include duplicate/equal/contained/crossing inputs and keep output-sensitive nested-case limits explicit.
+
+- [x] Record measured target and exact index/merge interfaces; choose the smallest measured change.
+- [x] Add independent full-snapshot and brute-force range/result oracles plus deterministic disjoint-work tests; observe missing/old search RED.
+- [x] Implement selected searches; prove wrong boundary/first-winner/activation/protection mutations fail; restore originals and pass focused/consumer tests.
+- [x] Verify fmt/check/default+profiling clippy, workspace/feature tests, rustdoc, three examples and both release builds; freeze optimized code identity.
 
 ## Task 3 — Compare and publish
 
