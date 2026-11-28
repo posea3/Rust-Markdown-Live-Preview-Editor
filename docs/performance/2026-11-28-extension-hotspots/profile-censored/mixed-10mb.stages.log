@@ -1,0 +1,13 @@
+begin,mixed-10mb,sample,0,load,document
+begin,mixed-10mb,sample,0,load,snapshot
+begin,mixed-10mb,sample,0,load,parse
+begin,mixed-10mb,sample,0,load,scan
+extension-begin,1,validation
+extension-end,1,validation,500
+extension-begin,1,source_text
+extension-end,1,source_text,7189500
+extension-begin,1,protected_ranges
+extension-end,1,protected_ranges,45101300
+extension-begin,1,scanner_0
+extension-end,1,scanner_0,121928400
+extension-begin,1,candidate_filter_0

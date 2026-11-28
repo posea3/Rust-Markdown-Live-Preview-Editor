@@ -1,0 +1,21 @@
+{
+  "parent_pr22": "36a6dffeb2ccc3f98e45a0387ecf2651f05fa871",
+  "before_commit": "35b384174c973a3d3b0d2927f29de45edb7d1236",
+  "after_commit": "245b41cf30917e2e0980cbf920b8808b6abd3165",
+  "normal_features": [],
+  "profile_features": ["mdedit-markdown/extension-profiling"],
+  "dialect": "Obsidian",
+  "policy": "ConcealInactive",
+  "edit": "insert ASCII x at source byte zero",
+  "viewport": "1000x700",
+  "font": "SansSerif 22px / 31px line height, Word wrap, Advanced shaping",
+  "max_working_set_bytes": 1500000000,
+  "untimed_settle_ms": 200,
+  "cohorts": [
+    { "directories": ["normal-before-warmed","normal-after-warmed","profile-before-warmed","profile-after-warmed"], "fixtures": ["mixed-10kb","mixed-100kb","mixed-1mb"], "layout": true, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90 },
+    { "directories": ["normal-before-10mb","normal-after-10mb","profile-before-10mb","profile-after-10mb"], "fixtures": ["mixed-10mb"], "layout": true, "warmups": 0, "samples_requested": 1, "timeout_seconds": 90 },
+    { "directories": ["normal-before-core","normal-after-core"], "fixtures": ["single-line"], "layout": false, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90 },
+    { "directories": ["profile-censored"], "fixtures": ["mixed-10mb"], "variant": "before", "layout": false, "warmups": 0, "samples_requested": 1, "timeout_seconds": 3 }
+  ],
+  "notes": "Serial one-machine elapsed calls, no randomized order/affinity/power isolation. Lazy protection index construction is charged to candidate_filter; conflict topology/updates to conflict_merge. Marker I/O is inside featured outer calls but outside inner intervals. Untimed ordered result diagnostics are in both variants' process totals. Small cases did not improve; native latency/exact heap remain separate."
+}

@@ -2,6 +2,7 @@
 use std::{
     env,
     error::Error,
+    fmt::{self, Write as _},
     hint::black_box,
     io, thread,
     time::{Duration, Instant},
@@ -11,8 +12,8 @@ use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
 use mdedit_core::{Change, ChangeSet, Document, TextRange, TextSize, Transaction, TransactionKind};
 use mdedit_live::{ProjectedCaretStops, Projection, ProjectionStatus, RevealContext, RevealPolicy};
 use mdedit_markdown::{
-    BlockCache, DelimiterResolver, ExtensionSet, MarkdownDialect, MarkdownParser,
-    PulldownCmarkParser, obsidian_extension_set,
+    BlockCache, DelimiterResolver, ExtensionIssue, ExtensionMatch, ExtensionSet, MarkdownDialect,
+    MarkdownParser, PulldownCmarkParser, obsidian_extension_set,
 };
 
 #[derive(Clone, Copy)]
@@ -114,6 +115,24 @@ struct Clock {
     kind: &'static str,
     sample: usize,
 }
+
+// Diagnostic FNV-1a over ordered Debug fields, streamed without a large String.
+// Pinned to this harness/toolchain; full snapshot tests establish equivalence.
+struct ScanDigest(u64);
+impl fmt::Write for ScanDigest {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        for byte in text.bytes() {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+        Ok(())
+    }
+}
+
+fn scan_digest(matches: &[ExtensionMatch], issues: &[ExtensionIssue]) -> u64 {
+    let mut digest = ScanDigest(0xcbf29ce484222325);
+    write!(&mut digest, "{matches:?}|{issues:?}").expect("infallible streaming digest");
+    digest.0
+}
 impl Clock {
     fn measure<T>(&self, phase: &str, stage: &str, work: impl FnOnce() -> T) -> T {
         eprintln!(
@@ -182,6 +201,14 @@ impl<'a> Pipeline<'a> {
         });
         let extensions =
             clock.measure(phase, "scan", || self.extensions.scan(&snapshot, &syntax))?;
+        clock.metric(phase, "issues_count", extensions.issues().len());
+        let digest = scan_digest(extensions.matches(), extensions.issues());
+        clock.metric(phase, "scan_digest_hi", (digest >> 32) as usize);
+        clock.metric(
+            phase,
+            "scan_digest_lo",
+            (digest & u64::from(u32::MAX)) as usize,
+        );
         let blocks = clock.measure(phase, "blocks", || {
             self.blocks.reconcile(&snapshot, &syntax)
         })?;

@@ -1,0 +1,5 @@
+"fixture","kind","sample","phase","call","stage","ns"
+"mixed-10mb","sample","0","load","1","validation","500"
+"mixed-10mb","sample","0","load","1","source_text","7189500"
+"mixed-10mb","sample","0","load","1","protected_ranges","45101300"
+"mixed-10mb","sample","0","load","1","scanner_0","121928400"
