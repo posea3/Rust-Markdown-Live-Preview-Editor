@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Diagnostic serial scan timings; omitted from default builds.
+extension-profiling = []
+
 [dependencies]
 mdedit-core = { path = "../mdedit-core" }
 pulldown-cmark = { version = "0.13.4", default-features = false }
