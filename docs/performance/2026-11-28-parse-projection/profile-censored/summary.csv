@@ -1,0 +1,3 @@
+"fixture","phase","stage","completed_samples","min_ms","median_ms","max_ms"
+"mixed-10mb","load","document","1","5.9678","5.9678","5.9678"
+"mixed-10mb","load","snapshot","1","0.0076","0.0076","0.0076"

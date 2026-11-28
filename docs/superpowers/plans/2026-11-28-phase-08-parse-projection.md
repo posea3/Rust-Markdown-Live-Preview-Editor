@@ -43,15 +43,15 @@
 - [x] Record measured dominance and exact selected algorithms/interfaces, with normal versus buffered diagnostic limits.
 - [x] Add full syntax/projection reference tests and deterministic work/allocation tests; observe missing/old behavior RED.
 - [x] Implement minimal selected changes and verify targeted ownership/storage/fallback mutations fail; restore originals.
-- [ ] Run fmt/check/clippy, workspace and all profiling-feature tests, rustdoc, examples, extractor regressions and normal/profile release builds; freeze optimized identity.
+- [x] Run fmt/check/clippy, workspace and all profiling-feature tests, rustdoc, examples, extractor regressions and normal/profile release builds; freeze optimized identity.
 
 ## Task 3 — Compare and publish
 
 **Files:** `docs/phase-08-parse-projection.md`, raw evidence/manifests/audit, README/roadmap links.
 **Interfaces:** syntax/projection digests and full-object tests; parse/projection collectors with exact stage presets.
 
-- [ ] Run matched normal/profiled after cohorts and controls; audit raw summaries, complete calls, metadata/digests, bounds and identities.
-- [ ] Report measured changes, remaining costs and limits; commit portable evidence.
+- [x] Run matched normal/profiled after cohorts and controls; audit raw summaries, complete calls, metadata/digests, bounds and identities.
+- [x] Report measured changes, remaining costs and limits; commit portable evidence.
 - [ ] Obtain one fresh whole-branch review, fix Important findings RED→GREEN/full suite, publish stacked draft above #23 and verify exact-head push/PR three-OS CI.
 
 Final review/CI outcomes belong in the PR and ignored ledger, avoiding status-only source commits.
