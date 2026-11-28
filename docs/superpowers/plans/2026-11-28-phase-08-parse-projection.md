@@ -29,16 +29,20 @@
 
 - [x] Observe missing parse/deep projection transcript RED; add extractor parse-preset smoke/strict interruption regression before support.
 - [x] Implement feature-only diagnostics and streaming semantic metadata; validate complete inner/outer links, normal marker absence and object equality on fixture smoke.
-- [ ] Freeze instrument-only code/binaries; serial profiled/normal warmed small/1MB and bounded10MB runs; record target stages before selecting code changes.
+- [x] Freeze instrument-only code/binaries; serial profiled/normal warmed small/1MB and bounded10MB runs; record target stages before selecting code changes.
 
 ## Task 2 — Measured local optimization
 
 **Files:** selected parser metadata/child-storage and projection ownership helpers; frozen parent parser; independent semantic/work tests; CI feature steps.
-**Interfaces:** exact selected private signatures/work invariants will be recorded after Task1 attribution before implementation; all public output stays fixed.
+**Interfaces:** `OwnerLookup::for_kinds(root:&SyntaxNode,kinds:impl IntoIterator<Item=SyntaxKind>)->Self` partitions only requested kinds while retaining effective ancestor bounds and relative preorder; include BlockQuote for extension-only owners. Existing generic constructors remain test references. `SyntaxNode::push_child` keeps its signature/const new, using private kind-biased first-allocation capacities (1 for inline/heading/quote/code/cell containers, 2 for list/table row/head/table, otherwise normal Vec growth). No node merging or metadata change.
 
-- [ ] Record measured dominance and exact selected algorithms/interfaces, with normal versus buffered diagnostic limits.
-- [ ] Add full syntax/projection reference tests and deterministic work/allocation tests; observe missing/old behavior RED.
-- [ ] Implement minimal selected changes and verify targeted ownership/storage/fallback mutations fail; restore originals.
+**Attribution gate:** before `c81f6b34e607a516964e5d0ed8d83fe987edd72c`; 10 MB diagnostic edit parse decode396.4424ms/tree344.9857ms/init266.7008ms; projection grouping286.0357ms/index114.8764ms, styles134.6304ms, built-in candidates118.7728ms. Tree1,982,739nodes/4,317,352allocated child slots/517,236single-child nodes; profilepeak1,340.9MiB. Optimize local tree storage and owner index scope; vendor init/decode remain. Buffered diagnostic times are not normal parser timings.
+
+**Required tests:** frozen parent parser equality on hundreds of generated/dialect/metadata/Unicode fixtures; malformed event fallback/consumption; const construction plus wide-node growth and aggregate allocated-slot bounds; requested-kind lookup equality against generic/brute-force owners, extension-only callout inclusion, tie/clipped/sparse boundaries; full projection reference and digests; targeted storage/owner/fallback mutations.
+
+- [x] Record measured dominance and exact selected algorithms/interfaces, with normal versus buffered diagnostic limits.
+- [x] Add full syntax/projection reference tests and deterministic work/allocation tests; observe missing/old behavior RED.
+- [x] Implement minimal selected changes and verify targeted ownership/storage/fallback mutations fail; restore originals.
 - [ ] Run fmt/check/clippy, workspace and all profiling-feature tests, rustdoc, examples, extractor regressions and normal/profile release builds; freeze optimized identity.
 
 ## Task 3 — Compare and publish

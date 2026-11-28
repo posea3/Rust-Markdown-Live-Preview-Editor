@@ -15,6 +15,11 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PulldownCmarkParser;
 
+#[cfg(test)]
+mod reference;
+#[cfg(test)]
+mod storage_tests;
+
 #[cfg(feature = "parse-profiling")]
 mod profile;
 

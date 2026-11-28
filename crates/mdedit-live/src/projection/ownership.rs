@@ -43,9 +43,51 @@ struct Entry<'a> {
 /// Original node ranges determine ownership; preorder breaks equal-size ties.
 pub(super) struct OwnerLookup<'a> {
     entries: Vec<Entry<'a>>,
+    partitions: Vec<(SyntaxKind, OwnerLookup<'a>)>,
 }
 
 impl<'a> OwnerLookup<'a> {
+    /// Retain only kinds queried by this projection, with one interval tree per
+    /// kind. Unselected ancestors still constrain effective containment bounds.
+    pub(super) fn for_kinds(
+        root: &'a SyntaxNode,
+        kinds: impl IntoIterator<Item = SyntaxKind>,
+    ) -> Self {
+        let mut selected = Vec::<(SyntaxKind, Vec<(&SyntaxNode, TextRange)>)>::new();
+        for kind in kinds {
+            if !selected.iter().any(|(existing, _)| *existing == kind) {
+                selected.push((kind, Vec::new()));
+            }
+        }
+        fn collect<'a>(
+            node: &'a SyntaxNode,
+            parent_bounds: TextRange,
+            selected: &mut [(SyntaxKind, Vec<(&'a SyntaxNode, TextRange)>)],
+        ) {
+            let Ok(bounds) = TextRange::new(
+                parent_bounds.start().max(node.range().start()),
+                parent_bounds.end().min(node.range().end()),
+            ) else {
+                return;
+            };
+            if let Some((_, entries)) = selected.iter_mut().find(|(kind, _)| *kind == node.kind()) {
+                entries.push((node, bounds));
+            }
+            for child in node.children() {
+                collect(child, bounds, selected);
+            }
+        }
+        collect(root, root.range(), &mut selected);
+        Self {
+            entries: Vec::new(),
+            partitions: selected
+                .into_iter()
+                .map(|(kind, entries)| (kind, Self::from_entries(entries)))
+                .collect(),
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn new(root: &'a SyntaxNode) -> Self {
         fn collect<'a>(
             node: &'a SyntaxNode,
@@ -91,7 +133,10 @@ impl<'a> OwnerLookup<'a> {
             root.subtree_end
         }
         augment(&mut entries);
-        Self { entries }
+        Self {
+            entries,
+            partitions: Vec::new(),
+        }
     }
 
     pub(super) fn smallest_containing(
@@ -108,6 +153,13 @@ impl<'a> OwnerLookup<'a> {
         range: TextRange,
         on_visit: &mut impl FnMut(),
     ) -> Option<&'a SyntaxNode> {
+        if !self.partitions.is_empty() {
+            return self
+                .partitions
+                .iter()
+                .find(|(selected, _)| *selected == kind)
+                .and_then(|(_, lookup)| lookup.query(kind, range, on_visit));
+        }
         let mut best = None;
         self.search(0, self.entries.len(), kind, range, &mut best, on_visit);
         best.map(|index| self.entries[index].node)
@@ -132,9 +184,9 @@ impl<'a> OwnerLookup<'a> {
             return;
         }
         self.search(start, middle, kind, range, best, on_visit);
-        if entry.node.kind() == kind
-            && entry.bounds.start() <= range.start()
+        if entry.bounds.start() <= range.start()
             && entry.bounds.end() >= range.end()
+            && entry.node.kind() == kind
             && best.is_none_or(|previous| {
                 (entry.node.range().len(), entry.preorder)
                     < (
@@ -149,6 +201,16 @@ impl<'a> OwnerLookup<'a> {
         if entry.bounds.start() <= range.start() {
             self.search(middle + 1, end, kind, range, best, on_visit);
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn indexed_count(&self) -> usize {
+        self.entries.len()
+            + self
+                .partitions
+                .iter()
+                .map(|(_, lookup)| lookup.indexed_count())
+                .sum::<usize>()
     }
 
     #[cfg(test)]

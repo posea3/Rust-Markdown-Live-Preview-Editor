@@ -978,7 +978,14 @@ impl Projection {
             );
         }
 
-        let owners = projection_stage!(profile, "owner_index", || OwnerLookup::new(syntax.root()));
+        let owners = projection_stage!(profile, "owner_index", || OwnerLookup::for_kinds(
+            syntax.root(),
+            delimiters
+                .spans()
+                .iter()
+                .map(|span| span.owner())
+                .chain(std::iter::once(SyntaxKind::BlockQuote))
+        ));
         let reveal_groups =
             match projection_stage!(profile, "reveal_grouping", || group_reveal_delimiters(
                 &owners, delimiters
