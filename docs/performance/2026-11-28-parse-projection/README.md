@@ -27,7 +27,9 @@ From the repository root, PowerShell 7:
 ./docs/performance/2026-11-28-parse-projection/audit-evidence.ps1
 ```
 
-The audit recomputes min/median/max from raw durations, checks unique identities, ordered inner/outer links, normal marker absence and matching normal/profile/before/after semantic metadata. An actual one-second interruption retains source/init/decode observations plus one censored tree call, with no fabricated duration. The reusable extractor additionally validates malformed, reordered, changed-ID, missing-warmup and torn-tail traces; all 16 regression cases pass. A completed prefix is not a full call/frame.
+The audit recomputes min/median/max from raw durations, checks unique identities, ordered inner/outer links, normal marker absence and matching normal/profile/before/after semantic metadata. An actual one-second interruption retains source/init/decode observations plus one censored tree call, with no fabricated duration. The reusable extractor additionally validates malformed, reordered, changed-ID, missing-warmup and torn-tail traces; all 21 regression cases pass. A completed prefix is not a full call/frame.
+
+Final review added three RED→GREEN ambiguity cases for another subsystem's torn tag, parse statistics after a complete call and a pending end prefix, plus two strict extra/nested begin checks. The corrected extractor preserves every completed observation without inventing a begin or duration. Regenerating all archived extractions leaves all 61 numerical CSV hashes unchanged. `extractor_sha256` identifies the producer-era helper; `extractor_final_sha256` identifies the corrected helper. Frozen engine binaries remain unchanged.
 
 ## Reproduction
 
