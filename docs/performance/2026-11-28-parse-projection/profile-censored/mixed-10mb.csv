@@ -1,0 +1,6 @@
+fixture,kind,sample,phase,stage,ns,items
+mixed-10mb,meta-setup,0,setup,schema_version,0,2
+mixed-10mb,meta-setup,0,setup,source_bytes,0,10000000
+mixed-10mb,meta-setup,0,setup,source_chars,0,9698279
+mixed-10mb,sample,0,load,document,5967800,0
+mixed-10mb,sample,0,load,snapshot,7600,0

@@ -1,0 +1,10 @@
+begin,mixed-10mb,sample,0,load,document
+begin,mixed-10mb,sample,0,load,snapshot
+begin,mixed-10mb,sample,0,load,parse
+parse-begin,1,source_text
+parse-end,1,source_text,8866300
+parse-begin,1,parser_init
+parse-end,1,parser_init,199625500
+parse-begin,1,decode_events
+parse-end,1,decode_events,255944200
+parse-begin,1,build_tree

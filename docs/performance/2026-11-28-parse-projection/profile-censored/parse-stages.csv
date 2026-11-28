@@ -1,0 +1,4 @@
+"fixture","kind","sample","phase","call","stage","ns"
+"mixed-10mb","sample","0","load","1","source_text","8866300"
+"mixed-10mb","sample","0","load","1","parser_init","199625500"
+"mixed-10mb","sample","0","load","1","decode_events","255944200"

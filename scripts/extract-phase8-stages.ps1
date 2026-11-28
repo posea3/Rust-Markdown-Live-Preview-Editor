@@ -1,13 +1,15 @@
 #Requires -Version 7.0
 param(
     [Parameter(Mandatory)][string]$Directory,
-    [ValidateSet('extension','projection')][string]$Subsystem = 'extension',
+    [ValidateSet('extension','projection','parse')][string]$Subsystem = 'extension',
     [string[]]$ExpectedStages = @()
 )
-$outerStage = if ($Subsystem -eq 'extension') { 'scan' } else { 'projection' }
+$outerStage = if ($Subsystem -eq 'extension') { 'scan' } else { $Subsystem }
 if (-not $PSBoundParameters.ContainsKey('ExpectedStages')) {
     $ExpectedStages = if ($Subsystem -eq 'extension') {
         @('validation','source_text','protected_ranges','scanner_0','candidate_filter_0','pending_sort','conflict_merge','final_sort')
+    } elseif ($Subsystem -eq 'parse') {
+        @('source_text','parser_init','decode_events','build_tree')
     } else {
         @('validation','source_text','reveal_groups','conceal_spans','structural_padding','builtin_candidates','extension_candidates','normalize_ownership','shadow_filter','overlap_check','map','materialize','project_blocks','project_styles','project_widgets')
     }
@@ -38,7 +40,15 @@ foreach ($process in (Import-Csv -LiteralPath (Join-Path $Directory 'processes.c
         $unterminated = $lineIndex -eq $lastLine -and -not $transcript.EndsWith("`n", [StringComparison]::Ordinal)
         $interruptedTail = $lineIndex -eq $lastLine -and $process.status -in @('timeout', 'memory_limit', 'failed')
         $beginTag = $Subsystem + '-begin'
-        $tornBegin = $interruptedTail -and $unterminated -and $beginTag.StartsWith($parts[0], [StringComparison]::Ordinal)
+        $tornBegin = $interruptedTail -and $unterminated -and $beginTag.StartsWith($parts[0], [StringComparison]::Ordinal) -and ($null -eq $outer -or $outer[5] -eq $outerStage)
+        if ($tornBegin -and $parts[0] -cne $beginTag) {
+            # A short tag can prefix a begin, an outstanding end, or parse
+            # statistics after the final stage. Prefer the known context; do
+            # not invent a new begin from another subsystem's interrupted log.
+            $possibleEnd = ($Subsystem + '-end').StartsWith($parts[0], [StringComparison]::Ordinal)
+            $possibleStats = $Subsystem -eq 'parse' -and 'parse-stats'.StartsWith($parts[0], [StringComparison]::Ordinal)
+            if (($null -ne $pending -and $possibleEnd) -or ($nextStage -ge $ExpectedStages.Count -and $possibleStats)) { $tornBegin = $false }
+        }
         if ($parts[0] -eq 'begin') {
             if ($null -ne $pending) { throw 'New outer stage with incomplete inner stage' }
             $outer = $parts

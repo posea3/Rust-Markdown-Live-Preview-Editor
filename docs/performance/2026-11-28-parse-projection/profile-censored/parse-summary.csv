@@ -1,0 +1,4 @@
+"fixture","phase","stage","completed_samples","min_ms","median_ms","max_ms"
+"mixed-10mb","load","decode_events","1","255.9442","255.9442","255.9442"
+"mixed-10mb","load","parser_init","1","199.6255","199.6255","199.6255"
+"mixed-10mb","load","source_text","1","8.8663","8.8663","8.8663"

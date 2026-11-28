@@ -10,6 +10,96 @@ fn range(start: u32, end: u32) -> TextRange {
 }
 
 #[test]
+fn requested_kind_lookup_keeps_parent_ties_and_omits_unqueried_nodes() {
+    let source =
+        ("plain **bold *inner*** and [link](url)\r\n\r\n> [!note] quote\r\n> body\r\n\r\n")
+            .repeat(64);
+    let snapshot = Document::new(&source).unwrap().snapshot();
+    let syntax = PulldownCmarkParser.parse(&snapshot, &MarkdownDialect::obsidian());
+    let generic = OwnerLookup::new(syntax.root());
+    let wanted = [
+        SyntaxKind::Strong,
+        SyntaxKind::Emphasis,
+        SyntaxKind::BlockQuote,
+        SyntaxKind::Strong,
+    ];
+    let lookup = OwnerLookup::for_kinds(syntax.root(), wanted);
+    assert!(lookup.indexed_count() * 2 < generic.indexed_count());
+    assert_eq!(OwnerLookup::for_kinds(syntax.root(), []).indexed_count(), 0);
+    for start in (0..source.len() as u32).step_by(3) {
+        for kind in [
+            SyntaxKind::Strong,
+            SyntaxKind::Emphasis,
+            SyntaxKind::BlockQuote,
+        ] {
+            assert_eq!(
+                lookup
+                    .smallest_containing(kind, range(start, start))
+                    .map(SyntaxNode::range),
+                generic
+                    .smallest_containing(kind, range(start, start))
+                    .map(SyntaxNode::range)
+            );
+        }
+        assert!(
+            lookup
+                .smallest_containing(SyntaxKind::Text, range(start, start))
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn extension_callout_owner_is_available_without_delimiter_requested_kinds() {
+    let source = "> [!note] title\r\n> body 한🙂\r\n";
+    let document = Document::new(source).unwrap().snapshot();
+    let syntax = PulldownCmarkParser.parse(&document, &MarkdownDialect::obsidian());
+    let blocks = BlockCache::new().reconcile(&document, &syntax).unwrap();
+    // Same revision/length but no delimiter requests: extension owners must be
+    // selected independently of the delimiter index.
+    let plain = Document::new(&" ".repeat(source.len())).unwrap().snapshot();
+    let plain_syntax = PulldownCmarkParser.parse(&plain, &MarkdownDialect::obsidian());
+    let delimiters = DelimiterResolver.resolve(&plain, &plain_syntax).unwrap();
+    assert!(delimiters.spans().is_empty());
+    let extensions = mdedit_markdown::obsidian_extension_set();
+    let metadata = extensions.scan(&document, &syntax).unwrap();
+    for policy in [RevealPolicy::ConcealInactive, RevealPolicy::SourceVisible] {
+        for context in [
+            RevealContext::new(),
+            RevealContext::new().with_caret(TextSize::ZERO),
+        ] {
+            let actual = Projection::build_with_current_extensions(
+                &document,
+                &syntax,
+                &blocks,
+                &delimiters,
+                &metadata,
+                &extensions,
+                policy,
+                &context,
+            )
+            .unwrap();
+            let expected = ownership_reference::build_reference(
+                &document,
+                &syntax,
+                &blocks,
+                &delimiters,
+                Some(&metadata),
+                policy,
+                &context,
+            )
+            .unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(actual.status(), ProjectionStatus::Projected);
+            if policy == RevealPolicy::ConcealInactive && context == RevealContext::new() {
+                assert_eq!(actual.widgets().len(), 1);
+                assert_eq!(actual.widgets()[0].kind(), WidgetKind::Callout);
+            }
+        }
+    }
+}
+
+#[test]
 fn any_container_matches_all_small_range_subsets_and_extreme_endpoints() {
     let universe = (0..=4)
         .flat_map(|start| (start..=4).map(move |end| range(start, end)))
@@ -149,7 +239,6 @@ fn parsed_owners_and_complete_projections_match_frozen_parent_reference() {
         let delimiters = DelimiterResolver.resolve(&document, &syntax).unwrap();
         let extensions = mdedit_markdown::obsidian_extension_set();
         let metadata = extensions.scan(&document, &syntax).unwrap();
-        let lookup = OwnerLookup::new(syntax.root());
         let mut points = vec![0, source.len() as u32];
         let mut kinds = Vec::new();
         fn collect(node: &SyntaxNode, points: &mut Vec<u32>, kinds: &mut Vec<SyntaxKind>) {
@@ -162,6 +251,7 @@ fn parsed_owners_and_complete_projections_match_frozen_parent_reference() {
             }
         }
         collect(syntax.root(), &mut points, &mut kinds);
+        let lookup = OwnerLookup::for_kinds(syntax.root(), kinds.iter().copied());
         points.sort_unstable();
         points.dedup();
         for kind in kinds {

@@ -94,12 +94,40 @@ impl SyntaxNode {
         &self.children
     }
 
+    #[cfg(feature = "parse-profiling")]
+    pub(crate) fn child_capacity(&self) -> usize {
+        self.children.capacity()
+    }
+
     pub(crate) fn with_metadata(mut self, metadata: SyntaxMetadata) -> Self {
         self.metadata = metadata;
         self
     }
 
     pub(crate) fn push_child(&mut self, child: SyntaxNode) {
+        if self.children.capacity() == 0 {
+            // Most inline and leaf-block containers have one child. Keep wide
+            // containers on Vec's geometric growth after the initial hint.
+            let first_capacity = match self.kind {
+                SyntaxKind::Heading(_)
+                | SyntaxKind::BlockQuote
+                | SyntaxKind::CodeBlock
+                | SyntaxKind::TableCell
+                | SyntaxKind::Emphasis
+                | SyntaxKind::Strong
+                | SyntaxKind::Strikethrough
+                | SyntaxKind::Superscript
+                | SyntaxKind::Subscript
+                | SyntaxKind::Link
+                | SyntaxKind::Image => 1,
+                SyntaxKind::List { .. }
+                | SyntaxKind::Table
+                | SyntaxKind::TableHead
+                | SyntaxKind::TableRow => 2,
+                _ => 0,
+            };
+            self.children.reserve_exact(first_capacity);
+        }
         self.children.push(child);
     }
 }
@@ -159,5 +187,60 @@ impl SyntaxSnapshot {
     #[must_use]
     pub const fn root(&self) -> &SyntaxNode {
         &self.root
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+    fn range() -> TextRange {
+        TextRange::new(TextSize::ZERO, TextSize::new(10)).unwrap()
+    }
+    #[test]
+    fn narrow_container_storage_is_bounded_and_const_construction_stays_available() {
+        const EMPTY: SyntaxNode =
+            SyntaxNode::new(SyntaxKind::Document, TextRange::empty(TextSize::ZERO));
+        assert!(EMPTY.children().is_empty());
+        let kinds = [
+            SyntaxKind::Heading(2),
+            SyntaxKind::Strong,
+            SyntaxKind::Emphasis,
+            SyntaxKind::BlockQuote,
+            SyntaxKind::CodeBlock,
+            SyntaxKind::TableCell,
+        ];
+        let mut allocated = 0;
+        for index in 0..512 {
+            let mut parent = SyntaxNode::new(kinds[index % kinds.len()], range());
+            parent.push_child(SyntaxNode::new(SyntaxKind::Text, range()));
+            allocated += parent.children.capacity();
+            assert_eq!(parent.children.len(), 1);
+        }
+        assert!(
+            allocated <= 1024,
+            "512 single-child containers allocated {allocated} slots"
+        );
+    }
+    #[test]
+    fn child_hints_preserve_wide_and_mixed_growth_order() {
+        for kind in [
+            SyntaxKind::TableRow,
+            SyntaxKind::Paragraph,
+            SyntaxKind::Heading(1),
+            SyntaxKind::Strong,
+        ] {
+            let mut node = SyntaxNode::new(kind, range());
+            for index in 0..257 {
+                node.push_child(SyntaxNode::new(
+                    SyntaxKind::Heading((index % 6 + 1) as u8),
+                    range(),
+                ));
+            }
+            assert_eq!(node.children.len(), 257);
+            for (index, child) in node.children().iter().enumerate() {
+                assert_eq!(child.kind(), SyntaxKind::Heading((index % 6 + 1) as u8));
+            }
+            assert!(node.children.capacity() < 1024);
+        }
     }
 }

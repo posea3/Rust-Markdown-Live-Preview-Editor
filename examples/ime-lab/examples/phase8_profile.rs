@@ -133,6 +133,12 @@ fn scan_digest(matches: &[ExtensionMatch], issues: &[ExtensionIssue]) -> u64 {
     write!(&mut digest, "{matches:?}|{issues:?}").expect("infallible streaming digest");
     digest.0
 }
+
+fn value_digest(value: &impl fmt::Debug) -> u64 {
+    let mut digest = ScanDigest(0xcbf29ce484222325);
+    write!(&mut digest, "{value:?}").expect("infallible streaming digest");
+    digest.0
+}
 impl Clock {
     fn measure<T>(&self, phase: &str, stage: &str, work: impl FnOnce() -> T) -> T {
         eprintln!(
@@ -199,6 +205,13 @@ impl<'a> Pipeline<'a> {
         let syntax = clock.measure(phase, "parse", || {
             PulldownCmarkParser.parse(&snapshot, &MarkdownDialect::obsidian())
         });
+        let syntax_digest = value_digest(&syntax);
+        clock.metric(phase, "syntax_digest_hi", (syntax_digest >> 32) as usize);
+        clock.metric(
+            phase,
+            "syntax_digest_lo",
+            (syntax_digest & u64::from(u32::MAX)) as usize,
+        );
         let extensions =
             clock.measure(phase, "scan", || self.extensions.scan(&snapshot, &syntax))?;
         clock.metric(phase, "issues_count", extensions.issues().len());
@@ -228,6 +241,17 @@ impl<'a> Pipeline<'a> {
                 &context,
             )
         })?;
+        let projection_digest = value_digest(&projection);
+        clock.metric(
+            phase,
+            "projection_digest_hi",
+            (projection_digest >> 32) as usize,
+        );
+        clock.metric(
+            phase,
+            "projection_digest_lo",
+            (projection_digest & u64::from(u32::MAX)) as usize,
+        );
         clock.metric(phase, "blocks_count", blocks.blocks().len());
         clock.metric(phase, "matches_count", extensions.matches().len());
         clock.metric(phase, "delimiters_count", delimiters.spans().len());

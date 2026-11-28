@@ -34,6 +34,10 @@ jobs:
         run: cargo clippy -p mdedit-markdown --all-targets --features extension-profiling -- -D warnings
       - name: Test extension profiling
         run: cargo test -p mdedit-markdown --features extension-profiling
+      - name: Clippy parse profiling
+        run: cargo clippy -p mdedit-markdown --all-targets --features parse-profiling -- -D warnings
+      - name: Test parse profiling
+        run: cargo test -p mdedit-markdown --features parse-profiling
       - name: Projection trace extraction regressions
         if: matrix.os == 'windows-latest'
         run: pwsh -NoProfile -File ./docs/performance/2026-11-28-projection-hotspots/extract-stages.tests.ps1
