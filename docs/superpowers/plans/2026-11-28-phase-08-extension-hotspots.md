@@ -50,8 +50,8 @@
 **Files:** report `docs/phase-08-extension-hotspots.md`, portable raw data/manifests/helpers, README/roadmap links, CI feature/extractor steps.
 **Interfaces:** Task 1 markers/metadata and Task 2 unchanged snapshots; old projection archive remains historical.
 
-- [ ] Measure serial normal/profiled after cohorts under matching protocols; verify all summaries, completed invocation links, semantic metadata/digests and source/binary/lock identities.
-- [ ] Report stage attribution, total scan observations and remaining costs; commit raw evidence and results.
+- [x] Measure serial normal/profiled after cohorts under matching protocols; verify all summaries, completed invocation links, semantic metadata/digests and source/binary/lock identities.
+- [x] Report stage attribution, total scan observations and remaining costs; commit raw evidence and results.
 - [ ] Obtain one fresh whole-branch review, fix Important issues RED→GREEN plus full suite, publish stacked draft above #22 and confirm final-head push/PR three-OS CI.
 
 Final review/CI outcomes live in the PR and ignored ledger; avoid status-only source commits.

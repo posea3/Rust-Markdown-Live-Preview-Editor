@@ -1,0 +1,4 @@
+"fixture","status","exit_code","elapsed_ms","observed_peak_working_set_bytes","samples_requested","warmups","timeout_seconds","max_working_set_bytes","layout","source_visible","last_stage"
+"mixed-10kb","completed","0","2256.6","9428992","5","1","90","1500000000","True","False","begin,mixed-10kb,sample,4,edit,caret_stops"
+"mixed-100kb","completed","0","2704.2","23355392","5","1","90","1500000000","True","False","begin,mixed-100kb,sample,4,edit,caret_stops"
+"mixed-1mb","completed","0","5348.5","149254144","5","1","90","1500000000","True","False","begin,mixed-1mb,sample,4,edit,caret_stops"

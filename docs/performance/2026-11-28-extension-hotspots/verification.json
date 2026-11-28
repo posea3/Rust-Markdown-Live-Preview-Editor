@@ -1,0 +1,9 @@
+{
+  "outer_summary_groups": 353,
+  "internal_summary_groups": 132,
+  "unique_schema2_fixture_files": 19,
+  "validated_outer_invocations_including_warmups": 76,
+  "matching_metadata_rows": 2089,
+  "timing_comparisons": 239,
+  "censored_filter_observations": 0
+}

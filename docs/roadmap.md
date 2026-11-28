@@ -271,7 +271,7 @@ See `docs/phase-07-extension-api.md` for the current boundary and [the compatibi
 
 ## Phase 8 - Large-document performance
 
-Status: **Windows baseline, indexed mapping/caret traversal and projection containment optimization measured in the proposed, unmerged PR stack**. [Slice 03](phase-08-projection-hotspots.md) attributes repeated owner/shadow searches, preserves full projected output and completes a bounded 10 MB headless load/edit pair. See the [baseline](phase-08-performance.md) and [mapping comparison](phase-08-indexed-mapping.md). Extension scanning is now the largest measured 10 MB edit stage; instrument its internal work before choosing that change. Giant-line shaping, native GPU/presentation/input latency and memory attribution remain separate measurement surfaces.
+Status: **Windows baseline, mapping/caret, projection containment and extension protection/conflict searches measured in the proposed, unmerged PR stack**. [Slice 04](phase-08-extension-hotspots.md) attributes extension scan internals, preserves complete ordered results/errors and reduces the bounded 10 MB scan call. See the [baseline](phase-08-performance.md), [mapping](phase-08-indexed-mapping.md) and [projection](phase-08-projection-hotspots.md) reports. Projection/parse now exceed scan in the measured 10 MB edit. Giant-line shaping, native GPU/presentation/input latency and memory attribution remain separate measurement surfaces.
 
 Implement only after profiling:
 

@@ -1,5 +1,7 @@
 # Phase 8 projection attribution and containment optimization
 
+Follow-up: [Slice 04 extension scan attribution and optimization](phase-08-extension-hotspots.md) addresses the next measured scan bottleneck. Values below remain this slice's original observations.
+
 Slice 03 continues above draft PR #21 (`5cee822`), following [indexed mapping/caret traversal](phase-08-indexed-mapping.md). It measures projection internals before selecting the change. The PR stack remains unmerged; this is headless Windows CPU evidence, with native rendering/input and giant-line shaping still separate.
 
 ## Attribution before optimization
