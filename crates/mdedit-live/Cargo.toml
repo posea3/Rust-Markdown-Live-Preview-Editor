@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Diagnostic stderr timings for serial headless profiling; disabled by default.
+projection-profiling = []
+
 [dependencies]
 mdedit-core = { path = "../mdedit-core" }
 mdedit-markdown = { path = "../mdedit-markdown" }

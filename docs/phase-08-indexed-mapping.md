@@ -1,5 +1,7 @@
 # Phase 8 indexed mapping and caret traversal
 
+Follow-up: [Slice 03 projection attribution and containment optimization](phase-08-projection-hotspots.md) measures and addresses the next owner/range bottlenecks. The measurements below retain this slice's original values.
+
 This is Slice 02, above the profiling branch/PR #20 at `6603de6`. The parent remains unmerged. It implements the first experiment from [the original measured baseline](phase-08-performance.md) without changing public map/caret APIs, native rendering, parser/scanner behavior or reveal policy.
 
 ## Change and contract

@@ -1,0 +1,12 @@
+begin,mixed-1mb,sample,0,load,document
+begin,mixed-1mb,sample,0,load,snapshot
+begin,mixed-1mb,sample,0,load,parse
+begin,mixed-1mb,sample,0,load,scan
+begin,mixed-1mb,sample,0,load,blocks
+begin,mixed-1mb,sample,0,load,delimiters
+begin,mixed-1mb,sample,0,load,projection
+projection-begin,1,validation
+projection-end,1,validation,14300
+projection-begin,1,source_text
+projection-end,1,source_text,261300
+projection-begin,1,reveal_groups

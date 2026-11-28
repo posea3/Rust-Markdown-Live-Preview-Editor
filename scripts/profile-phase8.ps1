@@ -6,12 +6,13 @@ param(
     [ValidateRange(1,3600)][int]$TimeoutSeconds = 90,
     [long]$MaxWorkingSetBytes = 1500000000,
     [string]$OutputDirectory = 'target/phase-08-profiling/baseline',
+    [string]$BinaryPath = 'target/release/examples/phase8_profile.exe',
     [switch]$NoLayout,
     [switch]$SourceVisible
 )
 $ErrorActionPreference = 'Stop'
 $profileRoot = Split-Path -Parent $PSScriptRoot
-$profileBinary = Join-Path $profileRoot 'target/release/examples/phase8_profile.exe'
+$profileBinary = if ([IO.Path]::IsPathRooted($BinaryPath)) { $BinaryPath } else { Join-Path $profileRoot $BinaryPath }
 if (-not (Test-Path -LiteralPath $profileBinary)) { throw 'Build first: cargo build --release -p mdedit-ime-lab --example phase8_profile' }
 $profileOutput = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $profileRoot $OutputDirectory }
 if (Test-Path -LiteralPath $profileOutput) {

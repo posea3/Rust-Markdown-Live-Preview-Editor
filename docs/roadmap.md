@@ -271,7 +271,7 @@ See `docs/phase-07-extension-api.md` for the current boundary and [the compatibi
 
 ## Phase 8 - Large-document performance
 
-Status: **Windows baseline and first indexed mapping/caret optimization measured in the proposed, unmerged PR stack**. Random queries use existing sorted spans; caret boundaries use forward traversal, preserving bias/grapheme/reveal contracts. See the [baseline](phase-08-performance.md) and [same-protocol comparison and correctness evidence](phase-08-indexed-mapping.md). Projection owner/range work and giant-line shaping remain measured priorities; instrument those passes before selecting the next change. Native GPU/presentation/input latency remains a separate measurement surface.
+Status: **Windows baseline, indexed mapping/caret traversal and projection containment optimization measured in the proposed, unmerged PR stack**. [Slice 03](phase-08-projection-hotspots.md) attributes repeated owner/shadow searches, preserves full projected output and completes a bounded 10 MB headless load/edit pair. See the [baseline](phase-08-performance.md) and [mapping comparison](phase-08-indexed-mapping.md). Extension scanning is now the largest measured 10 MB edit stage; instrument its internal work before choosing that change. Giant-line shaping, native GPU/presentation/input latency and memory attribution remain separate measurement surfaces.
 
 Implement only after profiling:
 

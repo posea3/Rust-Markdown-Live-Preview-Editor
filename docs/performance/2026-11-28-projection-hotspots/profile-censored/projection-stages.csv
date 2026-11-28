@@ -1,0 +1,3 @@
+"fixture","kind","sample","phase","call","stage","ns"
+"mixed-1mb","sample","0","load","1","validation","14300"
+"mixed-1mb","sample","0","load","1","source_text","261300"

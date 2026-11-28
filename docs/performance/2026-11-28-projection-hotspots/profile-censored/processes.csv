@@ -1,0 +1,2 @@
+"fixture","status","exit_code","elapsed_ms","observed_peak_working_set_bytes","samples_requested","warmups","timeout_seconds","max_working_set_bytes","layout","source_visible","last_stage"
+"mixed-1mb","timeout","-1","3065.6","84324352","1","0","3","1500000000","False","False","begin,mixed-1mb,sample,0,load,projection"

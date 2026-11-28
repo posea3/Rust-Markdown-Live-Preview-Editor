@@ -1,0 +1,23 @@
+{
+  "before_commit": "87cf92732707300f0121de7d6c6e061565575863",
+  "after_commit": "dc8415e585e526d77076ca8cf3408d63ab59b021",
+  "parent_pr21": "5cee82218ed27052aa3803535985017ca65d47e6",
+  "normal_features": [],
+  "profile_features": ["mdedit-live/projection-profiling"],
+  "dialect": "Obsidian",
+  "policy": "ConcealInactive",
+  "edit": "insert ASCII x at source byte zero",
+  "viewport": "1000x700",
+  "font": "SansSerif 22px / 31px line height, Word wrap, Advanced shaping",
+  "max_working_set_bytes": 1500000000,
+  "untimed_settle_ms": 200,
+  "cohorts": [
+    { "directories": ["normal-before-small", "normal-after-small", "profile-before-small", "profile-after-small"], "fixtures": ["mixed-10kb", "mixed-100kb"], "layout": true, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90 },
+    { "directories": ["normal-before-1mb", "normal-after-1mb", "profile-before-1mb", "profile-after-1mb"], "fixtures": ["mixed-1mb"], "layout": true, "warmups": 0, "samples_requested": 1, "timeout_seconds": 180 },
+    { "directories": ["normal-before-core", "normal-after-core"], "fixtures": ["single-line"], "layout": false, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90 },
+    { "directories": ["normal-after-10mb"], "fixtures": ["mixed-10mb"], "layout": true, "warmups": 0, "samples_requested": 1, "timeout_seconds": 90 },
+    { "directories": ["normal-after-1mb-warmed"], "fixtures": ["mixed-1mb"], "layout": true, "warmups": 1, "samples_requested": 5, "timeout_seconds": 90 },
+    { "directories": ["profile-censored"], "fixtures": ["mixed-1mb"], "layout": false, "warmups": 0, "samples_requested": 1, "timeout_seconds": 3, "variant": "before" }
+  ],
+  "notes": "Serial elapsed-call cohorts without randomized order, affinity or power isolation. Internal index construction is charged to reveal/shadow/normalization stages. Inner markers omit I/O from their intervals; featured outer calls include it. A missing end is censored and never a duration. Native latency and exact heap usage remain separate."
+}

@@ -1,7 +1,7 @@
 use mdedit_core::{Document, TextRange, TextSize};
 use mdedit_live::{
-    CaretDirection, ProjectedCaretStops, ProjectedSize, Projection, ProjectionBias, RevealContext,
-    RevealPolicy,
+    CaretDirection, ProjectedCaretStops, ProjectedSize, Projection, ProjectionBias,
+    ProjectionStatus, RevealContext, RevealPolicy,
 };
 use mdedit_markdown::{
     BlockCache, DelimiterResolver, MarkdownDialect, MarkdownParser, PulldownCmarkParser,
@@ -112,10 +112,18 @@ fn real_reveal_and_widget_maps_match_retained_byte_counts_and_inverse_edges() {
         RevealContext::new().with_selection(range(0, 8)),
         RevealContext::new().with_composition(range(2, 5)),
     ];
-    for source in sources {
-        for context in &contexts {
+    for (source_index, source) in sources.into_iter().enumerate() {
+        for (context_index, context) in contexts.iter().enumerate() {
             for policy in [RevealPolicy::SourceVisible, RevealPolicy::ConcealInactive] {
                 let projection = project(source, policy, context);
+                assert_eq!(projection.status(), ProjectionStatus::Projected);
+                if source_index == 1
+                    && context_index == 0
+                    && policy == RevealPolicy::ConcealInactive
+                {
+                    assert_eq!(projection.widgets().len(), 4);
+                    assert!(!projection.map().concealed_ranges().is_empty());
+                }
                 let map = projection.map();
                 // Independent retained-byte arithmetic, not the span index.
                 let expected = (0..=source.len() as u32)

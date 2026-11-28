@@ -7,6 +7,11 @@ use mdedit_markdown::{
     ParseStatus, SyntaxKind, SyntaxMetadata, SyntaxNode, SyntaxSnapshot, SyntaxTableAlignment,
 };
 
+mod ownership;
+mod profile;
+
+use ownership::{ContainmentSet, OwnerLookup};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct ProjectedSize(u32);
@@ -938,11 +943,15 @@ impl Projection {
         policy: RevealPolicy,
         context: &RevealContext,
     ) -> Result<Self, ProjectionBuildError> {
-        validate_inputs(document, syntax, blocks, delimiters)?;
-        if let Some(extensions) = extensions {
-            validate_extension_input(document, extensions)?;
-        }
-        let source = document.text();
+        let profile = profile::BuildProfile::new();
+        profile.measure("validation", || {
+            validate_inputs(document, syntax, blocks, delimiters)?;
+            if let Some(extensions) = extensions {
+                validate_extension_input(document, extensions)?;
+            }
+            Ok::<_, ProjectionBuildError>(())
+        })?;
+        let source = profile.measure("source_text", || document.text());
 
         if matches!(syntax.status(), ParseStatus::RawFallback(_)) {
             return Self::raw(
@@ -955,7 +964,10 @@ impl Projection {
             );
         }
 
-        let reveal_groups = match build_reveal_groups(syntax.root(), delimiters, policy, context) {
+        let (owners, reveal_groups) = match profile.measure("reveal_groups", || {
+            let owners = OwnerLookup::new(syntax.root());
+            build_reveal_groups(&owners, delimiters, policy, context).map(|groups| (owners, groups))
+        }) {
             Ok(groups) => groups,
             Err(ProjectionFallbackReason::UnownedDelimiter) => {
                 return Self::raw(
@@ -979,36 +991,48 @@ impl Projection {
             }
         };
 
-        let mut concealed = reveal_groups
-            .iter()
-            .filter(|group| !group.revealed)
-            .flat_map(|group| {
-                group.delimiters.iter().map(|delimiter| ConcealSpan {
-                    kind: delimiter.kind(),
-                    source_range: delimiter.range(),
-                    group: group.id,
+        let mut concealed = profile.measure("conceal_spans", || {
+            reveal_groups
+                .iter()
+                .filter(|group| !group.revealed)
+                .flat_map(|group| {
+                    group.delimiters.iter().map(|delimiter| ConcealSpan {
+                        kind: delimiter.kind(),
+                        source_range: delimiter.range(),
+                        group: group.id,
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+        });
 
-        let mut structural_padding = build_structural_padding(&source, &reveal_groups)?;
-        let mut widget_candidates =
-            build_widget_candidates(&source, syntax.root(), policy, context)?;
+        let mut structural_padding = profile.measure("structural_padding", || {
+            build_structural_padding(&source, &reveal_groups)
+        })?;
+        let mut widget_candidates = profile.measure("builtin_candidates", || {
+            build_widget_candidates(&source, syntax.root(), policy, context)
+        })?;
         if let Some(extensions) = extensions {
-            widget_candidates.extend(build_extension_widget_candidates(
-                &source,
-                syntax.root(),
-                extensions,
-                policy,
-                context,
-            )?);
-            widget_candidates = normalize_widget_candidate_ownership(widget_candidates);
+            widget_candidates.extend(profile.measure("extension_candidates", || {
+                build_extension_widget_candidates(&source, &owners, extensions, policy, context)
+            })?);
+            widget_candidates = profile.measure("normalize_ownership", || {
+                normalize_widget_candidate_ownership(widget_candidates)
+            });
         }
-        concealed.retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
-        structural_padding
-            .retain(|span| !shadowed_by_widget_owner(&widget_candidates, span.source_range));
+        profile.measure("shadow_filter", || {
+            let shadowed = ContainmentSet::new(widget_candidates.iter().flat_map(|widget| {
+                let concealed = (!widget.active).then_some(widget.conceal_range);
+                let owner = matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
+                    .then_some(widget.source_range);
+                concealed.into_iter().chain(owner)
+            }));
+            concealed.retain(|span| !shadowed.contains(span.source_range));
+            structural_padding.retain(|span| !shadowed.contains(span.source_range));
+        });
 
-        if has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates) {
+        if profile.measure("overlap_check", || {
+            has_overlapping_projection_ranges(&concealed, &structural_padding, &widget_candidates)
+        }) {
             return Self::raw(
                 document.revision(),
                 syntax.source_len(),
@@ -1019,22 +1043,29 @@ impl Projection {
             );
         }
 
-        let omitted_ranges = concealed
-            .iter()
-            .map(|span| span.source_range)
-            .chain(structural_padding.iter().map(|span| span.source_range))
-            .chain(
-                widget_candidates
-                    .iter()
-                    .filter(|widget| !widget.active)
-                    .map(|widget| widget.conceal_range),
-            )
-            .collect();
-        let map = ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)?;
-        let text = materialize_projection(&source, map.concealed_ranges());
-        let projected_blocks = project_blocks(blocks, &map)?;
-        let styles = project_styles(syntax.root(), &map)?;
-        let widgets = project_widgets(&widget_candidates, &map)?;
+        let map = profile.measure("map", || {
+            let omitted_ranges = concealed
+                .iter()
+                .map(|span| span.source_range)
+                .chain(structural_padding.iter().map(|span| span.source_range))
+                .chain(
+                    widget_candidates
+                        .iter()
+                        .filter(|widget| !widget.active)
+                        .map(|widget| widget.conceal_range),
+                )
+                .collect();
+            ProjectionMap::from_concealed(syntax.source_len(), omitted_ranges)
+        })?;
+        let text = profile.measure("materialize", || {
+            materialize_projection(&source, map.concealed_ranges())
+        });
+        let projected_blocks =
+            profile.measure("project_blocks", || project_blocks(blocks, &map))?;
+        let styles = profile.measure("project_styles", || project_styles(syntax.root(), &map))?;
+        let widgets = profile.measure("project_widgets", || {
+            project_widgets(&widget_candidates, &map)
+        })?;
 
         Ok(Self {
             revision: syntax.revision(),
@@ -1212,7 +1243,7 @@ type RevealGroupKey = (u32, u32, u32);
 type PendingRevealGroup = (SyntaxKind, TextRange, Vec<DelimiterSpan>);
 
 fn build_reveal_groups(
-    root: &SyntaxNode,
+    owners: &OwnerLookup<'_>,
     delimiters: &DelimiterSnapshot,
     policy: RevealPolicy,
     context: &RevealContext,
@@ -1220,7 +1251,9 @@ fn build_reveal_groups(
     let mut grouped: BTreeMap<RevealGroupKey, PendingRevealGroup> = BTreeMap::new();
 
     for delimiter in delimiters.spans() {
-        let Some(owner_range) = smallest_owner_range(root, delimiter.owner(), delimiter.range())
+        let Some(owner_range) = owners
+            .smallest_containing(delimiter.owner(), delimiter.range())
+            .map(SyntaxNode::range)
         else {
             return Err(ProjectionFallbackReason::UnownedDelimiter);
         };
@@ -1353,35 +1386,6 @@ const fn strictly_contains(outer: TextRange, inner: TextRange) -> bool {
 
 const fn ranges_overlap_nonempty(left: TextRange, right: TextRange) -> bool {
     left.start().get() < right.end().get() && right.start().get() < left.end().get()
-}
-
-fn smallest_owner_range(
-    node: &SyntaxNode,
-    owner: SyntaxKind,
-    delimiter: TextRange,
-) -> Option<TextRange> {
-    let mut best = None;
-    smallest_owner_range_into(node, owner, delimiter, &mut best);
-    best
-}
-
-fn smallest_owner_range_into(
-    node: &SyntaxNode,
-    owner: SyntaxKind,
-    delimiter: TextRange,
-    best: &mut Option<TextRange>,
-) {
-    if !range_contains(node.range(), delimiter) {
-        return;
-    }
-
-    if node.kind() == owner && best.is_none_or(|current| node.range().len() < current.len()) {
-        *best = Some(node.range());
-    }
-
-    for child in node.children() {
-        smallest_owner_range_into(child, owner, delimiter, best);
-    }
 }
 
 fn build_structural_padding(
@@ -1595,14 +1599,6 @@ const fn structural_padding_kind_code(kind: StructuralPaddingKind) -> u8 {
     }
 }
 
-fn shadowed_by_widget_owner(widgets: &[WidgetCandidate], range: TextRange) -> bool {
-    widgets.iter().any(|widget| {
-        (!widget.active && range_contains(widget.conceal_range, range))
-            || (matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed)
-                && range_contains(widget.source_range, range))
-    })
-}
-
 fn has_overlapping_projection_ranges(
     concealed: &[ConcealSpan],
     structural_padding: &[StructuralPaddingSpan],
@@ -1794,7 +1790,7 @@ fn collect_widget_candidates(
 
 fn build_extension_widget_candidates(
     source: &str,
-    root: &SyntaxNode,
+    owners: &OwnerLookup<'_>,
     extensions: &ExtensionSnapshot,
     policy: RevealPolicy,
     context: &RevealContext,
@@ -1809,7 +1805,7 @@ fn build_extension_widget_candidates(
             OBSIDIAN_CALLOUT => {
                 let marker_range = extension.range();
                 let Some(blockquote) =
-                    smallest_containing_node(root, marker_range, SyntaxKind::BlockQuote)
+                    owners.smallest_containing(SyntaxKind::BlockQuote, marker_range)
                 else {
                     continue;
                 };
@@ -1867,20 +1863,19 @@ fn build_extension_widget_candidates(
 }
 
 fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Vec<WidgetCandidate> {
-    let extension_owner_ranges = widgets
-        .iter()
-        .filter(|widget| matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed))
-        .map(|widget| widget.source_range)
-        .collect::<Vec<_>>();
+    let extension_owner_ranges = ContainmentSet::new(
+        widgets
+            .iter()
+            .filter(|widget| matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed))
+            .map(|widget| widget.source_range),
+    );
 
     widgets.retain(|widget| {
         if matches!(widget.kind, WidgetKind::Callout | WidgetKind::CustomEmbed) {
             return true;
         }
 
-        !extension_owner_ranges
-            .iter()
-            .any(|range| range_contains(*range, widget.source_range))
+        !extension_owner_ranges.contains(widget.source_range)
     });
     widgets.sort_by_key(|widget| {
         (
@@ -1889,32 +1884,6 @@ fn normalize_widget_candidate_ownership(mut widgets: Vec<WidgetCandidate>) -> Ve
         )
     });
     widgets
-}
-
-fn smallest_containing_node(
-    node: &SyntaxNode,
-    range: TextRange,
-    kind: SyntaxKind,
-) -> Option<&SyntaxNode> {
-    let mut best = None;
-    if node.kind() == kind && range_contains(node.range(), range) {
-        best = Some(node);
-    }
-
-    for child in node.children() {
-        if !range_contains(child.range(), range) {
-            continue;
-        }
-        if let Some(candidate) = smallest_containing_node(child, range, kind) {
-            best = match best {
-                Some(existing) if existing.range().len() <= candidate.range().len() => {
-                    Some(existing)
-                }
-                _ => Some(candidate),
-            };
-        }
-    }
-    best
 }
 
 fn extend_range_to_line_ending(
@@ -2425,6 +2394,11 @@ impl Error for ProjectionBuildError {}
 
 #[cfg(test)]
 mod mapping_tests;
+
+#[cfg(test)]
+mod ownership_reference;
+#[cfg(test)]
+mod ownership_tests;
 
 #[cfg(test)]
 mod tests {
